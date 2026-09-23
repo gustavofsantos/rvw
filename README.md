@@ -77,6 +77,9 @@ teaches Claude to pull the queue, act on each comment and resolve or reject it.
 go install github.com/gustavofsantos/rvw/cmd/rvw@latest
 ```
 
+Or, from a checkout, `make install` (`go install ./cmd/rvw`). `make uninstall`
+removes it.
+
 ```
 /plugin marketplace add gustavofsantos/rvw
 /plugin install rvw@rvw
