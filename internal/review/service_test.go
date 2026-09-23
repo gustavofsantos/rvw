@@ -224,6 +224,14 @@ func TestErrorsAreTyped(t *testing.T) {
 			_, err := f.svc.Resolve(f.ctx, review.ResolveInput{Workspace: f.ws, ID: "r1", Outcome: review.OutcomeRejected})
 			return err
 		}, review.KindInvalid},
+		{"unresolved workspace", func() error {
+			_, err := f.svc.List(f.ctx, review.QueryInput{Workspace: ""})
+			return err
+		}, review.KindInvalid},
+		{"relative workspace", func() error {
+			_, err := f.svc.Add(f.ctx, review.AddInput{Workspace: "proj", File: "app.py", StartLine: 1, Comment: "x"})
+			return err
+		}, review.KindInvalid},
 	}
 	for _, c := range cases {
 		if err := c.call(); err == nil || review.KindOf(err) != c.kind {

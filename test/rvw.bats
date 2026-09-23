@@ -22,7 +22,8 @@ setup_file() {
 }
 
 setup() {
-  TEST_ROOT=$(mktemp -d)
+  # physical path: on macOS mktemp answers /var/..., which git reports as /private/var/...
+  TEST_ROOT=$(cd "$(mktemp -d)" && pwd -P)
   for var in WORKSPACE LANE AUTHOR DB HOME; do
     unset "RVW_$var" "REVIEW_$var"
   done

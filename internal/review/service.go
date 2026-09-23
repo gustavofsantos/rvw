@@ -26,6 +26,29 @@ func NewService(repo Repository) *Service {
 	return &Service{repo: repo, now: time.Now}
 }
 
+// checkWorkspace refuses a workspace an adapter forgot to resolve: an empty or
+// relative path would silently open a separate queue.
+func checkWorkspace(ws string) error {
+	if ws == "" || !filepath.IsAbs(ws) {
+		return Invalidf("workspace '%s' is not an absolute path", ws)
+	}
+	return nil
+}
+
+func (s *Service) update(ctx context.Context, ws string, fn func(Tx) error) error {
+	if err := checkWorkspace(ws); err != nil {
+		return err
+	}
+	return s.repo.Update(ctx, ws, fn)
+}
+
+func (s *Service) view(ctx context.Context, ws string, fn func(Tx) error) error {
+	if err := checkWorkspace(ws); err != nil {
+		return err
+	}
+	return s.repo.View(ctx, ws, fn)
+}
+
 // Location is where the service keeps its data.
 func (s *Service) Location() string { return s.repo.Location() }
 
@@ -36,6 +59,9 @@ func (s *Service) stamp() string { return formatTime(s.now()) }
 // Add enqueues one comment, snapshotting the reviewed lines, and, for a file
 // tracked by git, the whole reviewed version as a blob.
 func (s *Service) Add(ctx context.Context, in AddInput) (Comment, error) {
+	if err := checkWorkspace(in.Workspace); err != nil {
+		return Comment{}, err
+	}
 	if strings.TrimSpace(in.Comment) == "" {
 		return Comment{}, Invalidf("a review comment needs text")
 	}
@@ -91,7 +117,7 @@ func (s *Service) Add(ctx context.Context, in AddInput) (Comment, error) {
 		Comment:     strings.Trim(in.Comment, "\n"),
 		FileVersion: fileVersion,
 	}
-	err = s.repo.Update(ctx, in.Workspace, func(tx Tx) error {
+	err = s.update(ctx, in.Workspace, func(tx Tx) error {
 		seq, err := tx.NextCommentSeq()
 		if err != nil {
 			return err
@@ -138,7 +164,7 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (Review, error) {
 	lane, author := strPtr(in.Lane), strPtr(in.Author)
 
 	var r Review
-	err := s.repo.Update(ctx, in.Workspace, func(tx Tx) error {
+	err := s.update(ctx, in.Workspace, func(tx Tx) error {
 		var ids []string
 		switch {
 		case in.NoComments:
@@ -200,7 +226,7 @@ func (s *Service) List(ctx context.Context, in QueryInput) (ListOutput, error) {
 	if err != nil {
 		return out, err
 	}
-	err = s.repo.View(ctx, in.Workspace, func(tx Tx) error {
+	err = s.view(ctx, in.Workspace, func(tx Tx) error {
 		comments, err := tx.Comments(statuses...)
 		out.Comments = scope.comments(comments)
 		return err
@@ -220,7 +246,7 @@ func (s *Service) Count(ctx context.Context, in QueryInput) (CountOutput, error)
 	if err != nil {
 		return out, err
 	}
-	err = s.repo.View(ctx, in.Workspace, func(tx Tx) error {
+	err = s.view(ctx, in.Workspace, func(tx Tx) error {
 		all, err := tx.Comments(statuses...)
 		if err != nil {
 			return err
@@ -250,7 +276,7 @@ func (s *Service) Count(ctx context.Context, in QueryInput) (CountOutput, error)
 // Get returns one comment.
 func (s *Service) Get(ctx context.Context, in GetInput) (Comment, error) {
 	var c Comment
-	err := s.repo.View(ctx, in.Workspace, func(tx Tx) (err error) {
+	err := s.view(ctx, in.Workspace, func(tx Tx) (err error) {
 		c, err = find(tx, in.ID)
 		return err
 	})
@@ -274,7 +300,7 @@ func (s *Service) Evidence(ctx context.Context, in GetInput) (Evidence, error) {
 // Sheet returns a submitted review with its linked comments.
 func (s *Service) Sheet(ctx context.Context, in GetInput) (ReviewSheet, error) {
 	sheet := ReviewSheet{Comments: []Comment{}}
-	err := s.repo.View(ctx, in.Workspace, func(tx Tx) error {
+	err := s.view(ctx, in.Workspace, func(tx Tx) error {
 		r, ok, err := tx.Review(in.ID)
 		if err != nil {
 			return err
@@ -362,7 +388,7 @@ func (s *Service) Pull(ctx context.Context, in PullInput) (PullOutput, error) {
 	if err != nil {
 		return out, err
 	}
-	err = s.repo.Update(ctx, in.Workspace, func(tx Tx) error {
+	err = s.update(ctx, in.Workspace, func(tx Tx) error {
 		pendingReviews, err := tx.Reviews(ReviewPending)
 		if err != nil {
 			return err
@@ -544,7 +570,7 @@ func (s *Service) Resolve(ctx context.Context, in ResolveInput) (Comment, error)
 		return Comment{}, Invalidf("rejecting a comment needs a reason")
 	}
 	var c Comment
-	err := s.repo.Update(ctx, in.Workspace, func(tx Tx) error {
+	err := s.update(ctx, in.Workspace, func(tx Tx) error {
 		var err error
 		if c, err = find(tx, in.ID); err != nil {
 			return err
@@ -621,7 +647,7 @@ func (s *Service) Edit(ctx context.Context, in EditInput) (Comment, error) {
 		return Comment{}, Invalidf("refusing to replace a comment with empty text")
 	}
 	var c Comment
-	err := s.repo.Update(ctx, in.Workspace, func(tx Tx) error {
+	err := s.update(ctx, in.Workspace, func(tx Tx) error {
 		var err error
 		if c, err = find(tx, in.ID); err != nil {
 			return err
@@ -637,7 +663,7 @@ func (s *Service) Edit(ctx context.Context, in EditInput) (Comment, error) {
 func (s *Service) Drop(ctx context.Context, in DropInput) (DropOutput, error) {
 	out := DropOutput{Workspace: in.Workspace, Dropped: []string{}}
 	ids := unique(in.IDs)
-	err := s.repo.Update(ctx, in.Workspace, func(tx Tx) error {
+	err := s.update(ctx, in.Workspace, func(tx Tx) error {
 		var missing []string
 		for _, id := range ids {
 			if _, ok, err := tx.Comment(id); err != nil {
@@ -665,7 +691,7 @@ func (s *Service) Clear(ctx context.Context, in ClearInput) (ClearOutput, error)
 	if err != nil {
 		return out, err
 	}
-	err = s.repo.Update(ctx, in.Workspace, func(tx Tx) error {
+	err = s.update(ctx, in.Workspace, func(tx Tx) error {
 		doomed, err := tx.Comments(statuses...)
 		if err != nil {
 			return err
