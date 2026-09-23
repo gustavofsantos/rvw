@@ -3,6 +3,7 @@ module github.com/gustavofsantos/rvw
 go 1.26
 
 require (
+	github.com/google/jsonschema-go v0.4.3
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/term v0.45.0
