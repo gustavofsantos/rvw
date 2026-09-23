@@ -68,6 +68,22 @@ rvw workspaces                 # every workspace with something pending
 
 `rvw --help` lists every command and flag.
 
+## Claude Code
+
+Install the binary, then the plugin. The plugin adds an `rvw` skill that
+teaches Claude to pull the queue, act on each comment and resolve or reject it.
+
+```sh
+go install github.com/gustavofsantos/rvw/cmd/rvw@latest
+```
+
+```
+/plugin marketplace add gustavofsantos/rvw
+/plugin install rvw@rvw
+```
+
+Then ask Claude to "address the review comments", or run `/rvw:rvw`.
+
 ## Use cases
 
 - **Human → agent.** Read an agent's changes in your editor and leave comments

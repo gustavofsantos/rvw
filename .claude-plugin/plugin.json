@@ -1,0 +1,9 @@
+{
+  "name": "rvw",
+  "version": "0.1.0",
+  "description": "Pull code review comments from the local rvw queue, act on them, and record a decision on each.",
+  "author": {
+    "name": "Gustavo Santos"
+  },
+  "repository": "https://github.com/gustavofsantos/rvw"
+}

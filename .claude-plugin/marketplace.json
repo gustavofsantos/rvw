@@ -1,0 +1,14 @@
+{
+  "name": "rvw",
+  "description": "Claude Code plugin for rvw, a local code review queue for humans and agents.",
+  "owner": {
+    "name": "Gustavo Santos"
+  },
+  "plugins": [
+    {
+      "name": "rvw",
+      "source": "./",
+      "description": "Pull code review comments from the local rvw queue, act on them, and record a decision on each."
+    }
+  ]
+}
