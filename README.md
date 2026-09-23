@@ -2,104 +2,83 @@
 
 Code review for humans/AI.
 
-`rvw` is a local, per-workspace queue of review comments, the layer through
-which a human and an agent, or two agents, talk about code. Someone leaves a
-comment on a line range of a file, from an editor or a shell. Whichever agent
-works in that workspace pulls the comment, acts on it, and records what became
-of it.
+`rvw` is a local review queue. You leave comments on line ranges of files,
+from an editor, a shell or an agent. The agent working on that code pulls
+them, acts on them, and records what became of each one.
 
-It replaces the `review` script from my dotfiles and keeps its command line.
-It stores everything in one SQLite database instead of per-workspace JSON files.
+## Why
 
-## Install
+Code review usually happens after the code is pushed, on a hosted platform,
+in a pull request. When an AI agent writes the code, feedback is needed
+earlier and closer to the work: while the agent is still running, on files
+that are not committed, sometimes from another agent. Pasting notes into a
+chat loses where they point, what the code looked like and whether anyone
+acted on them.
 
-```sh
-go install github.com/gustavofsantos/rvw/cmd/rvw@latest
-# or, from a checkout
-go build -o ~/.local/bin/rvw ./cmd/rvw
-```
+`rvw` keeps that conversation local and structured:
 
-Pure Go (no cgo); Linux and macOS.
+- **Anchored.** Each comment names a file, a line range and the code as it
+  stood when it was written.
+- **Handed over once.** A pull takes comments out of the queue, so no agent
+  works the same note twice.
+- **Accounted for.** Each comment ends in a recorded decision: done, or
+  rejected with a reason. Done comments keep the diff they produced.
+- **Scoped.** A queue belongs to a workspace (a git worktree). Lanes divide it
+  when several branches share one working tree.
 
-## Use
+## Examples
+
+Leave comments where you read the code:
 
 ```sh
 rvw add --file src/api.py --lines 40-58 --comment "extract this branch"
-rvw submit --id r1 --id r2 --decision request-changes --summary "Fix both"
-rvw pull                                   # dequeue everything, as markdown
-rvw resolve r1 --note "extracted, test added"
-rvw reject r2 --note "intentional: the caller validates"
-rvw display rv1                            # the review sheet with its evidence
-rvw count                                  # pending handoffs, for a statusline
+rvw add --file src/api.py --lines 12 --comment "typo" --lane refactor-auth
 ```
 
-`rvw --help` and `rvw <command> --help` cover every command and flag.
-
-The lifecycle of a comment is `pending → pulled → done | rejected`:
-
-- A pull hands a comment over exactly once.
-- A decision is final, and a rejection requires a reason.
-- Resolving a comment on a git-tracked file saves the file's exact before and
-  after versions as blobs, so `rvw display` can show the diff the comment
-  produced.
-
-Workspaces and lanes:
-
-- A **workspace** is the git worktree root of the current directory, or the
-  directory itself.
-- A **lane** divides one workspace between branches that share a working tree
-  (GitButler). A pull pinned to a lane never takes another lane's comments.
-
-## Configuration
-
-| Variable | Meaning |
-| --- | --- |
-| `RVW_WORKSPACE` | workspace to act on (default: git toplevel of `$PWD`) |
-| `RVW_LANE` | lane new comments land in and reads are pinned to |
-| `RVW_AUTHOR` | who is speaking (default: `$USER`); agents set this |
-| `RVW_DB` | database file, overriding the XDG location |
-
-Each `RVW_*` variable falls back to the `REVIEW_*` spelling the old script used.
-Existing editor plugins and agent settings keep working unchanged.
-
-### Where the data lives
-
-The database is `$XDG_DATA_HOME/rvw/rvw.db`. If `XDG_DATA_HOME` is unset or
-relative, it is `~/.local/share/rvw/rvw.db`, on macOS as well. The queue is data,
-not configuration, so it follows `XDG_DATA_HOME` rather than `XDG_CONFIG_HOME`.
-`rvw path` prints the location in use.
-
-The data is not migrated from the old `~/.reviews/*/queue.json` files.
-
-## Layout
-
-```text
-cmd/rvw             entry point
-internal/review     domain: types, typed operation inputs/outputs, Service
-internal/store      SQLite adapter for review.Repository (schema.sql)
-internal/gitx       git plumbing: worktree root, blob snapshots
-internal/workspace  workspace resolution and path canonicalization
-internal/render     text, markdown, JSON envelopes, fixed-width display
-internal/cli        cobra commands: flags/env/stdin → inputs, outputs → stdout
-```
-
-Every operation is one method on `review.Service`, taking one input struct and
-returning one output struct. The service never reads the environment, stdin or
-the cwd. Messages the old script printed to stderr, such as "N pending in
-other lanes", are fields of the output. Errors carry a kind: `invalid`,
-`not_found`, `conflict` or `internal`.
-
-Two consequences:
-
-- A second adapter, such as an MCP server, only has to resolve the workspace
-  and forward the call.
-- The structs are ready to use as MCP tool schemas: a `jsonschema` tag is the
-  property's description, and a field without `omitempty` is required.
-  `schema_test.go` checks this.
-
-## Test
+Group them into one review with a verdict:
 
 ```sh
-go test ./...
-bats test/rvw.bats   # CLI contract, ported from the original script's suite
+rvw submit --id r1 --id r2 --decision request-changes --summary "Fix both before merging"
 ```
+
+Hand the review to the agent, as markdown or JSON:
+
+```sh
+rvw pull
+rvw pull --lane refactor-auth --format json
+rvw pull --peek                # read without dequeuing
+```
+
+Close the loop:
+
+```sh
+rvw resolve r1 --author claude --note "extracted into parse_header(), test added"
+rvw reject r2 --author claude --note "intentional: the caller validates"
+rvw display r1                 # the comment, its resolution and the diff
+rvw display rv1                # the whole review sheet
+```
+
+Keep an eye on it:
+
+```sh
+rvw list --status open         # raised, not yet decided
+rvw count                      # pending handoffs, for a statusline
+rvw workspaces                 # every workspace with something pending
+```
+
+`rvw --help` lists every command and flag.
+
+## Use cases
+
+- **Human → agent.** Read an agent's changes in your editor and leave comments
+  on the lines as you go. Tell the agent to pull the review. It works through
+  the comments and records a decision on each.
+- **Agent → agent.** A reviewing agent adds comments and submits a review with
+  `--author reviewer`. The coding agent pulls the review, fixes the code and
+  resolves each comment. You read the outcome with `rvw display`.
+- **Parallel branches.** With several branches in one working tree, give each
+  agent its own `--lane`. A pinned pull never takes another lane's comments,
+  and it reports when work is waiting in another lane.
+- **Audit trail.** `rvw list --status done --format json` gives you every
+  addressed comment with who resolved it and when. `rvw display` shows what
+  changed.
