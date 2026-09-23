@@ -22,21 +22,6 @@ import (
 
 const prog = "rvw"
 
-// Environment variables. Each is read as RVW_<NAME>, falling back to the
-// REVIEW_<NAME> spelling of the original `review` script.
-const (
-	envWorkspace = "WORKSPACE"
-	envLane      = "LANE"
-	envAuthor    = "AUTHOR"
-)
-
-func env(name string) string {
-	if v := os.Getenv("RVW_" + name); v != "" {
-		return v
-	}
-	return os.Getenv("REVIEW_" + name)
-}
-
 // usageError is a failure raised by the CLI itself, before the service runs.
 func usageError(format string, args ...any) error { return fmt.Errorf(format, args...) }
 
@@ -62,6 +47,7 @@ type app struct {
 	stdout, stderr io.Writer
 
 	workspaceFlag string
+	dbFlag        string
 	store         *store.Store
 	service       *review.Service
 }
@@ -70,7 +56,7 @@ func (a *app) svc() (*review.Service, error) {
 	if a.service != nil {
 		return a.service, nil
 	}
-	path, err := store.DefaultPath()
+	path, err := a.dbPath()
 	if err != nil {
 		return nil, err
 	}
@@ -79,6 +65,14 @@ func (a *app) svc() (*review.Service, error) {
 	}
 	a.service = review.NewService(a.store)
 	return a.service, nil
+}
+
+// dbPath is --db, else the XDG default.
+func (a *app) dbPath() (string, error) {
+	if a.dbFlag != "" {
+		return filepath.Abs(expandHome(a.dbFlag))
+	}
+	return store.DefaultPath()
 }
 
 func (a *app) close() {
@@ -91,13 +85,10 @@ func (a *app) notice(format string, args ...any) {
 	fmt.Fprintf(a.stderr, "%s: "+format+"\n", append([]any{prog}, args...)...)
 }
 
-// workspace resolves which queue to act on: --workspace, else $RVW_WORKSPACE,
-// else the current directory; then its git worktree root, if any.
+// workspace resolves which queue to act on: --workspace, else the current
+// directory; then its git worktree root, if any.
 func (a *app) workspace() (string, error) {
-	dir, source := a.workspaceFlag, "--workspace"
-	if dir == "" {
-		dir, source = env(envWorkspace), "$RVW_WORKSPACE"
-	}
+	dir := a.workspaceFlag
 	if dir == "" {
 		cwd, err := os.Getwd()
 		if err != nil {
@@ -107,22 +98,22 @@ func (a *app) workspace() (string, error) {
 	}
 	dir = expandHome(dir)
 	if !workspace.IsDir(dir) {
-		return "", usageError("%s '%s' is not a directory", source, dir)
+		return "", usageError("--workspace '%s' is not a directory", dir)
 	}
 	return workspace.Resolve(dir)
 }
 
 // ── shared flags ─────────────────────────────────────────────────────────────
 
-// laneFlags scope a read to one lane: --lane, else $RVW_LANE, else every lane.
+// laneFlags scope a read to one lane: --lane, else every lane.
 type laneFlags struct {
 	lane string
 	all  bool
 }
 
 func (l *laneFlags) register(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&l.lane, "lane", "", "only this lane's comments (default: $RVW_LANE, else every lane)")
-	cmd.Flags().BoolVar(&l.all, "all-lanes", false, "every lane, ignoring $RVW_LANE")
+	cmd.Flags().StringVar(&l.lane, "lane", "", "only this lane's comments (default: every lane)")
+	cmd.Flags().BoolVar(&l.all, "all-lanes", false, "every lane, overriding --lane")
 }
 
 // pinned is the lane this invocation is pinned to, "" for every lane.
@@ -133,14 +124,12 @@ func (l *laneFlags) pinned() string {
 	return laneOf(l.lane)
 }
 
-// laneOf is the lane a write lands in: the flag, else $RVW_LANE.
-func laneOf(flag string) string {
-	return strings.TrimSpace(firstNonEmpty(flag, env(envLane)))
-}
+// laneOf is the lane a write lands in; "" leaves it unscoped.
+func laneOf(flag string) string { return strings.TrimSpace(flag) }
 
-// authorOf is who speaks: the flag, else $RVW_AUTHOR (agents set it), else $USER.
+// authorOf is who speaks: the flag, else the login user. Agents pass --author.
 func authorOf(flag string) string {
-	return strings.TrimSpace(firstNonEmpty(flag, env(envAuthor), os.Getenv("USER")))
+	return strings.TrimSpace(firstNonEmpty(flag, os.Getenv("USER")))
 }
 
 type formatFlag struct {

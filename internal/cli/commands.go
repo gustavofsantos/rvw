@@ -26,21 +26,17 @@ linked comment hands over the complete review as one unit.
 A comment carries who raised it and which lane it belongs to. It ends in a
 recorded resolution: ` + "`resolve`" + ` (done) or ` + "`reject`" + ` (with a reason).
 
-Workspace resolution, in order:
-  1. --workspace PATH
-  2. $RVW_WORKSPACE
-  3. the git toplevel of the current directory (worktrees are their own workspace)
-  4. the current directory
-
-Lanes divide one workspace: --lane NAME, else $RVW_LANE, else every lane.
-Scoping is strict — a pull pinned to a lane never swallows another lane's
-comments, and says on stderr when comments are waiting elsewhere.
-
-Authors: --author WHO, else $RVW_AUTHOR (what an agent sets), else $USER.
-Every RVW_* variable falls back to its REVIEW_* spelling.
-
-Store: one SQLite database, $RVW_DB, else $XDG_DATA_HOME/rvw/rvw.db
-(default ~/.local/share/rvw/rvw.db).`
+Everything is set with flags:
+  --workspace PATH  the queue to act on (default: the git toplevel of the
+                    current directory, else the directory; worktrees are
+                    their own workspace)
+  --lane NAME       the lane a comment lands in and a read is pinned to
+                    (default: every lane). Scoping is strict — a pull pinned
+                    to a lane never swallows another lane's comments, and
+                    says on stderr when comments are waiting elsewhere.
+  --author WHO      who is speaking (default: $USER); agents pass their name
+  --db PATH         the database (default: $XDG_DATA_HOME/rvw/rvw.db, else
+                    ~/.local/share/rvw/rvw.db)`
 
 const examples = `  rvw add --file src/api.py --lines 40-58 --comment "extract this branch"
   rvw add --file src/api.py --lines 12 --comment "typo" --lane refactor-auth
@@ -71,6 +67,8 @@ func (a *app) root() *cobra.Command {
 	root.CompletionOptions.DisableDefaultCmd = true
 	root.PersistentFlags().StringVar(&a.workspaceFlag, "workspace", "",
 		"queue to act on (default: git toplevel of $PWD, else $PWD)")
+	root.PersistentFlags().StringVar(&a.dbFlag, "db", "",
+		"database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)")
 	root.AddCommand(a.addCmd(), a.submitCmd(), a.listCmd(), a.pullCmd(), a.showCmd(), a.displayCmd(),
 		a.editCmd(), a.decideCmd(review.OutcomeDone), a.decideCmd(review.OutcomeRejected),
 		a.dropCmd(), a.clearCmd(), a.countCmd(), a.workspacesCmd(), a.pathCmd())
@@ -151,8 +149,8 @@ changes (pass the WHOLE buffer; --lines slices it). The comment comes from
 	f.StringVar(&commentFile, "comment-file", "", "read the comment from a file, or - for stdin")
 	f.StringVar(&codeFile, "code-file", "", "snapshot the code from here instead of disk, or - for stdin (whole file)")
 	f.StringVar(&filetype, "filetype", "", "fence language (default: guessed from the extension)")
-	f.StringVar(&lane, "lane", "", "branch/lane this comment belongs to (default: $RVW_LANE)")
-	f.StringVar(&author, "author", "", "who raised it (default: $RVW_AUTHOR, else $USER)")
+	f.StringVar(&lane, "lane", "", "branch/lane this comment belongs to")
+	f.StringVar(&author, "author", "", "who raised it (default: $USER)")
 	format.register(cmd, "text", "text", "json", "ids")
 	cmd.MarkFlagRequired("file")
 	cmd.MarkFlagRequired("lines")
@@ -263,8 +261,8 @@ comments in this exact lane; --no-comments submits a summary-only review.`,
 	f.BoolVar(&noComments, "no-comments", false, "submit a summary-only review without selecting pending comments")
 	f.StringVar(&summary, "summary", "", "review assessment")
 	f.StringVar(&decision, "decision", "", "review decision: "+strings.Join(strs(review.Decisions), ", "))
-	f.StringVar(&lane, "lane", "", "review lane (default: $RVW_LANE)")
-	f.StringVar(&author, "author", "", "reviewer (default: $RVW_AUTHOR, else $USER)")
+	f.StringVar(&lane, "lane", "", "review lane")
+	f.StringVar(&author, "author", "", "reviewer (default: $USER)")
 	format.register(cmd, "text", "text", "json", "ids")
 	cmd.MarkFlagsMutuallyExclusive("id", "no-comments")
 	cmd.MarkFlagRequired("summary")
@@ -681,7 +679,7 @@ a silent decline is exactly what this queue exists to prevent.`
 		help = "why not (required)"
 	}
 	cmd.Flags().StringVar(&note, "note", "", help)
-	cmd.Flags().StringVar(&author, "author", "", "who decided (default: $RVW_AUTHOR, else $USER)")
+	cmd.Flags().StringVar(&author, "author", "", "who decided (default: $USER)")
 	return cmd
 }
 

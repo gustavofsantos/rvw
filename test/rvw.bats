@@ -14,7 +14,7 @@
 # Isolation strategy:
 #   XDG_DATA_HOME → fresh tmpdir (the database lives under it)
 #   WORKSPACE     → fresh tmpdir git repo, cwd for every run
-#   every RVW_* / REVIEW_* variable is cleared, so the caller's setup never leaks in
+#   USER=tester, the default author; every RVW_* / REVIEW_* variable is cleared
 
 setup_file() {
   export RVW="$BATS_FILE_TMPDIR/rvw"
@@ -28,7 +28,7 @@ setup() {
     unset "RVW_$var" "REVIEW_$var"
   done
   export XDG_DATA_HOME="$TEST_ROOT/data"
-  export RVW_AUTHOR=tester
+  export USER=tester
   DB="$XDG_DATA_HOME/rvw/rvw.db"
   WORKSPACE="$TEST_ROOT/proj"
   mkdir -p "$WORKSPACE"
@@ -205,28 +205,28 @@ SH
 }
 
 @test "submitting without ids groups only the reviewer's comments in the exact lane" {
-  RVW_AUTHOR=alice "$RVW" add --file app.py --lines 1 \
+  "$RVW" add --author alice --file app.py --lines 1 \
     --comment "alice on auth" --lane auth </dev/null >/dev/null
-  RVW_AUTHOR=bob "$RVW" add --file app.py --lines 2 \
+  "$RVW" add --author bob --file app.py --lines 2 \
     --comment "bob on auth" --lane auth </dev/null >/dev/null
-  RVW_AUTHOR=alice "$RVW" add --file app.py --lines 3 \
+  "$RVW" add --author alice --file app.py --lines 3 \
     --comment "alice on payments" --lane payments </dev/null >/dev/null
 
-  run env RVW_AUTHOR=alice RVW_LANE=auth "$RVW" submit \
+  run "$RVW" submit --author alice --lane auth \
     --decision request-changes \
     --summary "Alice's auth review." \
     --format json
   [ "$status" -eq 0 ]
   [ "$(jq -r '.comment_ids | join(",")' <<<"$output")" = "r1" ]
 
-  run env RVW_LANE=auth "$RVW" pull
+  run "$RVW" pull --lane auth
   [ "$status" -eq 0 ]
   [[ "$output" == *"Alice's auth review."* ]]
   [[ "$output" == *"alice on auth"* ]]
   [[ "$output" == *"bob on auth"* ]]
   [[ "$output" != *"alice on payments"* ]]
 
-  run env RVW_LANE=payments "$RVW" list --format ids
+  run "$RVW" list --lane payments --format ids
   [ "$output" = "r3" ]
 }
 
@@ -256,21 +256,21 @@ SH
 }
 
 @test "an invalid selection leaves every comment available for a later review" {
-  RVW_AUTHOR=alice "$RVW" add --file app.py --lines 1 \
+  "$RVW" add --author alice --file app.py --lines 1 \
     --comment "alice finding" </dev/null >/dev/null
-  RVW_AUTHOR=bob "$RVW" add --file app.py --lines 2 \
+  "$RVW" add --author bob --file app.py --lines 2 \
     --comment "bob finding" </dev/null >/dev/null
 
-  run env RVW_AUTHOR=alice "$RVW" submit --id r1 --id r2 \
+  run "$RVW" submit --author alice --id r1 --id r2 \
     --decision request-changes --summary "Must not be partially recorded."
   [ "$status" -eq 1 ]
 
-  run env RVW_AUTHOR=alice "$RVW" submit --id r1 \
+  run "$RVW" submit --author alice --id r1 \
     --decision request-changes --summary "Alice review." --format ids
   [ "$status" -eq 0 ]
   [ "$output" = "rv1" ]
 
-  run env RVW_AUTHOR=bob "$RVW" submit --id r2 \
+  run "$RVW" submit --author bob --id r2 \
     --decision request-changes --summary "Bob review." --format ids
   [ "$status" -eq 0 ]
   [ "$output" = "rv2" ]
@@ -317,21 +317,16 @@ SH
   [ "$status" -eq 0 ]
 }
 
-@test "the original REVIEW_* variables still work when RVW_* is unset" {
-  unset RVW_AUTHOR
-  REVIEW_AUTHOR=legacy REVIEW_LANE=auth "$RVW" add --file app.py --lines 1 --comment "old env" </dev/null
+@test "flags are the whole interface: environment variables are ignored" {
+  RVW_AUTHOR=env REVIEW_AUTHOR=env RVW_LANE=env REVIEW_LANE=env \
+    "$RVW" add --file app.py --lines 1 --comment "note" </dev/null
   run "$RVW" list --format json
-  [ "$(jq -r '.reviews[0].author' <<<"$output")" = "legacy" ]
-  [ "$(jq -r '.reviews[0].lane' <<<"$output")" = "auth" ]
+  [ "$(jq -r '.reviews[0].author' <<<"$output")" = "tester" ]
+  [ "$(jq -r '.reviews[0].lane' <<<"$output")" = "null" ]
 
   cd "$TEST_ROOT"
-  REVIEW_WORKSPACE="$WORKSPACE" run "$RVW" count
-  [ "$output" = "1" ]
-
-  RVW_AUTHOR=new REVIEW_AUTHOR=legacy "$RVW" add --file "$WORKSPACE/app.py" --lines 2 \
-    --workspace "$WORKSPACE" --comment "new env wins" </dev/null
-  run "$RVW" list --workspace "$WORKSPACE" --format json
-  [ "$(jq -r '.reviews[1].author' <<<"$output")" = "new" ]
+  RVW_WORKSPACE="$WORKSPACE" REVIEW_WORKSPACE="$WORKSPACE" run "$RVW" count
+  [ "$output" = "0" ]
 }
 
 @test "pulling one linked comment hands over its whole review" {
@@ -624,14 +619,14 @@ SH
   [[ "$output" != *"note-from-elsewhere"* ]]
 }
 
-@test "workspace: --workspace and \$RVW_WORKSPACE both retarget the queue" {
+@test "workspace: --workspace retargets the queue, before or after the command" {
   queue app.py 1 "here"
   cd "$TEST_ROOT"
 
   run "$RVW" --workspace "$WORKSPACE" count
   [ "$output" = "1" ]
 
-  RVW_WORKSPACE="$WORKSPACE" run "$RVW" count
+  run "$RVW" count --workspace "$WORKSPACE"
   [ "$output" = "1" ]
 }
 
@@ -656,13 +651,13 @@ SH
   [ "$(jq -r '.reviews[0].lane' <<<"$output")" = "auth" ]
 }
 
-@test "lane: \$RVW_LANE stamps an add and scopes a read" {
-  RVW_LANE=auth "$RVW" add --file app.py --lines 1 --comment "on auth" </dev/null
+@test "lane: --lane stamps an add and scopes a read" {
+  "$RVW" add --lane auth --file app.py --lines 1 --comment "on auth" </dev/null
   "$RVW" add --file app.py --lines 2 --comment "on payments" --lane payments </dev/null
 
-  run env RVW_LANE=auth "$RVW" list --format ids
+  run "$RVW" list --lane auth --format ids
   [ "$output" = "r1" ]
-  run env RVW_LANE=payments "$RVW" list --format ids
+  run "$RVW" list --lane payments --format ids
   [ "$output" = "r2" ]
 }
 
@@ -700,9 +695,9 @@ SH
   "$RVW" add --file app.py --lines 1 --comment "on auth" --lane auth </dev/null
   "$RVW" add --file app.py --lines 2 --comment "on payments" --lane payments </dev/null
 
-  run env RVW_LANE=auth "$RVW" list --all-lanes --format ids
+  run "$RVW" list --lane auth --all-lanes --format ids
   [ "$output" = "$(printf 'r1\nr2')" ]
-  run env RVW_LANE=auth "$RVW" count --all-lanes
+  run "$RVW" count --lane auth --all-lanes
   [ "$output" = "2" ]
 }
 
@@ -716,8 +711,8 @@ SH
 
 # ── authorship and the recorded decision ─────────────────────────────────────
 
-@test "author: \$RVW_AUTHOR names who raised a comment" {
-  RVW_AUTHOR=reviewer-agent "$RVW" add --file app.py --lines 1 --comment "note" </dev/null
+@test "author: --author names who raised a comment" {
+  "$RVW" add --author reviewer-agent --file app.py --lines 1 --comment "note" </dev/null
   run "$RVW" list --format json
   [ "$(jq -r '.reviews[0].author' <<<"$output")" = "reviewer-agent" ]
 
@@ -725,11 +720,10 @@ SH
   [[ "$output" == *"@reviewer-agent"* ]]
 }
 
-@test "author: --author beats the environment" {
-  RVW_AUTHOR=env-name "$RVW" add --file app.py --lines 1 --comment "note" \
-    --author flag-name </dev/null
+@test "author: defaults to the login user" {
+  "$RVW" add --file app.py --lines 1 --comment "note" </dev/null
   run "$RVW" list --format json
-  [ "$(jq -r '.reviews[0].author' <<<"$output")" = "flag-name" ]
+  [ "$(jq -r '.reviews[0].author' <<<"$output")" = "tester" ]
 }
 
 @test "author: the markdown handed to an agent carries the attribution" {
@@ -742,7 +736,7 @@ SH
   queue app.py 1 "rename this"
   "$RVW" pull >/dev/null
 
-  run env RVW_AUTHOR=impl-agent "$RVW" resolve r1 --note "renamed, test added"
+  run "$RVW" resolve --author impl-agent r1 --note "renamed, test added"
   [ "$status" -eq 0 ]
 
   run "$RVW" list --status done --format json
@@ -1130,7 +1124,7 @@ SH
   [ "$output" = "$XDG_DATA_HOME/rvw/rvw.db" ]
 }
 
-@test "the store falls back to ~/.local/share, and \$RVW_DB overrides it" {
+@test "the store falls back to ~/.local/share, and --db overrides it" {
   unset XDG_DATA_HOME
   HOME="$TEST_ROOT/home" run "$RVW" path
   [ "$output" = "$TEST_ROOT/home/.local/share/rvw/rvw.db" ]
@@ -1138,8 +1132,13 @@ SH
   XDG_DATA_HOME=relative/ignored HOME="$TEST_ROOT/home" run "$RVW" path
   [ "$output" = "$TEST_ROOT/home/.local/share/rvw/rvw.db" ]
 
-  RVW_DB="$TEST_ROOT/custom.db" run "$RVW" path
+  run "$RVW" --db "$TEST_ROOT/custom.db" path
   [ "$output" = "$TEST_ROOT/custom.db" ]
+
+  "$RVW" --db "$TEST_ROOT/custom.db" add --file app.py --lines 1 --comment "elsewhere" </dev/null
+  [ -f "$TEST_ROOT/custom.db" ]
+  run "$RVW" count
+  [ "$output" = "0" ]
 }
 
 @test "--help works for the tool and every subcommand" {

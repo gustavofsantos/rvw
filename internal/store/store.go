@@ -23,17 +23,10 @@ var schemaV1 string
 
 const schemaVersion = 1
 
-// DBEnv overrides the database file, for tests and one-off stores.
-const DBEnv = "RVW_DB"
-
-// DefaultPath is where the database lives: $RVW_DB, else
-// $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db. The XDG base
-// directory spec applies on macOS as well; a relative $XDG_DATA_HOME is ignored,
-// as the spec requires.
+// DefaultPath is where the database lives: $XDG_DATA_HOME/rvw/rvw.db, else
+// ~/.local/share/rvw/rvw.db. The XDG base directory spec applies on macOS as
+// well; a relative $XDG_DATA_HOME is ignored, as the spec requires.
 func DefaultPath() (string, error) {
-	if p := os.Getenv(DBEnv); p != "" {
-		return filepath.Abs(p)
-	}
 	data := os.Getenv("XDG_DATA_HOME")
 	if data == "" || !filepath.IsAbs(data) {
 		home, err := os.UserHomeDir()
