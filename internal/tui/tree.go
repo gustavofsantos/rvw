@@ -6,10 +6,13 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/gustavofsantos/rvw/internal/gitx"
 )
 
-// skipDirs are never walked: version control metadata, and the dependency and
-// build directories that would drown the tree. No .gitignore parsing in v1.
+// skipDirs are never walked outside git: version control metadata, and the
+// dependency and build directories that would drown the tree. Inside a git
+// worktree, git's ignore rules decide instead.
 var skipDirs = map[string]bool{
 	".git": true, ".hg": true, ".jj": true,
 	"node_modules": true, "vendor": true, "dist": true, "build": true,
@@ -18,6 +21,38 @@ var skipDirs = map[string]bool{
 
 // maxFiles caps a walk, so a huge directory cannot stall the UI.
 const maxFiles = 50000
+
+// listFiles lists the files of the workspace at root as sorted, slash-separated
+// relative paths. Inside a git worktree it is the files git sees, so ignored
+// files stay out; elsewhere it walks the directory.
+func listFiles(root string) ([]string, error) {
+	if files, err := gitFiles(root); err == nil {
+		return files, nil
+	}
+	return walkFiles(root)
+}
+
+// gitFiles is the tracked and untracked-but-not-ignored files under root that
+// are regular files on disk (a symlink counts when it points at one).
+func gitFiles(root string) ([]string, error) {
+	listed, err := gitx.Files(root)
+	if err != nil {
+		return nil, err
+	}
+	slices.Sort(listed)
+	listed = slices.Compact(listed)
+	var files []string
+	for _, rel := range listed {
+		if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		files = append(files, rel)
+		if len(files) >= maxFiles {
+			break
+		}
+	}
+	return files, nil
+}
 
 // walkFiles lists every file under root as a slash-separated relative path,
 // sorted. Unreadable entries are skipped; only an unreadable root fails.
