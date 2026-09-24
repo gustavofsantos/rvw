@@ -74,8 +74,9 @@ Or skip the shell: `rvw mcp serve` exposes the same operations as MCP tools
 
 ## Claude Code
 
-Install the binary, then the plugin. The plugin adds an `rvw` skill that
-teaches Claude to pull the queue, act on each comment and resolve or reject it.
+Install the binary, connect the MCP server, then install the plugin. The
+plugin adds an `rvw` skill that teaches Claude to pull the queue, act on each
+comment and resolve or reject it, through the rvw MCP tools.
 
 ```sh
 go install github.com/gustavofsantos/rvw/cmd/rvw@latest
@@ -89,7 +90,8 @@ removes it.
 /plugin install rvw@rvw
 ```
 
-Then ask Claude to "address the review comments", or run `/rvw:rvw`.
+Connect the MCP server as described in [MCP server](#mcp-server) below
+(`rvw mcp config` prints the command). Then ask Claude to "address the review comments", or run `/rvw:rvw`.
 
 ### MCP server
 
