@@ -53,6 +53,7 @@ database is the user's real queue.
 
 - Conventional commits: `feat:`, `fix:`, `test:`, `docs:`, `feat!:` for
   breaking changes.
-- `skills/rvw/SKILL.md` teaches agents the MCP tools first, the CLI as the
-  fallback. When a tool, command or flag changes, update it with the README.
+- `skills/rvw/SKILL.md` teaches agents the MCP tools only; the CLI is for
+  people. When a tool changes, update the skill; when a command or flag
+  changes, update the README.
 - `bats` needs `sqlite3` and a UTF-8 locale (`LC_ALL=C.UTF-8`) for a few tests.
