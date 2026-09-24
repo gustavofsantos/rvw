@@ -10,6 +10,11 @@ allowed-tools: Bash(rvw pull *), Bash(rvw list *), Bash(rvw resolve *), Bash(rvw
 root of the current directory). Each comment points at a file, a line range
 and the code as it stood when the comment was written.
 
+If the `rvw` MCP tools are connected (`mcp__rvw__pull`, `mcp__rvw__resolve`,
+...), you may call them instead of the commands below. They take the same
+inputs as JSON; pass your project directory as `workspace` on every call.
+`rvw mcp config` prints how to connect them.
+
 If `rvw` is not on `PATH`, tell the user and stop. Install it with
 `go install github.com/gustavofsantos/rvw/cmd/rvw@latest`.
 
@@ -81,6 +86,7 @@ rvw list --reviews          # submitted review sheets; --status all for every on
 rvw count                   # pending handoffs
 rvw show r3                 # one comment, its decision and its diff
 rvw show rv1                # a whole review sheet
+rvw mcp config              # how to add the rvw MCP server to Claude Code
 rvw <command> --help        # every flag
 ```
 

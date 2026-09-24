@@ -53,7 +53,8 @@ const examples = `  rvw add --file src/api.py --lines 40-58 --comment "extract t
   rvw show r3                           # one comment, its decision and its diff
   rvw show rv1                          # a whole review sheet
   rvw count                             # pending handoff count, for a statusline
-  rvw workspaces                        # every workspace holding comments`
+  rvw workspaces                        # every workspace holding comments
+  rvw mcp config                        # connect Claude Code to the MCP server`
 
 func (a *app) root() *cobra.Command {
 	root := &cobra.Command{
@@ -73,7 +74,7 @@ func (a *app) root() *cobra.Command {
 		"database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)")
 	root.AddCommand(a.addCmd(), a.submitCmd(), a.listCmd(), a.pullCmd(), a.showCmd(),
 		a.editCmd(), a.decideCmd(review.OutcomeDone), a.decideCmd(review.OutcomeRejected),
-		a.countCmd(), a.workspacesCmd(), a.pathCmd())
+		a.countCmd(), a.workspacesCmd(), a.pathCmd(), a.mcpCmd())
 	return root
 }
 

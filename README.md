@@ -67,6 +67,9 @@ rvw count                      # pending handoffs, for a statusline
 rvw workspaces                 # every workspace with something pending
 ```
 
+Or skip the shell: `rvw mcp serve` exposes the same operations as MCP tools
+(see [MCP server](#mcp-server)).
+
 `rvw --help` lists every command and flag.
 
 ## Claude Code
@@ -87,6 +90,35 @@ removes it.
 ```
 
 Then ask Claude to "address the review comments", or run `/rvw:rvw`.
+
+### MCP server
+
+Agents that prefer tool calls to shell commands can use rvw as an MCP server.
+Every operation is a tool: `add`, `submit`, `list`, `list_reviews`, `count`,
+`pull`, `show_comment`, `show_review`, `resolve`, `edit` and `workspaces`, with
+typed JSON inputs and structured JSON results.
+
+`rvw mcp config` prints the command that registers the server with Claude Code,
+and the equivalent `.mcp.json` entry:
+
+```sh
+rvw mcp config --author claude
+# claude mcp add --scope user rvw -- rvw mcp serve --author claude
+```
+
+By default Claude Code starts `rvw mcp serve` itself and talks to it over
+stdio. To keep one server running instead, serve streamable HTTP on a local
+address and point Claude Code at it:
+
+```sh
+rvw mcp serve --http 127.0.0.1:7777
+rvw mcp config --http 127.0.0.1:7777
+# claude mcp add --transport http --scope user rvw http://127.0.0.1:7777/mcp
+```
+
+Each tool call names its `workspace`, so one server serves every project. A
+call that leaves it empty uses the directory the server started in. `--lane`
+and `--author` on `rvw mcp serve` fill calls that leave them out.
 
 ## Use cases
 

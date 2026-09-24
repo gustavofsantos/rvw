@@ -9,7 +9,7 @@ each. See README.md for the pitch and examples.
 ```sh
 go build -o bin/rvw ./cmd/rvw   # bin/ is gitignored
 go vet ./...
-go test ./...                   # service, store and MCP-schema tests
+go test ./...                   # service, store, MCP schema and MCP server tests
 bats test/rvw.bats              # CLI contract; builds its own binary
 ```
 
@@ -20,13 +20,17 @@ database is the user's real queue.
 
 ## Layout
 
-`cmd/rvw` → `internal/cli` → `internal/review` → `internal/store`
+`cmd/rvw` → `internal/cli` → `internal/review` → `internal/store`, with
+`internal/mcpserver` a second adapter beside `internal/cli` (`rvw mcp serve`).
 
 - `internal/cli` — cobra commands. Turns flags and stdin into service inputs,
   and service outputs into text. No domain logic here.
 - `internal/review` — the `Service` and the domain. `operations.go` holds the
   typed input/output of every operation.
 - `internal/store` — SQLite (modernc, no cgo). Schema in `schema.sql`.
+- `internal/mcpserver` — MCP tools over the `Service` (official go-sdk). One
+  tool per operation; its input and output are the operation types. No domain
+  logic here either.
 - `internal/render` (text/markdown/JSON output), `internal/gitx` (git blobs
   for code snapshots and diffs), `internal/workspace` (resolve the git root).
 
@@ -36,7 +40,8 @@ database is the user's real queue.
 - Every failure is one `rvw: ...` line on stderr and exit status 1. Notices
   go to stderr; stdout carries only the result.
 - Every operation input and output is a JSON object that infers an MCP schema
-  (`internal/review/schema_test.go`). Add new operation types to that test.
+  (`internal/review/schema_test.go`). Add new operation types to that test,
+  and a tool for each new operation in `internal/mcpserver`.
 - A field without `omitempty` is required; its `jsonschema` tag is its
   description.
 - Configuration is flags only (`--workspace`, `--lane`, `--author`, `--db`).
@@ -50,3 +55,4 @@ database is the user's real queue.
   breaking changes.
 - `skills/rvw/SKILL.md` teaches agents the CLI. When a command or flag
   changes, update it with the README.
+- `bats` needs `sqlite3` and a UTF-8 locale (`LC_ALL=C.UTF-8`) for a few tests.

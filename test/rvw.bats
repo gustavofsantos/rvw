@@ -1163,6 +1163,95 @@ SH
   [[ "$output" != *"[COMPLETE]"* ]]
 }
 
+# ── MCP: the same queue as tool calls ────────────────────────────────────────
+
+# Talk JSON-RPC to `rvw mcp serve` on stdio. Each arg is one request; each is
+# sent once the previous one is answered, since the server runs calls
+# concurrently and drops unanswered ones when stdin closes. Extra server
+# flags go in MCP_FLAGS.
+mcp_session() {
+  local out="$TEST_ROOT/mcp.out"
+  : >"$out"
+  {
+    printf '%s\n' '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"bats","version":"1"}}}' \
+      '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+    local id=1
+    for msg in "$@"; do
+      printf '{"jsonrpc":"2.0","id":%d,%s}\n' "$id" "$msg"
+      for _ in $(seq 100); do
+        grep -q "\"id\":$id," "$out" && break
+        sleep 0.1
+      done
+      id=$((id + 1))
+    done
+  } | "$RVW" mcp serve ${MCP_FLAGS:-} >"$out"
+  cat "$out"
+}
+
+@test "mcp serve: an agent adds, pulls and resolves over stdio" {
+  run mcp_session \
+    '"method":"tools/call","params":{"name":"add","arguments":{"workspace":"'"$WORKSPACE"'","file":"app.py","start_line":2,"comment":"over mcp"}}' \
+    '"method":"tools/call","params":{"name":"pull","arguments":{"workspace":"'"$WORKSPACE"'"}}' \
+    '"method":"tools/call","params":{"name":"resolve","arguments":{"workspace":"'"$WORKSPACE"'","id":"r1","outcome":"done","note":"fixed"}}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"id":3,'* ]]
+  [[ "$output" != *'"isError":true'* ]]
+
+  run "$RVW" list --status done --format ids
+  [ "$output" = "r1" ]
+  run "$RVW" show r1 --format json
+  [[ "$output" == *'"resolved_by": "tester"'* ]]
+}
+
+@test "mcp serve: --author and --lane fill calls that leave them out" {
+  MCP_FLAGS="--author claude --lane auth" run mcp_session \
+    '"method":"tools/call","params":{"name":"add","arguments":{"workspace":"","file":"app.py","start_line":1,"comment":"x"}}'
+  [ "$status" -eq 0 ]
+
+  run "$RVW" list --lane auth --format json
+  [[ "$output" == *'"author": "claude"'* ]]
+  [[ "$output" == *'"lane": "auth"'* ]]
+}
+
+@test "mcp serve: a service failure is a tool error, not a crash" {
+  run mcp_session \
+    '"method":"tools/call","params":{"name":"resolve","arguments":{"workspace":"'"$WORKSPACE"'","id":"r9","outcome":"done"}}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"isError":true'* ]]
+  [[ "$output" == *"r9"* ]]
+}
+
+@test "mcp config: prints the claude mcp add command and the .mcp.json entry" {
+  run "$RVW" mcp config --author claude
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"claude mcp add --scope user rvw -- $RVW mcp serve --author claude"* ]]
+  [[ "$output" == *'"mcpServers"'* ]]
+  [[ "$output" == *'"command": "'"$RVW"'"'* ]]
+
+  run "$RVW" mcp config --db "$DB" --scope project --format json
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"args": ['*'"serve",'*'"--db",'*"\"$DB\""* ]]
+  [[ "$output" != *"claude mcp add"* ]]
+}
+
+@test "mcp config: --http points Claude Code at a running server" {
+  run "$RVW" mcp config --http 127.0.0.1:7777
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"$RVW mcp serve --http 127.0.0.1:7777"* ]]
+  [[ "$output" == *"claude mcp add --transport http --scope user rvw http://127.0.0.1:7777/mcp"* ]]
+  [[ "$output" == *'"url": "http://127.0.0.1:7777/mcp"'* ]]
+}
+
+@test "mcp config: rejects a bad scope or address" {
+  run "$RVW" mcp config --scope global
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: --scope 'global' is not one of local, project, user" ]
+
+  run "$RVW" mcp config --http 7777
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: --http '7777' is not HOST:PORT" ]
+}
+
 # ── shape of the tool itself ──────────────────────────────────────────────────
 
 @test "count: prints 0 for an untouched workspace instead of failing" {
@@ -1205,7 +1294,7 @@ SH
   [ "$status" -eq 0 ]
   [[ "$output" == *"per-workspace queue of code review feedback"* ]]
 
-  for sub in add submit list pull show edit resolve reject count workspaces path; do
+  for sub in add submit list pull show edit resolve reject count workspaces path mcp; do
     run "$RVW" "$sub" --help
     [ "$status" -eq 0 ]
     [[ "$output" == *"Usage:"*"rvw $sub"* ]]
