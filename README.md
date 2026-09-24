@@ -35,6 +35,12 @@ rvw add --file src/api.py --lines 40-58 --comment "extract this branch"
 rvw add --file src/api.py --lines 12 --comment "typo" --lane refactor-auth
 ```
 
+Or read the code and comment in a terminal UI, without an editor plugin:
+
+```sh
+rvw tui
+```
+
 Group them into one review with a verdict:
 
 ```sh
@@ -71,6 +77,30 @@ Or skip the shell: `rvw mcp serve` exposes the same operations as MCP tools
 (see [MCP server](#mcp-server)).
 
 `rvw --help` lists every command and flag.
+
+## Terminal UI
+
+`rvw tui` is code review in the terminal, on the files as they are on disk. It
+works in any directory, with or without git. The left pane is the workspace's
+file tree, with `💬N` next to files that have open comments. The right pane is
+the current file, syntax-highlighted, with a rail in the gutter on every line
+under an open comment. The bottom bar shows the comments on the cursor line.
+
+- `C-p` opens a file by fuzzy name; `C-l` lists the open comments.
+- `V` selects lines, `c` comments on the line or the selection, `e` edits the
+  comment on the line, `s` submits your pending comments as a review.
+- `]c` and `[c` jump between comments; `r` reloads the file and the queue.
+  Nothing is watched, so comments added elsewhere show up on the next reload.
+- `?` lists every key.
+
+You write comments in your editor: `--editor`, else `$VISUAL`, else `$EDITOR`,
+else `vi`. Lines below the `>8` scissors line are context and are dropped;
+save an empty note to cancel. `--lane` and `--author` stamp what you add and
+submit. The gutter shows the open comments of every lane.
+
+```sh
+rvw tui --lane refactor-auth --editor "code --wait"
+```
 
 ## Claude Code
 

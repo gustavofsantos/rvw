@@ -21,7 +21,8 @@ database is the user's real queue.
 ## Layout
 
 `cmd/rvw` → `internal/cli` → `internal/review` → `internal/store`, with
-`internal/mcpserver` a second adapter beside `internal/cli` (`rvw mcp serve`).
+`internal/mcpserver` (`rvw mcp serve`) and `internal/tui` (`rvw tui`) two more
+adapters beside `internal/cli`.
 
 - `internal/cli` — cobra commands. Turns flags and stdin into service inputs,
   and service outputs into text. No domain logic here.
@@ -31,6 +32,10 @@ database is the user's real queue.
 - `internal/mcpserver` — MCP tools over the `Service` (official go-sdk). One
   tool per operation; its input and output are the operation types. No domain
   logic here either.
+- `internal/tui` — the terminal UI (Bubble Tea v2, Lip Gloss v2, chroma). One
+  model; every action is one `Service` call. No domain logic here either.
+  Golden views live in `testdata/`; regenerate with
+  `go test ./internal/tui -update`.
 - `internal/render` (text/markdown/JSON output), `internal/gitx` (git blobs
   for code snapshots and diffs), `internal/workspace` (resolve the git root).
 

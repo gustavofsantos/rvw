@@ -1252,6 +1252,93 @@ mcp_session() {
   [ "$output" = "rvw: --http '7777' is not HOST:PORT" ]
 }
 
+# ── tui ───────────────────────────────────────────────────────────────────────
+
+@test "tui: without a terminal it fails with one line and touches nothing" {
+  run "$RVW" tui </dev/null
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: tui needs an interactive terminal on stdin and stdout" ]
+  [ ! -e "$DB" ]
+}
+
+@test "tui --help documents the keys and where comments are written" {
+  run "$RVW" tui --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage:"*"rvw tui"* ]]
+  [[ "$output" == *"--editor"*'$VISUAL'*'$EDITOR'*"vi"* ]]
+  [[ "$output" == *"C-p go to file"* ]]
+  [[ "$output" == *"V select lines"*"c comment"*"e edit"* ]]
+}
+
+# The TUI on a pseudo-terminal needs util-linux script(1); BSD script differs.
+needs_pty() {
+  script --version 2>/dev/null | grep -q util-linux || skip "needs util-linux script(1)"
+}
+
+# Run `rvw tui FLAGS...` on a pseudo-terminal, typing each KEYS argument after
+# `--` in turn (printf %b escapes: \x10 is C-p, \r is Enter). An argument
+# `wait:CMD` instead retries CMD until it succeeds, so keys never race the
+# editor. Typing starts after a second: keys sent before the TUI takes the
+# terminal go through its cooked mode, where Enter arrives as a newline.
+tui_session() {
+  local flags=() cmd
+  while [ "$1" != "--" ]; do flags+=("$1"); shift; done
+  shift
+  cmd=$(printf '%q ' "$RVW" tui "${flags[@]}")
+  {
+    sleep 1
+    for step in "$@"; do
+      case "$step" in
+        wait:*)
+          for _ in $(seq 100); do
+            eval "${step#wait:}" >/dev/null 2>&1 && break
+            sleep 0.1
+          done ;;
+        *) printf '%b' "$step"; sleep 0.2 ;;
+      esac
+    done
+  } | timeout 30 script -qec "$cmd" /dev/null >/dev/null
+}
+
+@test "tui: q quits on a terminal and writes nothing" {
+  needs_pty
+  tui_session -- q
+  run "$RVW" count
+  [ "$output" = "0" ]
+}
+
+@test "tui: comments on a selection and submits a review through the editor, without git" {
+  needs_pty
+  plain="$TEST_ROOT/plain"
+  mkdir -p "$plain/src/api" "$plain/test/api"
+  printf 'import parse\n\ndef handle(req):\n    if req.kind:\n        return parse(req)\n' >"$plain/src/api/parse.py"
+  printf 'package api\n' >"$plain/test/api/api_parser_test.go"
+  printf 'hello\n' >"$plain/README.md"
+  cat >"$TEST_ROOT/editor" <<'SH'
+#!/bin/sh
+{ echo "from the editor"; cat "$1"; } >"$1.new" && mv "$1.new" "$1"
+SH
+  chmod +x "$TEST_ROOT/editor"
+  cd "$plain"
+
+  tui_session --editor "$TEST_ROOT/editor" -- '\x10apipar\r' '3GV2jc' \
+    'wait:[ "$("$RVW" count)" = 1 ]' 's3' \
+    'wait:"$RVW" list --reviews --format ids | grep -q rv1' q
+
+  run "$RVW" list --format json
+  [ "$(jq -r '.reviews[0].file' <<<"$output")" = "src/api/parse.py" ]
+  [ "$(jq -r '.reviews[0].start_line' <<<"$output")" = "3" ]
+  [ "$(jq -r '.reviews[0].end_line' <<<"$output")" = "5" ]
+  [ "$(jq -r '.reviews[0].comment' <<<"$output")" = "from the editor" ]
+  [ "$(jq -r '.reviews[0].author' <<<"$output")" = "tester" ]
+  [ "$(jq -r '.reviews[0].file_version // "none"' <<<"$output")" = "none" ]
+
+  run "$RVW" list --reviews --format json
+  [ "$(jq -r '.sheets[0].review.decision' <<<"$output")" = "request-changes" ]
+  [ "$(jq -r '.sheets[0].review.summary' <<<"$output")" = "from the editor" ]
+  [ "$(jq -r '.sheets[0].comments | map(.id) | join(",")' <<<"$output")" = "r1" ]
+}
+
 # ── shape of the tool itself ──────────────────────────────────────────────────
 
 @test "count: prints 0 for an untouched workspace instead of failing" {
@@ -1294,7 +1381,7 @@ mcp_session() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"per-workspace queue of code review feedback"* ]]
 
-  for sub in add submit list pull show edit resolve reject count workspaces path mcp; do
+  for sub in add submit list pull show edit resolve reject count workspaces path mcp tui; do
     run "$RVW" "$sub" --help
     [ "$status" -eq 0 ]
     [[ "$output" == *"Usage:"*"rvw $sub"* ]]
