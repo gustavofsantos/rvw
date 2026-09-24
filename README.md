@@ -92,6 +92,11 @@ under an open comment. The bottom bar shows the comments on the cursor line.
   comment on the line, `s` submits your pending comments as a review.
 - `]c` and `[c` jump between comments; `r` reloads the file and the queue.
   Nothing is watched, so comments added elsewhere show up on the next reload.
+- In a git worktree the gutter marks uncommitted changes against `HEAD`,
+  staged or not: `+` added lines, `~` changed lines, `_` lines deleted below.
+  Changed files are colored in the tree. `]h` and `[h` jump to the next and
+  previous change, on to the next or previous changed file; `C-g` lists every
+  change in the workspace.
 - `?` lists every key.
 - The mouse works too: click a file in the tree to open it, click a directory
   to expand or collapse it, click a line to move there, drag across lines to

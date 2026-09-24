@@ -13,10 +13,11 @@ type pickerKind int
 const (
 	pickFiles pickerKind = iota
 	pickComments
+	pickChanges
 )
 
-// picker is the fuzzy-finder overlay: quick open over files, or the list of
-// open comments.
+// picker is the fuzzy-finder overlay: quick open over files, the list of
+// open comments, or the list of uncommitted changes.
 type picker struct {
 	kind    pickerKind
 	query   string
@@ -67,6 +68,8 @@ func (m *model) openPicker(kind pickerKind) {
 			p.targets = append(p.targets, target{file: c.File, line: c.StartLine})
 			p.ids = append(p.ids, c.ID)
 		}
+	case pickChanges:
+		m.changeCandidates(p)
 	}
 	p.filter()
 	m.picker = p
@@ -144,8 +147,11 @@ func truncateLeft(s string, w int) (string, int) {
 }
 
 func (p *picker) title() string {
-	if p.kind == pickComments {
+	switch p.kind {
+	case pickComments:
 		return "Open comments"
+	case pickChanges:
+		return "Uncommitted changes"
 	}
 	return "Go to file"
 }

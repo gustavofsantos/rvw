@@ -68,3 +68,13 @@ func TestGoldenCommentPicker(t *testing.T) {
 	f := commented(t)
 	golden.RequireEqual(t, view(t, f, seq("ctrl+l")...))
 }
+
+func TestGoldenChanges(t *testing.T) {
+	f := changed(t)
+	golden.RequireEqual(t, view(t, f, seq("ctrl+p", "apipar", "enter", "6G")...))
+}
+
+func TestGoldenChangesPicker(t *testing.T) {
+	f := changed(t)
+	golden.RequireEqual(t, view(t, f, seq("ctrl+g")...))
+}

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/gustavofsantos/rvw/internal/gitx"
 	"github.com/gustavofsantos/rvw/internal/review"
 )
 
@@ -75,6 +76,8 @@ type model struct {
 	open   []review.Comment // every open comment in the workspace
 	counts map[string]int   // open comments per file
 
+	changes map[string]gitx.Change // uncommitted changes per file; nil outside git
+
 	file      *fileView
 	positions map[string]int // last cursor line per file this session
 	recent    []string       // files opened this session, most recent first
@@ -104,6 +107,7 @@ type fileView struct {
 	plain    []string
 	binary   bool
 	comments []review.Comment // open comments on this file, oldest first
+	hunks    []gitx.Hunk      // its uncommitted changes, in file order
 	cursor   int
 	offset   int
 }
@@ -148,7 +152,8 @@ func newModel(ctx context.Context, opts Options) (*model, error) {
 
 // ── loading ──────────────────────────────────────────────────────────────────
 
-// loadTree walks the workspace, keeping expanded directories expanded.
+// loadTree walks the workspace, keeping expanded directories expanded, and
+// reads its uncommitted changes.
 func (m *model) loadTree() error {
 	files, err := listFiles(m.opts.Workspace)
 	if err != nil {
@@ -160,6 +165,7 @@ func (m *model) loadTree() error {
 	}
 	m.files = files
 	m.root = buildTree(files)
+	m.loadChanges()
 	for _, d := range expanded {
 		if n := m.root.find(d); n != nil && n.dir {
 			n.expanded = true
@@ -205,6 +211,9 @@ func (m *model) loadFile(rel string) (*fileView, error) {
 		return nil, fmt.Errorf("cannot read %s", rel)
 	}
 	f := &fileView{rel: rel, abs: abs}
+	if !filepath.IsAbs(rel) {
+		f.hunks = m.refreshChanges(rel)
+	}
 	if isBinary(data) {
 		f.binary = true
 		return f, nil
@@ -387,6 +396,10 @@ func (m *model) key(k tea.KeyPressMsg) tea.Cmd {
 			return m.jumpComment(1)
 		case "[c":
 			return m.jumpComment(-1)
+		case "]h":
+			return m.jumpHunk(1)
+		case "[h":
+			return m.jumpHunk(-1)
 		}
 		return nil
 	}
@@ -403,6 +416,15 @@ func (m *model) key(k tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case "ctrl+l":
 		m.openPicker(pickComments)
+		return nil
+	case "ctrl+g":
+		switch {
+		case m.changes == nil:
+			return m.setFlash("not a git worktree: no changes to show", false)
+		case len(m.changedFiles()) == 0:
+			return m.setFlash("no uncommitted changes", false)
+		}
+		m.openPicker(pickChanges)
 		return nil
 	case "tab":
 		m.focus = 1 - m.focus

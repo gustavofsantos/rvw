@@ -11,6 +11,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/alecthomas/chroma/v2"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/gustavofsantos/rvw/internal/gitx"
 	"github.com/gustavofsantos/rvw/internal/review"
 	"github.com/gustavofsantos/rvw/internal/store"
 	"github.com/gustavofsantos/rvw/internal/workspace"
@@ -103,6 +105,8 @@ func press(k string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl}
 	case "ctrl+l":
 		return tea.KeyPressMsg{Code: 'l', Mod: tea.ModCtrl}
+	case "ctrl+g":
+		return tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl}
 	case "enter":
 		return tea.KeyPressMsg{Code: tea.KeyEnter}
 	case "esc":
@@ -585,5 +589,140 @@ func TestWheelScrollsThePaneUnderThePointer(t *testing.T) {
 	m.Update(tea.MouseWheelMsg{X: viewerX, Y: 5, Button: tea.MouseWheelUp})
 	if m.file.offset != 3 || m.file.cursor != 6 {
 		t.Fatalf("scrolling back leaves the cursor: offset %d, cursor %d", m.file.offset, m.file.cursor)
+	}
+}
+
+// ── changes ──────────────────────────────────────────────────────────────────
+
+// changed is the fixture as a git worktree with uncommitted changes: in
+// src/api/parse.py line 2 is added, line 6 changed and the lines after 9
+// deleted; src/new.py is untracked; line 2 of src/util.py is changed.
+func changed(t *testing.T) *fixture {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("needs git")
+	}
+	f := setup(t)
+	git := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", f.ws, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.RemoveAll(filepath.Join(f.ws, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	git("init", "-q")
+	f.write(".gitignore", "node_modules/\n")
+	git("add", ".")
+	git("commit", "-q", "-m", "init")
+	f.write("src/api/parse.py", `import parse
+import json
+
+
+def handle(req):
+    if req.kind == "y":
+        body = req.body
+        return parse(body)
+    return default(req)
+`)
+	f.write("src/new.py", "a\nb\n")
+	f.write("src/util.py", "def util():\n    return 1\n")
+	return f
+}
+
+func TestGutterSignsMarkUncommittedChanges(t *testing.T) {
+	f := changed(t)
+	m := f.model()
+	keys(m, "ctrl+p", "apipar", "enter")
+	var signs []string
+	for line := 1; line <= m.file.len(); line++ {
+		s, _ := signAt(m.file.hunks, line)
+		signs = append(signs, s)
+	}
+	if want := []string{" ", "+", " ", " ", " ", "~", " ", " ", "_"}; !slices.Equal(signs, want) {
+		t.Fatalf("signs = %q, want %q", signs, want)
+	}
+	if s, _ := signAt([]gitx.Hunk{{OldStart: 1, OldCount: 2}}, 1); s != signDeletedTop {
+		t.Fatalf("a deletion at the top marks line 1 with %q", s)
+	}
+	keys(m, "6G")
+	if !strings.Contains(ansi.Strip(m.screen()), "change 2/3 · 6 · +1 -1") {
+		t.Fatalf("the bar describes the change under the cursor:\n%s", m.screen())
+	}
+}
+
+func TestJumpingBetweenChangesCrossesFiles(t *testing.T) {
+	f := changed(t)
+	m := f.model()
+	keys(m, "ctrl+p", "apipar", "enter")
+	at := func(want string) {
+		t.Helper()
+		if got := location(m.file.rel, m.file.cursor+1, m.file.cursor+1); got != want {
+			t.Fatalf("at %s, want %s", got, want)
+		}
+	}
+	for _, want := range []string{"src/api/parse.py:2", "src/api/parse.py:6", "src/api/parse.py:9", "src/new.py:1", "src/util.py:2"} {
+		keys(m, "]", "h")
+		at(want)
+	}
+	keys(m, "]", "h")
+	if at("src/util.py:2"); m.flash != "no next change" {
+		t.Fatalf("flash = %q", m.flash)
+	}
+	keys(m, "[", "h")
+	at("src/new.py:1")
+	keys(m, "[", "h")
+	at("src/api/parse.py:9")
+}
+
+func TestChangesPickerListsEveryHunk(t *testing.T) {
+	f := changed(t)
+	m := f.model()
+	keys(m, "ctrl+g")
+	if m.picker == nil || m.picker.title() != "Uncommitted changes" {
+		t.Fatal("C-g opens the changes picker")
+	}
+	var got []string
+	for _, c := range m.picker.cands {
+		got = append(got, strings.Join(strings.Fields(c.label), " "))
+	}
+	want := []string{
+		"src/api/parse.py:2 +1 -0", "src/api/parse.py:6 +1 -1", "src/api/parse.py:9 +0 -4",
+		"src/new.py:1-2 +2 -0", "src/util.py:2 +1 -1",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("changes = %q, want %q", got, want)
+	}
+	keys(m, "util", "enter")
+	if m.file.rel != "src/util.py" || m.file.cursor != 1 {
+		t.Fatalf("enter opens %s:%d", m.file.rel, m.file.cursor+1)
+	}
+}
+
+func TestChangesOutsideGit(t *testing.T) {
+	f := setup(t)
+	m := f.model()
+	keys(m, "ctrl+g")
+	if m.picker != nil || m.flash != "not a git worktree: no changes to show" {
+		t.Fatalf("picker %v, flash %q", m.picker, m.flash)
+	}
+	keys(m, "]", "h")
+	if m.flash != "not a git worktree: no changes to show" {
+		t.Fatalf("flash %q", m.flash)
+	}
+}
+
+func TestReloadPicksUpNewChanges(t *testing.T) {
+	f := changed(t)
+	m := f.model()
+	keys(m, "ctrl+p", "README", "enter")
+	if len(m.file.hunks) != 0 {
+		t.Fatalf("README.md is unchanged: %v", m.file.hunks)
+	}
+	f.write("README.md", "# Demo\n\nhello, world\n")
+	keys(m, "r")
+	if len(m.file.hunks) != 1 || m.file.hunks[0].NewStart != 3 {
+		t.Fatalf("r re-reads the changes: %v", m.file.hunks)
 	}
 }

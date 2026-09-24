@@ -1,5 +1,6 @@
 // Package gitx runs the handful of git plumbing commands rvw needs: finding a
-// worktree root, and keeping exact file versions as blobs in the object store.
+// worktree root, keeping exact file versions as blobs in the object store, and
+// reading the uncommitted changes of a worktree.
 // Every call is `git -C <dir> <subcommand> ...`, with git taken from $PATH.
 package gitx
 
@@ -7,7 +8,10 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -111,4 +115,153 @@ func Files(dir string) ([]string, error) {
 		}
 	}
 	return files, nil
+}
+
+// Hunk is one uncommitted change to a file, in the line numbers of the old
+// (HEAD) and new (worktree) versions, as in a unified diff header. A count of
+// 0 means no lines on that side: NewCount 0 is a deletion after line
+// NewStart, OldCount 0 an addition.
+type Hunk struct {
+	OldStart int
+	OldCount int
+	NewStart int
+	NewCount int
+}
+
+// Change is a file that differs between HEAD and the worktree.
+type Change struct {
+	// Added is a file HEAD does not have: untracked, or staged as new.
+	Added bool
+	// Hunks are in file order. A binary or empty file has none.
+	Hunks []Hunk
+}
+
+// Changes compares the worktree at dir with HEAD, staged and unstaged edits
+// together, and returns every changed file still on disk, keyed by its path
+// relative to dir, slash-separated. An untracked file that is not ignored is
+// one hunk of all its lines. Paths, if given, limit it to those pathspecs. In
+// a repository with no commit yet, everything is compared with an empty tree.
+func Changes(dir string, paths ...string) (map[string]Change, error) {
+	base, err := headTree(dir)
+	if err != nil {
+		return nil, err
+	}
+	args := []string{
+		"-c", "core.quotePath=false", "diff", "--no-color", "--no-ext-diff", "--no-textconv",
+		"--no-renames", "--ignore-submodules=all", "--relative", "-U0",
+		"--src-prefix=a/", "--dst-prefix=b/", base, "--",
+	}
+	out, _, err := run(dir, "", append(args, paths...)...)
+	if err != nil {
+		return nil, err
+	}
+	changes := parseDiff(out)
+
+	out, _, err = run(dir, "", append([]string{"ls-files", "-z", "--others", "--exclude-standard", "--"}, paths...)...)
+	if err != nil {
+		return nil, err
+	}
+	for rel := range strings.SplitSeq(out, "\x00") {
+		if rel == "" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		if err != nil {
+			continue // gone, or not a regular file
+		}
+		c := Change{Added: true}
+		if n := countLines(data); n > 0 {
+			c.Hunks = []Hunk{{NewStart: 1, NewCount: n}}
+		}
+		changes[rel] = c
+	}
+	return changes, nil
+}
+
+// headTree is what the worktree is compared with: HEAD, else the empty tree.
+func headTree(dir string) (string, error) {
+	if out, _, err := run(dir, "", "rev-parse", "--verify", "--quiet", "HEAD^{commit}"); err == nil {
+		return strings.TrimSpace(out), nil
+	}
+	out, _, err := run(dir, "", "hash-object", "-t", "tree", "--stdin")
+	return blobID(out, err)
+}
+
+// parseDiff reads the file names and hunk headers of a unified diff made
+// with -U0 and the a/ and b/ prefixes. Deleted files are left out.
+func parseDiff(out string) map[string]Change {
+	changes := map[string]Change{}
+	var file string
+	var added, header bool
+	for line := range strings.SplitSeq(out, "\n") {
+		switch {
+		case strings.HasPrefix(line, "diff --git "):
+			file, added, header = "", false, true
+		case header && strings.HasPrefix(line, "--- "):
+			added = line == "--- /dev/null"
+		case header && strings.HasPrefix(line, "+++ "):
+			file = diffPath(strings.TrimPrefix(line, "+++ "))
+			if file != "" {
+				changes[file] = Change{Added: added}
+			}
+		case strings.HasPrefix(line, "@@ "):
+			header = false
+			if h, ok := parseHunk(line); ok && file != "" {
+				c := changes[file]
+				c.Hunks = append(c.Hunks, h)
+				changes[file] = c
+			}
+		}
+	}
+	return changes
+}
+
+// diffPath is the file a "+++ " line names, without its b/ prefix, or "" for
+// /dev/null. Git quotes unusual names C-style and ends a name holding a space
+// with a tab.
+func diffPath(s string) string {
+	s = strings.TrimSuffix(s, "\t")
+	if s == "/dev/null" {
+		return ""
+	}
+	if strings.HasPrefix(s, `"`) {
+		if u, err := strconv.Unquote(s); err == nil {
+			s = u
+		}
+	}
+	return strings.TrimPrefix(s, "b/")
+}
+
+// parseHunk reads "@@ -a[,b] +c[,d] @@ ...".
+func parseHunk(line string) (Hunk, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 3 || !strings.HasPrefix(fields[1], "-") || !strings.HasPrefix(fields[2], "+") {
+		return Hunk{}, false
+	}
+	oldStart, oldCount, ok1 := parseRange(fields[1][1:])
+	newStart, newCount, ok2 := parseRange(fields[2][1:])
+	return Hunk{OldStart: oldStart, OldCount: oldCount, NewStart: newStart, NewCount: newCount}, ok1 && ok2
+}
+
+func parseRange(s string) (start, count int, ok bool) {
+	a, b, hasCount := strings.Cut(s, ",")
+	start, err := strconv.Atoi(a)
+	if err != nil {
+		return 0, 0, false
+	}
+	if !hasCount {
+		return start, 1, true
+	}
+	count, err = strconv.Atoi(b)
+	return start, count, err == nil
+}
+
+// countLines counts lines the way the service does: a trailing newline does
+// not start another line.
+func countLines(data []byte) int {
+	n := bytes.Count(data, []byte("\n"))
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		n++
+	}
+	return n
 }

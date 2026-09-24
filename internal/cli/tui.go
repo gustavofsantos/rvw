@@ -24,14 +24,19 @@ else vi. Lines from the scissors line down are context and are dropped; an
 empty note cancels. --lane and --author stamp what you add and submit; the
 gutter shows every lane's open comments.
 
-Nothing is watched: the file and its comments are re-read when you open a
-file, press r, or add, edit or submit.
+In a git worktree the gutter also marks the uncommitted changes against HEAD,
+staged or not: + added lines, ~ changed lines, _ lines deleted below.
+
+Nothing is watched: the file, its changes and its comments are re-read when
+you open a file or press r; comments also when you add, edit or submit.
 
 Keys (? shows them in the UI):
-  C-p go to file · C-l open comments · Tab switch pane · s submit · q quit
+  C-p go to file · C-l open comments · C-g uncommitted changes
+  Tab switch pane · s submit · q quit
   tree    j/k move · l/↵ open or expand · h collapse or go to parent · gg/G
   viewer  j/k · C-d/C-u half page · gg/G · NG or :N go to line
-          ]c/[c next/previous comment · V select lines · c comment · e edit
+          ]c/[c next/previous comment · ]h/[h next/previous change
+          V select lines · c comment · e edit
           r reload`,
 		Example: `  rvw tui
   rvw tui --lane refactor-auth --editor "code --wait"

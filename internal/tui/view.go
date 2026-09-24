@@ -34,6 +34,12 @@ var (
 	stError     = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	stNotice    = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
 	stMode      = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
+
+	stSignAdded   = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	stSignChanged = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
+	stSignDeleted = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+	stFileAdded   = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	stFileChanged = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 )
 
 // theme holds the colors that depend on the terminal's background.
@@ -199,6 +205,10 @@ func (m *model) treeLine(i, w int) string {
 		name = piece{"▸ " + n.name + "/", stDir}
 	case m.file != nil && n.path == m.file.rel:
 		name = piece{"  " + n.name, stCurrent}
+	case m.changes[n.path].Added:
+		name = piece{"  " + n.name, stFileAdded}
+	case len(m.changes[n.path].Hunks) > 0:
+		name = piece{"  " + n.name, stFileChanged}
 	default:
 		name = piece{"  " + n.name, stPlain}
 	}
@@ -264,8 +274,10 @@ func (m *model) viewLine(i, w int) string {
 			railSt = stRailOff
 		}
 	}
+	sign, signSt := signAt(f.hunks, line)
 	row := []piece{
-		{fmt.Sprintf(" %*d ", numWidth, line), numSt},
+		{sign, signSt},
+		{fmt.Sprintf("%*d ", numWidth, line), numSt},
 		{glyph, railSt},
 		{" ", stPlain},
 	}
@@ -307,6 +319,9 @@ func (m *model) bar() []string {
 	if f := m.file; f != nil && !f.binary {
 		if cs := covering(f.comments, f.cursor+1); len(cs) > 0 {
 			return commentBar(cs, w)
+		}
+		if b := m.hunkBar(w); b != nil {
+			return b
 		}
 	}
 	return one(piece{"V select · c comment · C-p files · C-l comments · s submit · ? help", stDim})
@@ -436,7 +451,7 @@ func (p *picker) row(r ranked, selected bool, iw int) []piece {
 	textW := iw - 3 - 1
 	if p.kind == pickFiles {
 		textW -= 5
-	} else {
+	} else if p.ids != nil {
 		id := p.ids[r.index]
 		out = append(out, piece{fmt.Sprintf("%-5s ", id), stID})
 		textW -= 6
@@ -518,6 +533,7 @@ var helpKeys = [][2]string{
 	{"", "Global"},
 	{"C-p", "go to file"},
 	{"C-l", "open comments"},
+	{"C-g", "uncommitted changes"},
 	{"Tab", "switch pane"},
 	{"s", "submit a review"},
 	{"r", "reload files and comments"},
@@ -530,6 +546,7 @@ var helpKeys = [][2]string{
 	{"j/k  C-d/C-u", "move, half page"},
 	{"gg/G  NG  :N", "first, last, line N"},
 	{"]c  [c", "next, previous comment"},
+	{"]h  [h", "next, previous change"},
 	{"V", "select lines (esc cancels)"},
 	{"c", "comment on the line or selection"},
 	{"e", "edit the comment on this line"},
