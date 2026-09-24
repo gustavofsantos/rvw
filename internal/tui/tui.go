@@ -149,7 +149,7 @@ func newModel(ctx context.Context, opts Options) (*model, error) {
 
 // loadTree walks the workspace, keeping expanded directories expanded.
 func (m *model) loadTree() error {
-	files, err := walkFiles(m.opts.Workspace)
+	files, err := listFiles(m.opts.Workspace)
 	if err != nil {
 		return fmt.Errorf("cannot read workspace %s: %w", m.opts.Workspace, errors.Unwrap(err))
 	}

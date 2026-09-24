@@ -82,7 +82,8 @@ Or skip the shell: `rvw mcp serve` exposes the same operations as MCP tools
 
 `rvw tui` is code review in the terminal, on the files as they are on disk. It
 works in any directory, with or without git. The left pane is the workspace's
-file tree, with `💬N` next to files that have open comments. The right pane is
+file tree, with `💬N` next to files that have open comments; in a git worktree
+it leaves out the files git ignores. The right pane is
 the current file, syntax-highlighted, with a rail in the gutter on every line
 under an open comment. The bottom bar shows the comments on the cursor line.
 

@@ -94,3 +94,21 @@ func Blob(dir, id string) (string, bool) {
 	out, _, err := run(dir, "", "cat-file", "blob", id)
 	return out, err == nil
 }
+
+// Files lists the files git sees in the worktree at dir, relative to dir and
+// slash-separated: tracked files plus untracked ones that are not ignored by
+// .gitignore, .git/info/exclude or the global excludes file. A tracked file
+// deleted from disk is still listed; callers that need it on disk must check.
+func Files(dir string) ([]string, error) {
+	out, _, err := run(dir, "", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for f := range strings.SplitSeq(out, "\x00") {
+		if f != "" {
+			files = append(files, f)
+		}
+	}
+	return files, nil
+}

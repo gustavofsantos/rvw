@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -137,6 +138,54 @@ func TestWalkSkipsVCSAndDependencyDirectories(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"README.md", "docs/api/papers.md", "src/api/parse.py", "src/util.py", "test/api/api_parser_test.go"}
+	if !slices.Equal(files, want) {
+		t.Fatalf("files = %q, want %q", files, want)
+	}
+}
+
+func TestListFilesObeysGitignore(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("needs git")
+	}
+	ws := t.TempDir()
+	write := func(rel, content string) {
+		path := filepath.Join(ws, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", ws}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q")
+	write(".gitignore", "*.log\nout/\n")
+	write("src/.gitignore", "gen.go\n")
+	write("main.go", "package main\n")
+	write("gone.go", "package main\n")
+	write("vendor/dep/dep.go", "package dep\n")
+	write("debug.log", "ignored\n")
+	write("out/bin", "ignored\n")
+	write("src/gen.go", "ignored\n")
+	write("src/lib.go", "package src\n")
+	git("add", ".")
+	if err := os.Remove(filepath.Join(ws, "gone.go")); err != nil {
+		t.Fatal(err)
+	}
+	write("new.txt", "untracked\n")
+	write("forced.log", "tracked though ignored\n")
+	git("add", "-f", "forced.log")
+
+	files, err := listFiles(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{".gitignore", "forced.log", "main.go", "new.txt", "src/.gitignore", "src/lib.go", "vendor/dep/dep.go"}
 	if !slices.Equal(files, want) {
 		t.Fatalf("files = %q, want %q", files, want)
 	}
