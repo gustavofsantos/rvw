@@ -81,6 +81,7 @@ type model struct {
 
 	visual      bool
 	anchor      int
+	dragging    bool    // the left button went down in the viewer and is held
 	count       string  // a pending {count}
 	prefix      string  // a pending g, ] or [
 	prefixCount int     // the count before a prefix, for {count}gg
@@ -322,6 +323,7 @@ func (m *model) setTheme(dark bool) {
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
+	margins := true
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -335,8 +337,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd = m.editorDone(msg)
 	case tea.KeyPressMsg:
 		cmd = m.key(msg)
+	case tea.MouseMsg:
+		cmd = m.mouse(msg)
+		margins = false // keep the text still under the pointer
 	}
-	m.scroll()
+	m.scroll(margins)
 	return m, cmd
 }
 
@@ -549,16 +554,23 @@ func (m *model) goLineKey(k tea.KeyPressMsg) {
 	}
 }
 
-// scroll keeps every cursor on screen after an update.
-func (m *model) scroll() {
+// scroll keeps every cursor on screen after an update, with a few lines of
+// context around it when margins is set.
+func (m *model) scroll(margins bool) {
 	if m.height == 0 {
 		return
 	}
 	body := m.bodyHeight()
-	if f := m.file; f != nil {
-		f.offset = follow(f.cursor, f.offset, body, f.len(), min(3, (body-1)/2))
+	margin := func(n int) int {
+		if !margins {
+			return 0
+		}
+		return min(n, (body-1)/2)
 	}
-	m.treeOff = follow(m.treeCur, m.treeOff, body, len(m.rows), min(2, (body-1)/2))
+	if f := m.file; f != nil {
+		f.offset = follow(f.cursor, f.offset, body, f.len(), margin(3))
+	}
+	m.treeOff = follow(m.treeCur, m.treeOff, body, len(m.rows), margin(2))
 	if p := m.picker; p != nil {
 		p.cursor = clamp(p.cursor, 0, len(p.matches)-1)
 		p.offset = follow(p.cursor, p.offset, m.pickerRows(), len(p.matches), 0)

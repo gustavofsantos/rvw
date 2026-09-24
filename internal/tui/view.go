@@ -121,6 +121,7 @@ func (m *model) bodyHeight() int { return max(1, m.height-3-len(m.bar())) }
 func (m *model) View() tea.View {
 	v := tea.NewView(m.screen())
 	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
 	return v
 }
 
@@ -532,6 +533,9 @@ var helpKeys = [][2]string{
 	{"V", "select lines (esc cancels)"},
 	{"c", "comment on the line or selection"},
 	{"e", "edit the comment on this line"},
+	{"", "Mouse"},
+	{"click", "open file, toggle directory, move"},
+	{"drag", "select lines"},
 	{"", "Overlays"},
 	{"C-n/C-p  ↓/↑", "move"},
 	{"↵  esc", "open, close"},

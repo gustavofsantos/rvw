@@ -93,6 +93,10 @@ under an open comment. The bottom bar shows the comments on the cursor line.
 - `]c` and `[c` jump between comments; `r` reloads the file and the queue.
   Nothing is watched, so comments added elsewhere show up on the next reload.
 - `?` lists every key.
+- The mouse works too: click a file in the tree to open it, click a directory
+  to expand or collapse it, click a line to move there, drag across lines to
+  select them, and scroll either pane with the wheel. Most terminals still
+  select text for copying with Shift held (Option in iTerm2).
 
 You write comments in your editor: `--editor`, else `$VISUAL`, else `$EDITOR`,
 else `vi`. Lines below the `>8` scissors line are context and are dropped;

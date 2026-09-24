@@ -502,3 +502,88 @@ func TestBinaryFilesCannotBeCommentedOn(t *testing.T) {
 		t.Fatal("a placeholder is shown")
 	}
 }
+
+// ── mouse ────────────────────────────────────────────────────────────────────
+
+// At 100x30 the tree's rows start at (1, 1) and the viewer's at (27, 1).
+const viewerX = 40
+
+func click(x, y int) tea.MouseClickMsg { return tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft} }
+
+func TestClickingTheTreeTogglesDirectoriesAndOpensFiles(t *testing.T) {
+	f := setup(t)
+	m := f.model()
+	if got := rowNames(m.rows); !slices.Equal(got, []string{"docs/", "src/", "test/", "README.md"}) {
+		t.Fatalf("rows = %q", got)
+	}
+	m.Update(click(3, 2))
+	if got := rowNames(m.rows); !slices.Equal(got, []string{"docs/", "src/", "  api/", "  util.py", "test/", "README.md"}) {
+		t.Fatalf("a click expands src/: %q", got)
+	}
+	if m.focus != paneTree || m.treeCur != 1 {
+		t.Fatalf("focus %v, tree cursor %d", m.focus, m.treeCur)
+	}
+	m.Update(click(3, 4))
+	if m.file.rel != "src/util.py" || m.focus != paneViewer {
+		t.Fatalf("a click opens util.py: %s, focus %v", m.file.rel, m.focus)
+	}
+	m.Update(click(3, 2))
+	if got := rowNames(m.rows); !slices.Equal(got, []string{"docs/", "src/", "test/", "README.md"}) {
+		t.Fatalf("a second click collapses src/: %q", got)
+	}
+	m.Update(click(3, 20))
+	if m.file.rel != "src/util.py" || m.focus != paneTree {
+		t.Fatal("a click below the rows only focuses the tree")
+	}
+}
+
+func TestDraggingInTheViewerSelectsLines(t *testing.T) {
+	f := setup(t)
+	m := f.model()
+	keys(m, "ctrl+p", "parse.py", "enter")
+	m.Update(click(viewerX, 3))
+	m.Update(tea.MouseReleaseMsg{X: viewerX, Y: 3, Button: tea.MouseLeft})
+	if m.file.cursor != 2 || m.visual {
+		t.Fatalf("a click moves the cursor to line 3: line %d, visual %v", m.file.cursor+1, m.visual)
+	}
+
+	m.Update(click(viewerX, 8))
+	m.Update(tea.MouseMotionMsg{X: viewerX, Y: 5, Button: tea.MouseLeft})
+	m.Update(tea.MouseReleaseMsg{X: viewerX, Y: 5, Button: tea.MouseLeft})
+	if lo, hi := m.selection(); !m.visual || lo != 5 || hi != 8 {
+		t.Fatalf("dragging up from line 8 to 5 selects 5-8: %d-%d, visual %v", lo, hi, m.visual)
+	}
+	m.Update(tea.MouseMotionMsg{X: viewerX, Y: 10, Button: tea.MouseLeft})
+	if lo, hi := m.selection(); lo != 5 || hi != 8 {
+		t.Fatalf("motion after the release changes nothing: %d-%d", lo, hi)
+	}
+	if !strings.Contains(m.screen(), "5-8 (4 lines)") {
+		t.Fatal("the bar shows the selection")
+	}
+
+	m.Update(click(viewerX, 2))
+	m.Update(tea.MouseMotionMsg{X: viewerX, Y: 29, Button: tea.MouseLeft})
+	if !m.visual || m.file.cursor != m.file.len()-1 {
+		t.Fatalf("dragging past the bottom stops at the last line: line %d", m.file.cursor+1)
+	}
+}
+
+func TestWheelScrollsThePaneUnderThePointer(t *testing.T) {
+	f := setup(t)
+	var long strings.Builder
+	for range 100 {
+		long.WriteString("x\n")
+	}
+	f.write("long.txt", long.String())
+	m := f.model()
+	keys(m, "ctrl+p", "long.txt", "enter")
+	m.Update(tea.MouseWheelMsg{X: viewerX, Y: 5, Button: tea.MouseWheelDown})
+	m.Update(tea.MouseWheelMsg{X: viewerX, Y: 5, Button: tea.MouseWheelDown})
+	if m.file.offset != 6 || m.file.cursor != 6 {
+		t.Fatalf("two notches scroll 6 lines, carrying the cursor: offset %d, cursor %d", m.file.offset, m.file.cursor)
+	}
+	m.Update(tea.MouseWheelMsg{X: viewerX, Y: 5, Button: tea.MouseWheelUp})
+	if m.file.offset != 3 || m.file.cursor != 6 {
+		t.Fatalf("scrolling back leaves the cursor: offset %d, cursor %d", m.file.offset, m.file.cursor)
+	}
+}
