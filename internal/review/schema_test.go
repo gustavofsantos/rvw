@@ -20,6 +20,7 @@ func TestOperationTypesInferMCPSchemas(t *testing.T) {
 		review.PullInput{}, review.PullOutput{},
 		review.ResolveInput{}, review.EditInput{},
 		review.GetInput{}, review.Evidence{}, review.ReviewSheet{},
+		review.SheetsInput{}, review.SheetsOutput{},
 		review.DropInput{}, review.DropOutput{},
 		review.ClearInput{}, review.ClearOutput{},
 		review.WorkspacesInput{}, review.WorkspacesOutput{},

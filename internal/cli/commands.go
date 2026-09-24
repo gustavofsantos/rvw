@@ -44,6 +44,7 @@ const examples = `  rvw add --file src/api.py --lines 40-58 --comment "extract t
   rvw submit --no-comments --decision comment --summary "No findings"
   rvw list                              # what is queued here, oldest first
   rvw list --file src/api.py --format json
+  rvw list --reviews                    # submitted review sheets and their state
   rvw pull                              # dequeue everything, as markdown
   rvw pull --limit 1 --format json      # dequeue one, machine-readable
   rvw pull --peek                       # look without dequeuing
@@ -291,19 +292,29 @@ func (a *app) listCmd() *cobra.Command {
 	var (
 		lanes        laneFlags
 		file, status string
+		reviews      bool
 		format       formatFlag
 	)
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "show queued review comments without dequeuing them",
-		Long:  "Show this workspace's review comments, oldest first. Nothing is dequeued.",
+		Short: "show queued review comments or submitted reviews without dequeuing them",
+		Long: `Show this workspace's review comments, oldest first. Nothing is dequeued.
+
+With --reviews it shows submitted review sheets instead, each with its state:
+pending, pulled, or complete once every linked comment is decided. --status
+then takes pending, pulled, complete, open (not yet complete) or all.`,
 		Example: `  rvw list
   rvw list --file src/api.py --format json   # what an editor draws signs from
-  rvw list --status pulled                   # what has already been handed over`,
+  rvw list --status pulled                   # what has already been handed over
+  rvw list --reviews                         # submitted reviews still pending
+  rvw list --reviews --status all            # every submitted review`,
 		Args: cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
 			if err := format.check(); err != nil {
 				return err
+			}
+			if reviews {
+				return a.listSheets(&lanes, file, status, format.value)
 			}
 			in, err := a.query(&lanes, file, status)
 			if err != nil {
@@ -335,10 +346,64 @@ func (a *app) listCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&file, "file", "", "only comments on this file")
+	cmd.Flags().BoolVar(&reviews, "reviews", false, "list submitted review sheets instead of comments")
 	statusFlag(cmd, &status, "which comments to show: pending, pulled, done, rejected, open (pending + pulled), all")
 	lanes.register(cmd)
 	format.register(cmd, "text", "text", "json", "ids", "count", "markdown")
 	return cmd
+}
+
+// listSheets is `list --reviews`: submitted review sheets, oldest first.
+func (a *app) listSheets(lanes *laneFlags, file, status, format string) error {
+	if err := oneOf("--status", status, strs(review.SheetFilters)); err != nil {
+		return err
+	}
+	ws, err := a.workspace()
+	if err != nil {
+		return err
+	}
+	path, err := filePath(file)
+	if err != nil {
+		return err
+	}
+	svc, err := a.svc()
+	if err != nil {
+		return err
+	}
+	out, err := svc.Sheets(a.ctx, review.SheetsInput{
+		Workspace: ws, Status: review.SheetFilter(status), File: path, Lane: lanes.pinned(),
+	})
+	if err != nil {
+		return err
+	}
+	switch format {
+	case "json":
+		return render.JSON(a.stdout, out)
+	case "ids":
+		for _, rs := range out.Sheets {
+			fmt.Fprintln(a.stdout, rs.Review.ID)
+		}
+	case "count":
+		fmt.Fprintln(a.stdout, out.Count)
+	case "markdown":
+		handoffs := make([]review.Handoff, len(out.Sheets))
+		for i, rs := range out.Sheets {
+			handoffs[i] = review.Handoff{Review: rs.Review, Comments: rs.Comments}
+		}
+		fmt.Fprint(a.stdout, render.Markdown(out.Workspace, handoffs, nil, false))
+	default:
+		for _, rs := range out.Sheets {
+			fmt.Fprintln(a.stdout, render.SheetLine(rs))
+		}
+		if out.Count == 0 {
+			scope := ""
+			if l := lanes.pinned(); l != "" {
+				scope = " in lane " + l
+			}
+			a.notice("no submitted reviews for %s%s", out.Workspace, scope)
+		}
+	}
+	return nil
 }
 
 func (a *app) emptyNotice(ws, lane string) {

@@ -506,6 +506,102 @@ SH
   [[ "$output" == "rvw: no review comments for"* ]]
 }
 
+@test "list --reviews: shows submitted review sheets, summary-only ones too" {
+  queue app.py 1 "first finding"
+  queue app.py 2 "second finding"
+  "$RVW" submit --id r1 --id r2 --decision request-changes \
+    --summary "Fix both findings." --format ids >/dev/null
+  "$RVW" submit --no-comments --decision approve \
+    --summary "Nothing else." --format ids >/dev/null
+
+  run "$RVW" list --reviews
+  [ "$status" -eq 0 ]
+  [ "${#lines[@]}" -eq 2 ]
+  [[ "${lines[0]}" == "rv1  [pending]  request-changes  2 review comment(s)  @tester  Fix both findings." ]]
+  [[ "${lines[1]}" == "rv2  [pending]  approve  0 review comment(s)  @tester  Nothing else." ]]
+
+  run "$RVW" list --reviews --format ids
+  [ "$output" = "$(printf 'rv1\nrv2')" ]
+
+  run "$RVW" list --reviews --format count
+  [ "$output" = "2" ]
+
+  run "$RVW" list --reviews --format json
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.count' <<<"$output")" = "2" ]
+  [ "$(jq -r '.sheets[0].review.id' <<<"$output")" = "rv1" ]
+  [ "$(jq -r '.sheets[0].state' <<<"$output")" = "pending" ]
+  [ "$(jq -r '.sheets[0].comments | map(.id) | join(",")' <<<"$output")" = "r1,r2" ]
+
+  run "$RVW" list --reviews --format markdown
+  [[ "$output" == *"# Review rv1"* ]]
+  [[ "$output" == *"Fix both findings."* ]]
+  [[ "$output" == *"first finding"* ]]
+}
+
+@test "list --reviews: --status follows the sheet from pending to complete" {
+  queue app.py 1 "first finding"
+  "$RVW" submit --id r1 --decision request-changes --summary "one" --format ids >/dev/null
+  "$RVW" submit --no-comments --decision comment --summary "two" --format ids >/dev/null
+  "$RVW" pull --id rv1 >/dev/null
+
+  run "$RVW" list --reviews --format ids
+  [ "$output" = "rv2" ]
+  run "$RVW" list --reviews --status pulled --format ids
+  [ "$output" = "rv1" ]
+  run "$RVW" list --reviews --status open --format ids
+  [ "$output" = "$(printf 'rv1\nrv2')" ]
+
+  "$RVW" resolve r1 --note "fixed" >/dev/null
+  run "$RVW" list --reviews --status complete --format ids
+  [ "$output" = "rv1" ]
+  run "$RVW" list --reviews --status open --format ids
+  [ "$output" = "rv2" ]
+  run "$RVW" list --reviews --status all --format ids
+  [ "$output" = "$(printf 'rv1\nrv2')" ]
+}
+
+@test "list --reviews: refuses a comment-only status" {
+  run "$RVW" list --reviews --status done
+  [ "$status" -eq 1 ]
+  [[ "$output" == "rvw: --status 'done' is not one of pending, pulled, complete, open, all" ]]
+
+  run "$RVW" list --status complete
+  [ "$status" -eq 1 ]
+}
+
+@test "list --reviews: a pinned lane never shows another lane's or an unlaned review" {
+  "$RVW" submit --no-comments --lane auth --decision comment --summary "auth" >/dev/null
+  "$RVW" submit --no-comments --lane payments --decision comment --summary "payments" >/dev/null
+  "$RVW" submit --no-comments --decision comment --summary "unlaned" >/dev/null
+
+  run "$RVW" list --reviews --lane auth --format ids
+  [ "$output" = "rv1" ]
+  run "$RVW" list --reviews --format ids
+  [ "$output" = "$(printf 'rv1\nrv2\nrv3')" ]
+}
+
+@test "list --reviews: --file keeps reviews linking a comment on that file, whatever its status" {
+  queue app.py 1 "on app"
+  queue other.rb 1 "on other"
+  "$RVW" submit --id r1 --decision comment --summary "app review" >/dev/null
+  "$RVW" submit --id r2 --decision comment --summary "other review" >/dev/null
+  "$RVW" pull --id rv2 >/dev/null
+  "$RVW" resolve r2 --note "done" >/dev/null
+
+  run "$RVW" list --reviews --status all --file other.rb --format ids
+  [ "$output" = "rv2" ]
+  run "$RVW" list --reviews --file app.py --format ids
+  [ "$output" = "rv1" ]
+}
+
+@test "list --reviews: reports no reviews on stderr, not as a failure" {
+  queue app.py 1 "standalone"
+  run "$RVW" list --reviews
+  [ "$status" -eq 0 ]
+  [[ "$output" == "rvw: no submitted reviews for"* ]]
+}
+
 @test "edit: replaces the text and keeps the id, file and range" {
   queue app.py 2-3 "old text"
   run "$RVW" edit r1 --comment "new text"

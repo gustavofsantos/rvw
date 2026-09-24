@@ -1,5 +1,7 @@
 package review
 
+import "slices"
+
 // Inputs and outputs of every [Service] operation. Each one is a JSON object so
 // it can double as an MCP tool's input or structured output. A `jsonschema` tag
 // is the property's description; a field without `omitempty` is required.
@@ -125,6 +127,51 @@ type ReviewSheet struct {
 	// Comments holds the linked comments that still exist, in review order;
 	// a CommentID without a match here is missing evidence.
 	Comments []Comment `json:"comments" jsonschema:"linked comments that still exist, in review order"`
+}
+
+// SheetFilter selects review sheets by [SheetState]. Besides every state it
+// accepts "open" (not yet complete) and "all".
+type SheetFilter string
+
+const (
+	SheetFilterOpen SheetFilter = "open"
+	SheetFilterAll  SheetFilter = "all"
+)
+
+// SheetFilters lists every accepted filter, in help order.
+var SheetFilters = []SheetFilter{
+	SheetFilter(SheetPending), SheetFilter(SheetPulled), SheetFilter(SheetComplete), SheetFilterOpen, SheetFilterAll,
+}
+
+// Matches reports whether a sheet in state st passes the filter; "" is pending.
+func (f SheetFilter) Matches(st SheetState) (bool, error) {
+	switch f {
+	case "":
+		return st == SheetPending, nil
+	case SheetFilterOpen:
+		return st != SheetComplete, nil
+	case SheetFilterAll:
+		return true, nil
+	}
+	if !slices.Contains(SheetFilters, f) {
+		return false, Invalidf("status %q is not one of %s", f, joinValues(SheetFilters))
+	}
+	return st == SheetState(f), nil
+}
+
+// SheetsInput scopes a read of submitted reviews.
+type SheetsInput struct {
+	Workspace string      `json:"workspace" jsonschema:"absolute workspace path"`
+	Status    SheetFilter `json:"status,omitempty" jsonschema:"pending (default), pulled, complete, open or all"`
+	File      string      `json:"file,omitempty" jsonschema:"only reviews linking a comment on this file, absolute or relative to the workspace"`
+	Lane      string      `json:"lane,omitempty" jsonschema:"only this lane's reviews; empty means every lane"`
+}
+
+// SheetsOutput is the review sheets matching a [SheetsInput], oldest first.
+type SheetsOutput struct {
+	Workspace string        `json:"workspace" jsonschema:"absolute workspace path"`
+	Count     int           `json:"count" jsonschema:"number of matching review sheets"`
+	Sheets    []ReviewSheet `json:"sheets" jsonschema:"matching review sheets, oldest first"`
 }
 
 // EditInput replaces a comment's text.

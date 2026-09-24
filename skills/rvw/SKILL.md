@@ -77,6 +77,7 @@ rvw submit --author reviewer --decision request-changes --summary "Fix both befo
 
 ```sh
 rvw list --status open      # pending + pulled, not yet decided
+rvw list --reviews          # submitted review sheets; --status all for every one
 rvw count                   # pending handoffs
 rvw display r3              # one comment, its decision and its diff
 rvw display rv1             # a whole review sheet

@@ -299,7 +299,7 @@ func (s *Service) Evidence(ctx context.Context, in GetInput) (Evidence, error) {
 
 // Sheet returns a submitted review with its linked comments.
 func (s *Service) Sheet(ctx context.Context, in GetInput) (ReviewSheet, error) {
-	sheet := ReviewSheet{Comments: []Comment{}}
+	var sheet ReviewSheet
 	err := s.view(ctx, in.Workspace, func(tx Tx) error {
 		r, ok, err := tx.Review(in.ID)
 		if err != nil {
@@ -308,31 +308,74 @@ func (s *Service) Sheet(ctx context.Context, in GetInput) (ReviewSheet, error) {
 		if !ok {
 			return notFoundf("no submitted review '%s' in this workspace", in.ID)
 		}
-		sheet.Review = r
-		complete := r.Status == ReviewPulled
-		for _, id := range r.CommentIDs {
-			c, ok, err := tx.Comment(id)
+		sheet, err = sheetOf(tx, r)
+		return err
+	})
+	return sheet, err
+}
+
+// Sheets returns the submitted reviews a query scopes to, oldest first, each
+// with its linked comments. Nothing moves.
+func (s *Service) Sheets(ctx context.Context, in SheetsInput) (SheetsOutput, error) {
+	out := SheetsOutput{Workspace: in.Workspace, Sheets: []ReviewSheet{}}
+	if _, err := in.Status.Matches(SheetPending); err != nil {
+		return out, err
+	}
+	scope, err := s.scope(in.Workspace, in.File, in.Lane)
+	if err != nil {
+		return out, err
+	}
+	err = s.view(ctx, in.Workspace, func(tx Tx) error {
+		reviews, err := tx.Reviews()
+		if err != nil {
+			return err
+		}
+		// A review's comments move on without it (pulled, then decided), so
+		// match it against its comments in every status.
+		comments, err := tx.Comments()
+		if err != nil {
+			return err
+		}
+		for _, r := range scope.reviews(reviews, scope.comments(comments)) {
+			sheet, err := sheetOf(tx, r)
 			if err != nil {
 				return err
 			}
-			if !ok {
-				complete = false
-				continue
+			if ok, _ := in.Status.Matches(sheet.State); ok {
+				out.Sheets = append(out.Sheets, sheet)
 			}
-			complete = complete && c.Status.Resolved()
-			sheet.Comments = append(sheet.Comments, c)
-		}
-		switch {
-		case complete:
-			sheet.State = SheetComplete
-		case r.Status == ReviewPulled:
-			sheet.State = SheetPulled
-		default:
-			sheet.State = SheetPending
 		}
 		return nil
 	})
-	return sheet, err
+	out.Count = len(out.Sheets)
+	return out, err
+}
+
+// sheetOf gathers a review's linked comments and derives its state.
+func sheetOf(tx Tx, r Review) (ReviewSheet, error) {
+	sheet := ReviewSheet{Review: r, Comments: []Comment{}}
+	complete := r.Status == ReviewPulled
+	for _, id := range r.CommentIDs {
+		c, ok, err := tx.Comment(id)
+		if err != nil {
+			return sheet, err
+		}
+		if !ok {
+			complete = false
+			continue
+		}
+		complete = complete && c.Status.Resolved()
+		sheet.Comments = append(sheet.Comments, c)
+	}
+	switch {
+	case complete:
+		sheet.State = SheetComplete
+	case r.Status == ReviewPulled:
+		sheet.State = SheetPulled
+	default:
+		sheet.State = SheetPending
+	}
+	return sheet, nil
 }
 
 // Workspaces lists every workspace in the store with its pending handoffs.

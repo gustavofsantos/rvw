@@ -61,6 +61,17 @@ func ReviewLine(r review.Review) string {
 	return fmt.Sprintf("%s  %s  %d review comment(s)  %s", r.ID, r.Decision, len(r.CommentIDs), FirstLine(r.Summary))
 }
 
+// SheetLine is the one-line summary of a review sheet:
+// `rv1  [pending]  approve  2 review comment(s)  @who  summary`.
+func SheetLine(rs review.ReviewSheet) string {
+	r := rs.Review
+	line := fmt.Sprintf("%s  [%s]  %s  %d review comment(s)  ", r.ID, rs.State, r.Decision, len(r.CommentIDs))
+	if who := Attribution(r.Author, r.Lane); who != "" {
+		line += who + "  "
+	}
+	return line + FirstLine(r.Summary)
+}
+
 // Text writes handoffs one per line, reviews first. It reports whether it
 // wrote anything.
 func Text(w io.Writer, reviews []review.Handoff, comments []review.Comment) bool {

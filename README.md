@@ -62,6 +62,7 @@ Keep an eye on it:
 
 ```sh
 rvw list --status open         # raised, not yet decided
+rvw list --reviews             # submitted reviews and their state
 rvw count                      # pending handoffs, for a statusline
 rvw workspaces                 # every workspace with something pending
 ```
