@@ -289,22 +289,6 @@ func (t *tx) UpdateComment(c review.Comment) error {
 		t.wsID, seq)
 }
 
-func (t *tx) DeleteComments(ids []string) error {
-	for _, id := range ids {
-		seq, ok := parseSeq(id, "r")
-		if !ok {
-			continue
-		}
-		if err := t.exec("DELETE FROM review_comments WHERE workspace_id = ? AND comment_seq = ?", t.wsID, seq); err != nil {
-			return err
-		}
-		if err := t.exec("DELETE FROM comments WHERE workspace_id = ? AND seq = ?", t.wsID, seq); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 const reviewColumns = "seq, status, lane, author, decision, summary, created_at, pulled_at"
 
 func (t *tx) Reviews(statuses ...review.ReviewStatus) ([]review.Review, error) {
@@ -420,8 +404,7 @@ func (t *tx) InsertReview(r review.Review) error {
 	return nil
 }
 
-// UpdateReview rewrites a review's lifecycle. Links change only through
-// DeleteComments.
+// UpdateReview rewrites a review's lifecycle. Its links never change.
 func (t *tx) UpdateReview(r review.Review) error {
 	seq, ok := parseSeq(r.ID, "rv")
 	if !ok {
@@ -429,10 +412,6 @@ func (t *tx) UpdateReview(r review.Review) error {
 	}
 	return t.exec("UPDATE reviews SET status = ?, pulled_at = ? WHERE workspace_id = ? AND seq = ?",
 		string(r.Status), r.PulledAt, t.wsID, seq)
-}
-
-func (t *tx) DeleteAllReviews() error {
-	return t.exec("DELETE FROM reviews WHERE workspace_id = ?", t.wsID)
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────

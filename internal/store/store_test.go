@@ -88,45 +88,6 @@ func TestRoundTripKeepsNullsLinksAndOrder(t *testing.T) {
 	}
 }
 
-func TestDeleteCommentsUnlinksAndNeverReusesIDs(t *testing.T) {
-	s := open(t, filepath.Join(t.TempDir(), "rvw.db"))
-	ctx := context.Background()
-	add := func() string {
-		var id string
-		if err := s.Update(ctx, ws, func(tx review.Tx) error {
-			seq, err := tx.NextCommentSeq()
-			if err != nil {
-				return err
-			}
-			id = review.CommentID(seq)
-			return tx.InsertComment(comment(seq, ""))
-		}); err != nil {
-			t.Fatal(err)
-		}
-		return id
-	}
-	add()
-	if err := s.Update(ctx, ws, func(tx review.Tx) error {
-		if err := tx.InsertReview(review.Review{ID: "rv1", Status: review.ReviewPending, Decision: review.DecisionApprove,
-			Summary: "s", CommentIDs: []string{"r1"}, CreatedAt: "t"}); err != nil {
-			return err
-		}
-		return tx.DeleteComments([]string{"r1"})
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if id := add(); id != "r2" {
-		t.Errorf("id reused after delete: got %s", id)
-	}
-	_ = s.View(ctx, ws, func(tx review.Tx) error {
-		rv, _, _ := tx.Review("rv1")
-		if len(rv.CommentIDs) != 0 {
-			t.Errorf("deleted comment still linked: %v", rv.CommentIDs)
-		}
-		return nil
-	})
-}
-
 func TestUnknownWorkspaceReadsEmptyWithoutBeingCreated(t *testing.T) {
 	s := open(t, filepath.Join(t.TempDir(), "rvw.db"))
 	ctx := context.Background()

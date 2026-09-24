@@ -27,13 +27,10 @@ type Tx interface {
 	Comment(id string) (Comment, bool, error)
 	InsertComment(Comment) error
 	UpdateComment(Comment) error
-	// DeleteComments removes the comments and unlinks them from their reviews.
-	DeleteComments(ids []string) error
 
 	Reviews(statuses ...ReviewStatus) ([]Review, error)
 	Review(id string) (Review, bool, error)
 	// InsertReview stores the review and links its CommentIDs in order.
 	InsertReview(Review) error
 	UpdateReview(Review) error
-	DeleteAllReviews() error
 }

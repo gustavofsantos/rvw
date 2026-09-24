@@ -702,59 +702,6 @@ func (s *Service) Edit(ctx context.Context, in EditInput) (Comment, error) {
 	return c, err
 }
 
-// Drop deletes comments by id without handing them over. All or nothing.
-func (s *Service) Drop(ctx context.Context, in DropInput) (DropOutput, error) {
-	out := DropOutput{Workspace: in.Workspace, Dropped: []string{}}
-	ids := unique(in.IDs)
-	err := s.update(ctx, in.Workspace, func(tx Tx) error {
-		var missing []string
-		for _, id := range ids {
-			if _, ok, err := tx.Comment(id); err != nil {
-				return err
-			} else if !ok {
-				missing = append(missing, id)
-			}
-		}
-		if len(missing) > 0 {
-			return notFoundf("no such review in this workspace: %s", strings.Join(missing, ", "))
-		}
-		out.Dropped = ids
-		return tx.DeleteComments(ids)
-	})
-	return out, err
-}
-
-// Clear deletes every comment in a status. Clearing "all" also deletes the
-// submitted reviews; otherwise a review whose comments are cleared stays as a
-// summary-only review.
-func (s *Service) Clear(ctx context.Context, in ClearInput) (ClearOutput, error) {
-	status := cmp.Or(in.Status, FilterPending)
-	out := ClearOutput{Workspace: in.Workspace, Status: status}
-	statuses, err := status.Statuses()
-	if err != nil {
-		return out, err
-	}
-	err = s.update(ctx, in.Workspace, func(tx Tx) error {
-		doomed, err := tx.Comments(statuses...)
-		if err != nil {
-			return err
-		}
-		ids := make([]string, len(doomed))
-		for i, c := range doomed {
-			ids[i] = c.ID
-		}
-		out.Cleared = len(ids)
-		if err := tx.DeleteComments(ids); err != nil {
-			return err
-		}
-		if status == FilterAll {
-			return tx.DeleteAllReviews()
-		}
-		return nil
-	})
-	return out, err
-}
-
 // ── scoping ──────────────────────────────────────────────────────────────────
 
 // scope is what a lane-pinned, file-scoped request may see. Lane scoping is

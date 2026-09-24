@@ -1,7 +1,7 @@
 ---
 name: rvw
 description: Work the local rvw code review queue. Use when the user asks to pull, check, address or work through review comments or feedback, mentions rvw, or asks you to review code and leave comments for another agent.
-allowed-tools: Bash(rvw pull *), Bash(rvw list *), Bash(rvw resolve *), Bash(rvw reject *), Bash(rvw add *), Bash(rvw submit *), Bash(rvw display *), Bash(rvw count *)
+allowed-tools: Bash(rvw pull *), Bash(rvw list *), Bash(rvw resolve *), Bash(rvw reject *), Bash(rvw add *), Bash(rvw submit *), Bash(rvw show *), Bash(rvw count *)
 ---
 
 # rvw
@@ -79,8 +79,8 @@ rvw submit --author reviewer --decision request-changes --summary "Fix both befo
 rvw list --status open      # pending + pulled, not yet decided
 rvw list --reviews          # submitted review sheets; --status all for every one
 rvw count                   # pending handoffs
-rvw display r3              # one comment, its decision and its diff
-rvw display rv1             # a whole review sheet
+rvw show r3                 # one comment, its decision and its diff
+rvw show rv1                # a whole review sheet
 rvw <command> --help        # every flag
 ```
 

@@ -160,22 +160,3 @@ func decisionLabel(d review.Decision) string {
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
 }
-
-// Show is the plain-text view of one comment and its decision.
-func Show(w io.Writer, c review.Comment) {
-	head := fmt.Sprintf("%s  %s  [%s]", c.ID, c.Location(), c.Status)
-	if who := Attribution(c.Author, c.Lane); who != "" {
-		head += "  " + who
-	}
-	fmt.Fprintf(w, "%s\n\n%s\n", head, c.Comment)
-	if c.ResolvedAt != nil {
-		decided := ""
-		if c.ResolvedBy != nil {
-			decided = " by @" + *c.ResolvedBy
-		}
-		fmt.Fprintf(w, "\n--- %s%s at %s\n", c.Status, decided, *c.ResolvedAt)
-		if c.ResolutionNote != nil {
-			fmt.Fprintln(w, *c.ResolutionNote)
-		}
-	}
-}

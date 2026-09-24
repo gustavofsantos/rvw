@@ -54,8 +54,8 @@ Close the loop:
 ```sh
 rvw resolve r1 --author claude --note "extracted into parse_header(), test added"
 rvw reject r2 --author claude --note "intentional: the caller validates"
-rvw display r1                 # the comment, its resolution and the diff
-rvw display rv1                # the whole review sheet
+rvw show r1                    # the comment, its resolution and the diff
+rvw show rv1                   # the whole review sheet
 ```
 
 Keep an eye on it:
@@ -95,10 +95,10 @@ Then ask Claude to "address the review comments", or run `/rvw:rvw`.
   the comments and records a decision on each.
 - **Agent → agent.** A reviewing agent adds comments and submits a review with
   `--author reviewer`. The coding agent pulls the review, fixes the code and
-  resolves each comment. You read the outcome with `rvw display`.
+  resolves each comment. You read the outcome with `rvw show`.
 - **Parallel branches.** With several branches in one working tree, give each
   agent its own `--lane`. A pinned pull never takes another lane's comments,
   and it reports when work is waiting in another lane.
 - **Audit trail.** `rvw list --status done --format json` gives you every
-  addressed comment with who resolved it and when. `rvw display` shows what
+  addressed comment with who resolved it and when. `rvw show` shows what
   changed.

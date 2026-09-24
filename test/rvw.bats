@@ -276,34 +276,6 @@ SH
   [ "$output" = "rv2" ]
 }
 
-@test "dropping a linked comment keeps the submitted review valid" {
-  queue app.py 1 "remove me"
-  queue app.py 2 "keep me"
-  "$RVW" submit --id r1 --id r2 --decision request-changes \
-    --summary "One finding remains." >/dev/null
-
-  "$RVW" drop r1 >/dev/null
-  run "$RVW" pull
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"One finding remains."* ]]
-  [[ "$output" != *"remove me"* ]]
-  [[ "$output" == *"keep me"* ]]
-}
-
-@test "clearing linked comments leaves a summary-only review" {
-  queue app.py 1 "clear me"
-  "$RVW" submit --id r1 --decision comment --summary "Keep the overall assessment." >/dev/null
-
-  "$RVW" clear >/dev/null
-  run "$RVW" count
-  [ "$output" = "1" ]
-
-  run "$RVW" pull
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"Keep the overall assessment."* ]]
-  [[ "$output" != *"clear me"* ]]
-}
-
 @test "a linked comment cannot be resolved before its review is pulled" {
   queue app.py 1 "work me"
   "$RVW" submit --id r1 --decision request-changes --summary "Needs work." >/dev/null
@@ -478,13 +450,13 @@ SH
 
 # ── ids, listing, editing ─────────────────────────────────────────────────────
 
-@test "ids are never reused after a pull or a drop" {
+@test "ids are never reused after a pull or a rejection" {
   queue app.py 1 "first"
   "$RVW" pull >/dev/null
   run queue app.py 2 "second"
   [ "$output" = "r2" ]
 
-  "$RVW" drop r2
+  "$RVW" reject r2 --note "withdrawn" >/dev/null
   run queue app.py 3 "third"
   [ "$output" = "r3" ]
 }
@@ -625,51 +597,6 @@ SH
   run "$RVW" edit r9 --comment x </dev/null
   [ "$status" -eq 1 ]
   [[ "$output" == *"no review 'r9'"* ]]
-}
-
-@test "drop: removes comments by id without handing them over" {
-  queue app.py 1 "first"
-  queue app.py 2 "second"
-  run "$RVW" drop r1
-  [ "$status" -eq 0 ]
-
-  run "$RVW" list --format ids
-  [ "$output" = "r2" ]
-  run "$RVW" list --status all --format count
-  [ "$output" = "1" ]
-}
-
-@test "drop: rejects an unknown id and changes nothing" {
-  queue app.py 1 "first"
-  run "$RVW" drop r1 r9
-  [ "$status" -eq 1 ]
-  run "$RVW" count
-  [ "$output" = "1" ]
-}
-
-@test "clear: empties the pending queue but spares the archive" {
-  queue app.py 1 "pulled one"
-  "$RVW" pull >/dev/null
-  queue app.py 2 "pending one"
-
-  run "$RVW" clear
-  [ "$status" -eq 0 ]
-  [[ "$output" == "cleared 1 pending review comment(s)"* ]]
-
-  run "$RVW" count
-  [ "$output" = "0" ]
-  run "$RVW" list --status pulled --format count
-  [ "$output" = "1" ]
-}
-
-@test "clear: --status all wipes the workspace" {
-  queue app.py 1 "pulled one"
-  "$RVW" pull >/dev/null
-  queue app.py 2 "pending one"
-
-  "$RVW" clear --status all
-  run "$RVW" list --status all --format count
-  [ "$output" = "0" ]
 }
 
 # ── workspaces ────────────────────────────────────────────────────────────────
@@ -1034,15 +961,61 @@ SH
   "$RVW" resolve r1 --note "renamed to first()" --author impl-agent
 
   run "$RVW" show r1
-  [[ "$output" == *"[done]"* ]]
+  [[ "$output" == *"[DONE]"* ]]
   [[ "$output" == *"done by @impl-agent"* ]]
   [[ "$output" == *"renamed to first()"* ]]
 }
 
-@test "display: an open review line shows saved source before and after handoff" {
+@test "show: json is the comment with its evidence" {
+  queue app.py 1 "rename this"
+  "$RVW" resolve r1 --note "renamed"
+
+  run "$RVW" show r1 --format json
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.comment.id' <<<"$output")" = "r1" ]
+  [ "$(jq -r '.comment.status' <<<"$output")" = "done" ]
+  [ "$(jq -r '.diff | type' <<<"$output")" = "array" ]
+  [ "$(jq -r 'has("diff_available")' <<<"$output")" = "true" ]
+
+  run "$RVW" show r1 --format markdown
+  [[ "$output" == *'`app.py:1` (r1'* ]]
+}
+
+@test "reject: retracts a pending comment, which leaves the queue but stays on record" {
+  queue app.py 1 "never mind"
+  queue app.py 2 "still wanted"
+
+  run "$RVW" reject r1 --note "withdrawn: misread the diff" --author alice
+  [ "$status" -eq 0 ]
+
+  run "$RVW" count
+  [ "$output" = "1" ]
+  run "$RVW" list --format ids
+  [ "$output" = "r2" ]
+  run "$RVW" pull --format ids
+  [ "$output" = "r2" ]
+
+  run "$RVW" list --status rejected --format json
+  [ "$(jq -r '.reviews[0].id' <<<"$output")" = "r1" ]
+  [ "$(jq -r '.reviews[0].resolved_by' <<<"$output")" = "alice" ]
+  [ "$(jq -r '.reviews[0].resolution_note' <<<"$output")" = "withdrawn: misread the diff" ]
+}
+
+@test "nothing is deleted: drop, clear and display are not commands" {
+  queue app.py 1 "keep me"
+  for sub in drop clear display; do
+    run "$RVW" "$sub" r1
+    [ "$status" -eq 1 ]
+    [[ "$output" == "rvw: unknown command \"$sub\""* ]]
+  done
+  run "$RVW" count
+  [ "$output" = "1" ]
+}
+
+@test "show: an open review line shows saved source before and after handoff" {
   queue app.py 2-3 "tighten this"
 
-  run "$RVW" display r1
+  run "$RVW" show r1
   [ "$status" -eq 0 ]
   [[ "$output" == *"REVIEW LINE r1"* ]]
   [[ "$output" == *"[PENDING]"* ]]
@@ -1056,7 +1029,7 @@ SH
 
   "$RVW" pull >/dev/null
 
-  run "$RVW" display r1
+  run "$RVW" show r1
   [ "$status" -eq 0 ]
   [[ "$output" == *"[PULLED]"* ]]
   [[ "$output" == *"> 2 | two"* ]]
@@ -1066,14 +1039,14 @@ SH
   [ "$output" = "r1" ]
 }
 
-@test "display: a completed review line shows every changed hunk between snapshots" {
+@test "show: a completed review line shows every changed hunk between snapshots" {
   git add app.py
   queue app.py 2 "change this"
   "$RVW" pull >/dev/null
   printf 'one\nchanged-two\nthree-modified\nfour\n' > app.py
   "$RVW" resolve r1 --note "updated implementation" >/dev/null
 
-  run "$RVW" display r1
+  run "$RVW" show r1
   [ "$status" -eq 0 ]
   [[ "$output" == *"REVIEW LINE r1"* ]]
   [[ "$output" == *"[DONE]"* ]]
@@ -1090,12 +1063,12 @@ SH
   done <<< "$output"
 }
 
-@test "display: a rejected review line shows its source and reason without a diff" {
+@test "show: a rejected review line shows its source and reason without a diff" {
   queue app.py 2 "change this"
   "$RVW" pull >/dev/null
   "$RVW" reject r1 --note "keep the existing implementation" >/dev/null
 
-  run "$RVW" display r1
+  run "$RVW" show r1
   [ "$status" -eq 0 ]
   [[ "$output" == *"REVIEW LINE r1"* ]]
   [[ "$output" == *"[REJECTED]"* ]]
@@ -1105,7 +1078,7 @@ SH
   [[ "$output" != *"DIFF"* ]]
 }
 
-@test "display: a submitted review sheet preserves summary order and evidence" {
+@test "show: a submitted review sheet preserves summary order and evidence" {
   queue app.py 1 "first finding"
   queue app.py 2 "second finding"
   "$RVW" submit --id r1 --id r2 \
@@ -1113,7 +1086,7 @@ SH
     --summary "The error path must be fixed before merging." \
     --format ids >/dev/null
 
-  run "$RVW" display rv1
+  run "$RVW" show rv1
   [ "$status" -eq 0 ]
   [[ "$output" == *"REVIEW SHEET rv1"* ]]
   [[ "$output" == *"[PENDING]"* ]]
@@ -1139,7 +1112,7 @@ SH
   done <<< "$output"
 }
 
-@test "display: a submitted review completes only when every comment is terminal" {
+@test "show: a submitted review completes only when every comment is terminal" {
   queue app.py 1 "first finding"
   queue app.py 2 "second finding"
   "$RVW" submit --id r1 --id r2 \
@@ -1149,31 +1122,31 @@ SH
   "$RVW" pull --id rv1 >/dev/null
   "$RVW" resolve r1 --note "fixed" >/dev/null
 
-  run "$RVW" display rv1
+  run "$RVW" show rv1
   [ "$status" -eq 0 ]
   [[ "$output" == *"[PULLED]"* ]]
   [[ "$output" != *"[COMPLETE]"* ]]
 
   "$RVW" reject r2 --note "intentionally retained" >/dev/null
-  run "$RVW" display rv1
+  run "$RVW" show rv1
   [ "$status" -eq 0 ]
   [[ "$output" == *"[COMPLETE]"* ]]
 }
 
-@test "display: a pulled summary-only review is complete" {
+@test "show: a pulled summary-only review is complete" {
   "$RVW" submit --no-comments \
     --decision comment \
     --summary "No actionable findings." \
     --format ids >/dev/null
   "$RVW" pull --id rv1 >/dev/null
 
-  run "$RVW" display rv1
+  run "$RVW" show rv1
   [ "$status" -eq 0 ]
   [[ "$output" == *"[COMPLETE]"* ]]
   [[ "$output" == *"(no linked comments)"* ]]
 }
 
-@test "display: a missing linked comment stays visible and keeps the review incomplete" {
+@test "show: a missing linked comment stays visible and keeps the review incomplete" {
   queue app.py 1 "missing evidence"
   "$RVW" submit --id r1 \
     --decision request-changes \
@@ -1183,21 +1156,11 @@ SH
 
   sqlite3 "$DB" "DELETE FROM comments WHERE seq = 1"
 
-  run "$RVW" display rv1
+  run "$RVW" show rv1
   [ "$status" -eq 0 ]
   [[ "$output" == *"[PULLED]"* ]]
   [[ "$output" == *"MISSING r1"* ]]
   [[ "$output" != *"[COMPLETE]"* ]]
-}
-
-@test "a decided comment survives a clear of the pending queue" {
-  queue app.py 1 "decided"
-  "$RVW" resolve r1 --note "done"
-  queue app.py 2 "still pending"
-
-  "$RVW" clear
-  run "$RVW" list --status done --format ids
-  [ "$output" = "r1" ]
 }
 
 # ── shape of the tool itself ──────────────────────────────────────────────────
@@ -1242,7 +1205,7 @@ SH
   [ "$status" -eq 0 ]
   [[ "$output" == *"per-workspace queue of code review feedback"* ]]
 
-  for sub in add submit list pull show display edit resolve reject drop clear count workspaces path; do
+  for sub in add submit list pull show edit resolve reject count workspaces path; do
     run "$RVW" "$sub" --help
     [ "$status" -eq 0 ]
     [[ "$output" == *"Usage:"*"rvw $sub"* ]]

@@ -50,7 +50,8 @@ const examples = `  rvw add --file src/api.py --lines 40-58 --comment "extract t
   rvw pull --peek                       # look without dequeuing
   rvw resolve r3 --note "renamed, test added"
   rvw reject r4 --note "intentional: the caller validates"
-  rvw display r3
+  rvw show r3                           # one comment, its decision and its diff
+  rvw show rv1                          # a whole review sheet
   rvw count                             # pending handoff count, for a statusline
   rvw workspaces                        # every workspace holding comments`
 
@@ -70,9 +71,9 @@ func (a *app) root() *cobra.Command {
 		"queue to act on (default: git toplevel of $PWD, else $PWD)")
 	root.PersistentFlags().StringVar(&a.dbFlag, "db", "",
 		"database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)")
-	root.AddCommand(a.addCmd(), a.submitCmd(), a.listCmd(), a.pullCmd(), a.showCmd(), a.displayCmd(),
+	root.AddCommand(a.addCmd(), a.submitCmd(), a.listCmd(), a.pullCmd(), a.showCmd(),
 		a.editCmd(), a.decideCmd(review.OutcomeDone), a.decideCmd(review.OutcomeRejected),
-		a.dropCmd(), a.clearCmd(), a.countCmd(), a.workspacesCmd(), a.pathCmd())
+		a.countCmd(), a.workspacesCmd(), a.pathCmd())
 	return root
 }
 
@@ -535,9 +536,14 @@ func (a *app) showCmd() *cobra.Command {
 	var format formatFlag
 	cmd := &cobra.Command{
 		Use:   "show ID",
-		Short: "print one review comment (or submitted review) by id",
-		Long:  "Print one review comment, or one submitted review, by id. Nothing is dequeued.",
-		Args:  cobra.ExactArgs(1),
+		Short: "show one review comment (or review sheet) with its source evidence",
+		Long: `Show one review comment as a fixed-width review line: its source, or the
+diff it produced once done, and its note or resolution. A submitted review id
+shows the whole review sheet. Nothing is dequeued.`,
+		Example: `  rvw show r3
+  rvw show rv1
+  rvw show r3 --format json`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			if err := format.check(); err != nil {
 				return err
@@ -562,54 +568,23 @@ func (a *app) showCmd() *cobra.Command {
 				}
 				return nil
 			}
-			c, err := svc.Get(a.ctx, in)
+			ev, err := svc.Evidence(a.ctx, in)
 			if err != nil {
 				return err
 			}
 			switch format.value {
 			case "json":
-				return render.JSON(a.stdout, c)
+				return render.JSON(a.stdout, ev)
 			case "markdown":
-				fmt.Fprint(a.stdout, render.Markdown(in.Workspace, nil, []review.Comment{c}, false))
+				fmt.Fprint(a.stdout, render.Markdown(in.Workspace, nil, []review.Comment{ev.Comment}, false))
 			default:
-				render.Show(a.stdout, c)
+				fmt.Fprint(a.stdout, render.Display(ev))
 			}
 			return nil
 		},
 	}
 	format.register(cmd, "text", "text", "json", "markdown")
 	return cmd
-}
-
-func (a *app) displayCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "display ID",
-		Short: "display one review line (or review sheet) with its source evidence",
-		Long: `Display one review comment as a fixed-width review line: its source, or the
-diff it produced once done, and its note or resolution. A submitted review id
-displays the whole review sheet. Nothing is dequeued.`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
-			in, svc, err := a.get(args[0])
-			if err != nil {
-				return err
-			}
-			if review.IsReviewID(in.ID) {
-				sheet, err := svc.Sheet(a.ctx, in)
-				if err != nil {
-					return err
-				}
-				fmt.Fprint(a.stdout, render.Sheet(sheet))
-				return nil
-			}
-			ev, err := svc.Evidence(a.ctx, in)
-			if err != nil {
-				return err
-			}
-			fmt.Fprint(a.stdout, render.Display(ev))
-			return nil
-		},
-	}
 }
 
 func (a *app) get(id string) (review.GetInput, *review.Service, error) {
@@ -711,8 +686,12 @@ that still exists, resolve also saves its current contents as a Git blob.
 		cmd.Use = "reject ID --note TEXT"
 		cmd.Short = "record that a comment will not be actioned, and why"
 		cmd.Long = `Record that a review comment will not be actioned. The reason is required —
-a silent decline is exactly what this queue exists to prevent.`
-		cmd.Example = `  rvw reject r3 --note "intentional: the caller already validates"`
+a silent decline is exactly what this queue exists to prevent.
+
+It is also how a reviewer withdraws a pending comment: it leaves the queue but
+stays on record. Nothing in rvw is deleted.`
+		cmd.Example = `  rvw reject r3 --note "intentional: the caller already validates"
+  rvw reject r5 --note "withdrawn: I misread the diff"`
 	}
 	cmd.Args = cobra.ExactArgs(1)
 	cmd.RunE = func(_ *cobra.Command, args []string) error {
@@ -757,7 +736,7 @@ func (a *app) editCmd() *cobra.Command {
 		Use:   "edit ID [--comment TEXT]",
 		Short: "replace the text of a queued review comment",
 		Long: `Replace the text of one review comment. The file, range, and code snapshot
-are unchanged — drop and re-add to move a comment.`,
+are unchanged — reject and re-add to move a comment.`,
 		Example: `  rvw edit r3 --comment "split this function"
   pbpaste | rvw edit r3`,
 		Args: cobra.ExactArgs(1),
@@ -792,63 +771,5 @@ are unchanged — drop and re-add to move a comment.`,
 	}
 	cmd.Flags().StringVar(&comment, "comment", "", "new text (default: read stdin)")
 	format.register(cmd, "text", "text", "json")
-	return cmd
-}
-
-func (a *app) dropCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "drop ID...",
-		Short: "delete review comments by id",
-		Long:  "Delete review comments by id, without handing them to anyone.",
-		Args:  cobra.MinimumNArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
-			ws, err := a.workspace()
-			if err != nil {
-				return err
-			}
-			svc, err := a.svc()
-			if err != nil {
-				return err
-			}
-			out, err := svc.Drop(a.ctx, review.DropInput{Workspace: ws, IDs: args})
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(a.stdout, "dropped %d review comment(s)\n", len(out.Dropped))
-			return nil
-		},
-	}
-}
-
-func (a *app) clearCmd() *cobra.Command {
-	var status string
-	cmd := &cobra.Command{
-		Use:   "clear",
-		Short: "delete every review comment in this workspace",
-		Long: `Delete this workspace's review comments in bulk. Pending by default; a
-submitted review whose comments are cleared stays as a summary-only review.
---status all also deletes the submitted reviews.`,
-		Args: cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			if err := checkStatus(status); err != nil {
-				return err
-			}
-			ws, err := a.workspace()
-			if err != nil {
-				return err
-			}
-			svc, err := a.svc()
-			if err != nil {
-				return err
-			}
-			out, err := svc.Clear(a.ctx, review.ClearInput{Workspace: ws, Status: review.StatusFilter(status)})
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(a.stdout, "cleared %d %s review comment(s) for %s\n", out.Cleared, out.Status, out.Workspace)
-			return nil
-		},
-	}
-	statusFlag(cmd, &status, "which comments to delete (default: pending)")
 	return cmd
 }

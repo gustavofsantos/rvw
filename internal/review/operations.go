@@ -181,31 +181,6 @@ type EditInput struct {
 	Comment   string `json:"comment" jsonschema:"new text"`
 }
 
-// DropInput deletes comments without handing them over.
-type DropInput struct {
-	Workspace string   `json:"workspace" jsonschema:"absolute workspace path"`
-	IDs       []string `json:"ids" jsonschema:"comment ids"`
-}
-
-// DropOutput names what was deleted.
-type DropOutput struct {
-	Workspace string   `json:"workspace" jsonschema:"absolute workspace path"`
-	Dropped   []string `json:"dropped" jsonschema:"deleted comment ids"`
-}
-
-// ClearInput deletes comments in bulk.
-type ClearInput struct {
-	Workspace string       `json:"workspace" jsonschema:"absolute workspace path"`
-	Status    StatusFilter `json:"status,omitempty" jsonschema:"which comments to delete; pending by default, all also deletes reviews"`
-}
-
-// ClearOutput counts what was deleted.
-type ClearOutput struct {
-	Workspace string       `json:"workspace" jsonschema:"absolute workspace path"`
-	Status    StatusFilter `json:"status" jsonschema:"the status that was cleared"`
-	Cleared   int          `json:"cleared" jsonschema:"number of comments deleted"`
-}
-
 // WorkspacesInput lists workspaces in the store.
 type WorkspacesInput struct {
 	All bool `json:"all,omitempty" jsonschema:"include workspaces with nothing pending"`
