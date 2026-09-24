@@ -13,11 +13,11 @@ import (
 const about = `rvw — a per-workspace queue of code review feedback, written in an editor or
 by a reviewing agent and pulled by a coding agent.
 
-You annotate code where you read it (an editor plugin, or ` + "`rvw add`" + ` straight
-from a shell); every comment lands in a durable queue keyed by the workspace it
-was written in. Whatever agent you are running later drains that queue with
-` + "`rvw pull`" + ` — pulled comments leave the queue, so the same note is never worked
-twice.
+You annotate code where you read it (an editor plugin, ` + "`rvw tui`" + `, or ` + "`rvw add`" + `
+straight from a shell); every comment lands in a durable queue keyed by the
+workspace it was written in. Whatever agent you are running later drains that
+queue with ` + "`rvw pull`" + ` — pulled comments leave the queue, so the same note is
+never worked twice.
 
 Comments stay standalone by default. ` + "`rvw submit`" + ` can group zero or more
 pending comments under one review with a decision and summary. Pulling any
@@ -54,7 +54,8 @@ const examples = `  rvw add --file src/api.py --lines 40-58 --comment "extract t
   rvw show rv1                          # a whole review sheet
   rvw count                             # pending handoff count, for a statusline
   rvw workspaces                        # every workspace holding comments
-  rvw mcp config                        # connect Claude Code to the MCP server`
+  rvw mcp config                        # connect Claude Code to the MCP server
+  rvw tui                               # read code and comment in a terminal UI`
 
 func (a *app) root() *cobra.Command {
 	root := &cobra.Command{
@@ -74,7 +75,7 @@ func (a *app) root() *cobra.Command {
 		"database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)")
 	root.AddCommand(a.addCmd(), a.submitCmd(), a.listCmd(), a.pullCmd(), a.showCmd(),
 		a.editCmd(), a.decideCmd(review.OutcomeDone), a.decideCmd(review.OutcomeRejected),
-		a.countCmd(), a.workspacesCmd(), a.pathCmd(), a.mcpCmd())
+		a.countCmd(), a.workspacesCmd(), a.pathCmd(), a.mcpCmd(), a.tuiCmd())
 	return root
 }
 
