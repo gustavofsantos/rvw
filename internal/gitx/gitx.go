@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -111,4 +112,60 @@ func Files(dir string) ([]string, error) {
 		}
 	}
 	return files, nil
+}
+
+// Hunk is one hunk header of a zero-context diff: the old file's lines
+// OldStart..OldStart+OldLines-1 became the new file's NewStart..NewStart+NewLines-1.
+// A count of 0 puts its start just before the hunk: a pure deletion lies after
+// new line NewStart, 0 being the top of the file.
+type Hunk struct {
+	OldStart, OldLines int
+	NewStart, NewLines int
+}
+
+// Changes diffs the file at path, inside the worktree at dir, against HEAD:
+// staged and unstaged edits together. untracked is set, with no hunks, for a
+// file git does not track and does not ignore. A binary file has no hunks.
+func Changes(dir, path string) (hunks []Hunk, untracked bool, err error) {
+	others, _, err := run(dir, "", "--literal-pathspecs", "ls-files", "--others", "--exclude-standard", "--", path)
+	if err != nil {
+		return nil, false, err
+	}
+	if strings.TrimSpace(others) != "" {
+		return nil, true, nil
+	}
+	out, _, err := run(dir, "", "--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", "--no-textconv", "-U0", "HEAD", "--", path)
+	if err != nil {
+		return nil, false, err
+	}
+	return parseHunks(out), false, nil
+}
+
+// parseHunks reads the "@@ -a,b +c,d @@" headers of a unified diff; a count
+// left out is 1.
+func parseHunks(diff string) []Hunk {
+	var hunks []Hunk
+	for line := range strings.SplitSeq(diff, "\n") {
+		rest, ok := strings.CutPrefix(line, "@@ -")
+		if !ok {
+			continue
+		}
+		old, rest, _ := strings.Cut(rest, " +")
+		nu, _, _ := strings.Cut(rest, " @@")
+		var h Hunk
+		h.OldStart, h.OldLines = span(old)
+		h.NewStart, h.NewLines = span(nu)
+		hunks = append(hunks, h)
+	}
+	return hunks
+}
+
+func span(s string) (start, count int) {
+	a, b, found := strings.Cut(s, ",")
+	start, _ = strconv.Atoi(a)
+	count = 1
+	if found {
+		count, _ = strconv.Atoi(b)
+	}
+	return start, count
 }

@@ -34,6 +34,14 @@ var (
 	stError     = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	stNotice    = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
 	stMode      = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
+
+	signStyles = [...]lipgloss.Style{
+		signNone:       stPlain,
+		signAdded:      lipgloss.NewStyle().Foreground(lipgloss.Color("2")),
+		signChanged:    lipgloss.NewStyle().Foreground(lipgloss.Color("4")),
+		signDeleted:    lipgloss.NewStyle().Foreground(lipgloss.Color("1")),
+		signDeletedTop: lipgloss.NewStyle().Foreground(lipgloss.Color("1")),
+	}
 )
 
 // theme holds the colors that depend on the terminal's background.
@@ -264,8 +272,13 @@ func (m *model) viewLine(i, w int) string {
 			railSt = stRailOff
 		}
 	}
+	sg := signNone
+	if idx < len(f.signs) {
+		sg = f.signs[idx]
+	}
 	row := []piece{
-		{fmt.Sprintf(" %*d ", numWidth, line), numSt},
+		{signGlyphs[sg], signStyles[sg]},
+		{fmt.Sprintf("%*d ", numWidth, line), numSt},
 		{glyph, railSt},
 		{" ", stPlain},
 	}
@@ -530,6 +543,7 @@ var helpKeys = [][2]string{
 	{"j/k  C-d/C-u", "move, half page"},
 	{"gg/G  NG  :N", "first, last, line N"},
 	{"]c  [c", "next, previous comment"},
+	{"]h  [h", "next, previous git change"},
 	{"V", "select lines (esc cancels)"},
 	{"c", "comment on the line or selection"},
 	{"e", "edit the comment on this line"},

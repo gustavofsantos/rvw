@@ -104,6 +104,8 @@ type fileView struct {
 	plain    []string
 	binary   bool
 	comments []review.Comment // open comments on this file, oldest first
+	signs    []sign           // git change per line, nil for none
+	hunks    []int            // the line each git hunk starts on
 	cursor   int
 	offset   int
 }
@@ -212,6 +214,7 @@ func (m *model) loadFile(rel string) (*fileView, error) {
 	text := string(data)
 	f.plain = sourceLines(text)
 	f.lines = highlight(rel, text)
+	f.signs, f.hunks = fileChanges(m.opts.Workspace, abs, len(f.lines))
 	return f, nil
 }
 
@@ -387,6 +390,10 @@ func (m *model) key(k tea.KeyPressMsg) tea.Cmd {
 			return m.jumpComment(1)
 		case "[c":
 			return m.jumpComment(-1)
+		case "]h":
+			return m.jumpHunk(1)
+		case "[h":
+			return m.jumpHunk(-1)
 		}
 		return nil
 	}
@@ -523,12 +530,27 @@ func (m *model) jumpComment(dir int) tea.Cmd {
 		return nil
 	}
 	line, ok := nextComment(f.comments, f.cursor+1, dir)
+	return m.jumpTo(line, ok, dir, "comment")
+}
+
+func (m *model) jumpHunk(dir int) tea.Cmd {
+	f := m.file
+	if f == nil || m.focus != paneViewer {
+		return nil
+	}
+	line, ok := nearest(f.hunks, f.cursor+1, dir)
+	return m.jumpTo(line, ok, dir, "change")
+}
+
+// jumpTo moves the cursor to line, or, when there is none (!ok), says there
+// is no next or previous what.
+func (m *model) jumpTo(line int, ok bool, dir int, what string) tea.Cmd {
 	if !ok {
 		word := "next"
 		if dir < 0 {
 			word = "previous"
 		}
-		return m.setFlash("no "+word+" comment in this file", false)
+		return m.setFlash("no "+word+" "+what+" in this file", false)
 	}
 	m.gotoLine(line)
 	return nil

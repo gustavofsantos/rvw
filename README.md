@@ -85,12 +85,17 @@ works in any directory, with or without git. The left pane is the workspace's
 file tree, with `💬N` next to files that have open comments; in a git worktree
 it leaves out the files git ignores. The right pane is
 the current file, syntax-highlighted, with a rail in the gutter on every line
-under an open comment. The bottom bar shows the comments on the cursor line.
+under an open comment. In a git worktree, the gutter's left edge also marks
+what changed since `HEAD`, staged or not: a green `▎` for an added line, a
+blue `▎` for a changed one, and a red `▁` under the spot where lines were
+deleted (`▔` over the first line when the top was). An untracked file shows
+as all added. The bottom bar shows the comments on the cursor line.
 
 - `C-p` opens a file by fuzzy name; `C-l` lists the open comments.
 - `V` selects lines, `c` comments on the line or the selection, `e` edits the
   comment on the line, `s` submits your pending comments as a review.
-- `]c` and `[c` jump between comments; `r` reloads the file and the queue.
+- `]c` and `[c` jump between comments, `]h` and `[h` between git changes;
+  `r` reloads the file, its git changes and the queue.
   Nothing is watched, so comments added elsewhere show up on the next reload.
 - `?` lists every key.
 - The mouse works too: click a file in the tree to open it, click a directory

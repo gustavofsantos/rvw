@@ -51,9 +51,18 @@ func covering(cs []review.Comment, line int) []review.Comment {
 // nextComment is the first line of the nearest comment starting after line
 // (dir 1) or before it (dir -1); ok is false when there is none.
 func nextComment(cs []review.Comment, line, dir int) (int, bool) {
+	starts := make([]int, len(cs))
+	for i, c := range cs {
+		starts[i] = c.StartLine
+	}
+	return nearest(starts, line, dir)
+}
+
+// nearest is the closest of lines after line (dir 1) or before it (dir -1);
+// ok is false when there is none.
+func nearest(lines []int, line, dir int) (int, bool) {
 	best, ok := 0, false
-	for _, c := range cs {
-		s := c.StartLine
+	for _, s := range lines {
 		if (dir > 0 && s > line || dir < 0 && s < line) && (!ok || (s-best)*dir < 0) {
 			best, ok = s, true
 		}
