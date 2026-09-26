@@ -129,25 +129,39 @@ func displayText(s string, col int) (string, int) {
 	return b.String(), col
 }
 
-// palette maps token types to lipgloss styles for one chroma style.
+// palette maps token types to lipgloss styles, from a chroma style or, with
+// no style named, from the terminal's own ANSI colors.
 type palette struct {
 	style *chroma.Style
 	cache map[chroma.TokenType]lipgloss.Style
 }
 
+// newPalette returns the palette for a chroma style; an empty name uses the
+// terminal's colors, and an unknown one chroma's fallback.
 func newPalette(name string) *palette {
-	s := styles.Get(name)
-	if s == nil {
-		s = styles.Fallback
+	p := &palette{cache: map[chroma.TokenType]lipgloss.Style{}}
+	if name != "" {
+		p.style = styles.Get(name)
+		if p.style == nil {
+			p.style = styles.Fallback
+		}
 	}
-	return &palette{style: s, cache: map[chroma.TokenType]lipgloss.Style{}}
+	return p
 }
 
 func (p *palette) get(t chroma.TokenType) lipgloss.Style {
 	if st, ok := p.cache[t]; ok {
 		return st
 	}
-	e := p.style.Get(t)
+	st := ansiStyle(t)
+	if p.style != nil {
+		st = chromaStyle(p.style.Get(t))
+	}
+	p.cache[t] = st
+	return st
+}
+
+func chromaStyle(e chroma.StyleEntry) lipgloss.Style {
 	st := lipgloss.NewStyle()
 	if e.Colour.IsSet() {
 		st = st.Foreground(lipgloss.Color(e.Colour.String()))
@@ -158,6 +172,55 @@ func (p *palette) get(t chroma.TokenType) lipgloss.Style {
 	if e.Italic == chroma.Yes {
 		st = st.Italic(true)
 	}
-	p.cache[t] = st
+	return st
+}
+
+// ansiColors colors token types with the terminal's 16-color palette, so code
+// follows the terminal's theme, light or dark. A type without an entry takes
+// its subcategory's, then its category's; text and operators stay plain.
+var ansiColors = map[chroma.TokenType]string{
+	chroma.Keyword:             "5",
+	chroma.KeywordType:         "3",
+	chroma.KeywordConstant:     "3",
+	chroma.NameBuiltin:         "6",
+	chroma.NameClass:           "3",
+	chroma.NameConstant:        "3",
+	chroma.NameDecorator:       "6",
+	chroma.NameException:       "3",
+	chroma.NameFunction:        "4",
+	chroma.NameFunctionMagic:   "4",
+	chroma.NameTag:             "4",
+	chroma.NameAttribute:       "3",
+	chroma.NameLabel:           "6",
+	chroma.LiteralString:       "2",
+	chroma.LiteralStringEscape: "6",
+	chroma.LiteralStringRegex:  "6",
+	chroma.LiteralNumber:       "3",
+	chroma.Comment:             "8",
+	chroma.CommentPreproc:      "6",
+	chroma.GenericDeleted:      "1",
+	chroma.GenericInserted:     "2",
+	chroma.GenericHeading:      "4",
+	chroma.GenericSubheading:   "6",
+	chroma.GenericError:        "1",
+	chroma.Error:               "1",
+}
+
+func ansiStyle(t chroma.TokenType) lipgloss.Style {
+	st := lipgloss.NewStyle()
+	for _, k := range []chroma.TokenType{t, t.SubCategory(), t.Category()} {
+		if c, ok := ansiColors[k]; ok {
+			st = st.Foreground(lipgloss.Color(c))
+			break
+		}
+	}
+	switch {
+	case t.InCategory(chroma.Comment) && t != chroma.CommentPreproc:
+		st = st.Italic(true)
+	case t == chroma.GenericHeading || t == chroma.GenericSubheading || t == chroma.GenericStrong:
+		st = st.Bold(true)
+	case t == chroma.GenericEmph:
+		st = st.Italic(true)
+	}
 	return st
 }

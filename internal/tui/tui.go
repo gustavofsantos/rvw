@@ -32,8 +32,8 @@ type Options struct {
 	Author    string
 	// Editor is the command line comments are written in, run through sh.
 	Editor string
-	// Style is the chroma style for source code; empty follows the terminal's
-	// background: monokai on dark, github on light.
+	// Style is the chroma style for source code; empty uses the terminal's
+	// own ANSI colors, so code follows its theme.
 	Style string
 	// Leader is the key that starts leader mappings, as Bubble Tea names it:
 	// "space", or one character such as ",". Empty is space.
@@ -494,14 +494,7 @@ func (m *model) Init() tea.Cmd { return tea.RequestBackgroundColor }
 
 func (m *model) setTheme(dark bool) {
 	m.theme = newTheme(dark)
-	style := m.opts.Style
-	if style == "" {
-		style = "github"
-		if dark {
-			style = "monokai"
-		}
-	}
-	m.pal = newPalette(style)
+	m.pal = newPalette(m.opts.Style)
 }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
 	"github.com/charmbracelet/x/ansi"
 
@@ -375,6 +376,31 @@ func TestHighlightKeepsOneEntryPerFileLine(t *testing.T) {
 	}
 	if !isBinary([]byte("ab\x00c")) || isBinary([]byte("abc")) {
 		t.Error("a NUL byte makes a file binary")
+	}
+}
+
+func TestDefaultPaletteUsesTheTerminalColors(t *testing.T) {
+	pal := newPalette("")
+	for kind, want := range map[chroma.TokenType]string{
+		chroma.Keyword:              "5",
+		chroma.KeywordNamespace:     "5",
+		chroma.LiteralStringDouble:  "2",
+		chroma.LiteralNumberInteger: "3",
+		chroma.NameFunction:         "4",
+		chroma.CommentSingle:        "8",
+	} {
+		if got := pal.get(kind).GetForeground(); got != lipgloss.Color(want) {
+			t.Errorf("%v is %v, want ANSI color %s", kind, got, want)
+		}
+	}
+	if _, ok := pal.get(chroma.Text).GetForeground().(lipgloss.NoColor); !ok {
+		t.Error("plain text keeps the terminal's foreground")
+	}
+	if !pal.get(chroma.CommentSingle).GetItalic() {
+		t.Error("comments are italic")
+	}
+	if got := newPalette("monokai").get(chroma.Keyword).GetForeground(); got == lipgloss.Color("5") {
+		t.Error("a named chroma style keeps its own colors")
 	}
 }
 
