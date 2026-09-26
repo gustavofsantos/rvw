@@ -182,6 +182,19 @@ SH
   [[ "$output" == *"past the end of"* ]]
 }
 
+@test "add: refuses a file outside the workspace" {
+  printf 'secret\n' >"$TEST_ROOT/outside.py"
+  ln -s "$TEST_ROOT/outside.py" linked.py
+  for file in "$TEST_ROOT/outside.py" ../outside.py linked.py; do
+    run "$RVW" add --file "$file" --lines 1 --comment x </dev/null
+    [ "$status" -eq 1 ]
+    [ "$output" = "rvw: $TEST_ROOT/outside.py is outside the workspace $WORKSPACE" ]
+  done
+
+  run "$RVW" count
+  [ "$output" = "0" ]
+}
+
 @test "add: refuses a file that does not exist without a snapshot" {
   run "$RVW" add --file ghost.py --lines 1 --comment x </dev/null
   [ "$status" -eq 1 ]

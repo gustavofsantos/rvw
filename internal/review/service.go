@@ -76,6 +76,10 @@ func (s *Service) Add(ctx context.Context, in AddInput) (Comment, error) {
 	if err != nil {
 		return Comment{}, err
 	}
+	rel, ok := inWorkspace(in.Workspace, path)
+	if !ok {
+		return Comment{}, Invalidf("%s is outside the workspace %s", path, in.Workspace)
+	}
 
 	var source string
 	if in.Source != nil {
@@ -93,7 +97,6 @@ func (s *Service) Add(ctx context.Context, in AddInput) (Comment, error) {
 	}
 	code := strings.Join(sourceLines[lines.Start-1:min(lines.End, len(sourceLines))], "\n")
 
-	rel := relativeTo(in.Workspace, path)
 	fileVersion, err := snapshotReviewed(in.Workspace, rel, source)
 	if err != nil {
 		return Comment{}, err
@@ -770,12 +773,13 @@ func (s *Service) filePath(ws, file string) (string, error) {
 	return workspace.Canonical(file)
 }
 
-func relativeTo(ws, path string) string {
+// inWorkspace is path relative to the workspace ws, if path lies inside it.
+func inWorkspace(ws, path string) (string, bool) {
 	rel, err := filepath.Rel(ws, path)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
-		return path
+	if err != nil || !filepath.IsLocal(rel) {
+		return "", false
 	}
-	return rel
+	return rel, true
 }
 
 func linkedIDs(reviews []Review) map[string]bool {

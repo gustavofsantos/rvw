@@ -12,7 +12,7 @@ import "slices"
 // AddInput enqueues one comment on a line range of one file.
 type AddInput struct {
 	Workspace string  `json:"workspace" jsonschema:"absolute workspace path"`
-	File      string  `json:"file" jsonschema:"file the comment is about, absolute or relative to the workspace"`
+	File      string  `json:"file" jsonschema:"file the comment is about, inside the workspace; absolute or relative to it"`
 	StartLine int     `json:"start_line" jsonschema:"first line of the range, 1-indexed"`
 	EndLine   int     `json:"end_line,omitempty" jsonschema:"last line of the range, inclusive; defaults to start_line"`
 	Comment   string  `json:"comment" jsonschema:"the review note, markdown allowed"`

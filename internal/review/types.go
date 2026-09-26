@@ -96,7 +96,7 @@ type Comment struct {
 	Workspace string  `json:"workspace" jsonschema:"absolute path of the workspace the comment belongs to"`
 	Lane      *string `json:"lane" jsonschema:"branch or lane the comment belongs to, null when unscoped"`
 	Author    *string `json:"author" jsonschema:"who raised the comment"`
-	File      string  `json:"file" jsonschema:"path relative to the workspace (absolute when outside it)"`
+	File      string  `json:"file" jsonschema:"path relative to the workspace (absolute only on comments recorded outside it by older versions)"`
 	Path      string  `json:"path" jsonschema:"absolute path of the file"`
 	StartLine int     `json:"start_line" jsonschema:"first line of the range, 1-indexed"`
 	EndLine   int     `json:"end_line" jsonschema:"last line of the range, inclusive"`
