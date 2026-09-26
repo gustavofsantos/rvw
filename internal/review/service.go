@@ -649,7 +649,7 @@ func (s *Service) Resolve(ctx context.Context, in ResolveInput) (Comment, error)
 	var c Comment
 	err := s.view(ctx, in.Workspace, func(tx Tx) error {
 		var err error
-		c, err = resolvable(tx, in.ID)
+		c, err = resolvable(tx, in.ID, in.Outcome)
 		return err
 	})
 	if err != nil {
@@ -663,7 +663,7 @@ func (s *Service) Resolve(ctx context.Context, in ResolveInput) (Comment, error)
 	}
 	err = s.update(ctx, in.Workspace, func(tx Tx) error {
 		var err error
-		if c, err = resolvable(tx, in.ID); err != nil {
+		if c, err = resolvable(tx, in.ID, in.Outcome); err != nil {
 			return err
 		}
 		stamp := s.stamp()
@@ -677,9 +677,10 @@ func (s *Service) Resolve(ctx context.Context, in ResolveInput) (Comment, error)
 	return c, err
 }
 
-// resolvable finds a comment that may take a decision: not yet decided, and
-// not waiting in a review nobody has pulled.
-func resolvable(tx Tx, id string) (Comment, error) {
+// resolvable finds a comment that may take this outcome: not yet decided, not
+// waiting in a review nobody has pulled, and pulled before it is done. A
+// pending comment may still be rejected: that retracts it.
+func resolvable(tx Tx, id string, outcome Outcome) (Comment, error) {
 	c, err := find(tx, id)
 	if err != nil {
 		return c, err
@@ -695,6 +696,9 @@ func resolvable(tx Tx, id string) (Comment, error) {
 	}
 	if c.Status.Resolved() {
 		return c, conflictf("%s is already %s — it cannot be re-decided", c.ID, c.Status)
+	}
+	if outcome == OutcomeDone && c.Status != StatusPulled {
+		return c, conflictf("%s is %s — pull it before resolving it as done", c.ID, c.Status)
 	}
 	return c, nil
 }

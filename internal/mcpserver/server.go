@@ -108,7 +108,7 @@ func New(svc *review.Service, opts Options) *mcp.Server {
 			}
 			return svc.Sheet(ctx, in)
 		})
-	tool(s, "resolve", "Record the decision on a comment: done (what you did) or rejected (why not; a note is required). A decision is final.", nil,
+	tool(s, "resolve", "Record the decision on a comment: done (what you did; the comment must be pulled) or rejected (why not; a note is required). A decision is final.", nil,
 		func(ctx context.Context, in review.ResolveInput) (review.Comment, error) {
 			if err := h.scope(ctx, &in.Workspace, nil, &in.Author); err != nil {
 				return review.Comment{}, err

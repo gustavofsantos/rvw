@@ -1057,6 +1057,7 @@ SH
 
 @test "resolve: a decided comment cannot be quietly re-decided" {
   queue app.py 1 "note"
+  "$RVW" pull >/dev/null
   "$RVW" resolve r1 --note "done it"
 
   run "$RVW" resolve r1 --note "no, again"
@@ -1088,6 +1089,7 @@ SH
 
 @test "show: prints the decision alongside the comment" {
   queue app.py 1 "rename this"
+  "$RVW" pull >/dev/null
   "$RVW" resolve r1 --note "renamed to first()" --author impl-agent
 
   run "$RVW" show r1
@@ -1098,6 +1100,7 @@ SH
 
 @test "show: json is the comment with its evidence" {
   queue app.py 1 "rename this"
+  "$RVW" pull >/dev/null
   "$RVW" resolve r1 --note "renamed"
 
   run "$RVW" show r1 --format json
@@ -1109,6 +1112,17 @@ SH
 
   run "$RVW" show r1 --format markdown
   [[ "$output" == *'`app.py:1` (r1'* ]]
+}
+
+@test "resolve: done needs the comment pulled first" {
+  queue app.py 1 "rename this"
+
+  run "$RVW" resolve r1 --note "too early"
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: r1 is pending — pull it before resolving it as done" ]
+
+  run "$RVW" list --format ids
+  [ "$output" = "r1" ]
 }
 
 @test "reject: retracts a pending comment, which leaves the queue but stays on record" {

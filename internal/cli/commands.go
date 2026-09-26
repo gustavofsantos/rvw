@@ -690,7 +690,8 @@ func (a *app) decideCmd(outcome review.Outcome) *cobra.Command {
 		Short: "record that a comment was acted on",
 		Long: `Record that a review comment was acted on, and by whom. For a tracked file
 that still exists, resolve also saves its current contents as a Git blob.
-` + "`pull`" + ` says a comment was handed over; ` + "`resolve`" + ` says what became of it.`,
+` + "`pull`" + ` says a comment was handed over; ` + "`resolve`" + ` says what became of it,
+so only a pulled comment can be resolved.`,
 		Example: `  rvw resolve r3
   rvw resolve r3 --note "renamed to first(), added a test"`,
 	}
