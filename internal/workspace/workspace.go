@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"syscall"
 
 	"github.com/gustavofsantos/rvw/internal/gitx"
 )
@@ -37,7 +38,9 @@ func IsDir(path string) bool {
 
 // Canonical makes path absolute and resolves symlinks, keeping any trailing
 // part that does not exist yet as written, so two spellings of one file compare
-// equal whether or not it is still on disk.
+// equal whether or not it is still on disk. Any other failure, such as a
+// directory it may not search, is an error: guessing would record one file
+// under two paths.
 func Canonical(path string) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -52,8 +55,11 @@ func Canonical(path string) (string, error) {
 			}
 			return resolved, nil
 		}
+		if !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR) {
+			return "", fmt.Errorf("cannot resolve %s: %w", abs, err)
+		}
 		parent := filepath.Dir(cur)
-		if !errors.Is(err, fs.ErrNotExist) || parent == cur {
+		if parent == cur {
 			return abs, nil
 		}
 		missing = append(missing, filepath.Base(cur))

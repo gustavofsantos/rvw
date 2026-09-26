@@ -263,6 +263,17 @@ SH
   [ "$status" -eq 0 ]
 }
 
+@test "add: a path that cannot be resolved fails as such" {
+  [ "$(id -u)" -ne 0 ] || skip "root reads any directory"
+  mkdir -p locked
+  printf 'x\n' >locked/a.py
+  chmod 000 locked
+  run "$RVW" add --file locked/a.py --lines 1 --comment x </dev/null
+  chmod 755 locked
+  [ "$status" -eq 1 ]
+  [[ "$output" == "rvw: cannot resolve $WORKSPACE/locked/a.py: "*"permission denied" ]]
+}
+
 @test "add: refuses a file that does not exist without a snapshot" {
   run "$RVW" add --file ghost.py --lines 1 --comment x </dev/null
   [ "$status" -eq 1 ]
