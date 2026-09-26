@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
@@ -28,7 +30,7 @@ type serverFlags struct {
 func (s *serverFlags) register(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&s.lane, "lane", "", "pin calls that name no lane to this lane (default: every lane)")
 	cmd.Flags().StringVar(&s.author, "author", "", "author of calls that name none (default: $USER)")
-	cmd.Flags().StringVar(&s.http, "http", "", "serve streamable HTTP on this address (e.g. 127.0.0.1:7777) instead of stdio")
+	cmd.Flags().StringVar(&s.http, "http", "", "serve streamable HTTP on this loopback address (e.g. 127.0.0.1:7777) instead of stdio")
 }
 
 func (a *app) mcpCmd() *cobra.Command {
@@ -56,7 +58,8 @@ func (a *app) mcpServeCmd() *cobra.Command {
 		Long: `Run the MCP server. By default it speaks over stdin and stdout, the way
 Claude Code starts a local server. With --http it listens on that address and
 serves streamable HTTP at ` + mcpPath + `, for clients that connect to a running
-server.
+server. The server has no authentication, so the address must be loopback
+(127.0.0.1, ::1 or localhost).
 
 A call that leaves workspace empty uses --workspace, else the git worktree the
 server started in. Outside git the server refuses to start. --lane and
@@ -66,6 +69,11 @@ server started in. Outside git the server refuses to start. --lane and
   rvw mcp serve --http 127.0.0.1:7777`,
 		Args: cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
+			if flags.http != "" {
+				if err := checkLoopback(flags.http); err != nil {
+					return err
+				}
+			}
 			ws, err := a.workspace()
 			if err != nil {
 				return err
@@ -94,7 +102,7 @@ func (a *app) serveHTTP(server *mcp.Server, addr string) error {
 	}
 	mux := http.NewServeMux()
 	mux.Handle(mcpPath, mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil))
-	srv := &http.Server{Handler: mux}
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-a.ctx.Done()
 		srv.Close()
@@ -184,8 +192,8 @@ func (a *app) mcpEntry(flags serverFlags, scope, name string) (mcpServer, string
 		return mcpServer{}, "", usageError("--name must not be empty")
 	}
 	if flags.http != "" {
-		if _, _, err := net.SplitHostPort(flags.http); err != nil {
-			return mcpServer{}, "", usageError("--http '%s' is not HOST:PORT", flags.http)
+		if err := checkLoopback(flags.http); err != nil {
+			return mcpServer{}, "", err
 		}
 		url := mcpURL(flags.http)
 		add := shellJoin([]string{"claude", "mcp", "add", "--transport", "http", "--scope", scope, name, url})
@@ -219,6 +227,22 @@ func (a *app) serveArgs(flags serverFlags, withHTTP bool) []string {
 		args = append(args, "--http", flags.http)
 	}
 	return args
+}
+
+// checkLoopback refuses an --http address other programs on the network could
+// reach: the server has no authentication, so it must stay on this machine.
+func checkLoopback(addr string) error {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return usageError("--http '%s' is not HOST:PORT", addr)
+	}
+	if host == "localhost" {
+		return nil
+	}
+	if ip, err := netip.ParseAddr(host); err == nil && ip.IsLoopback() {
+		return nil
+	}
+	return usageError("--http must be a loopback address, got '%s'", addr)
 }
 
 func mcpURL(addr string) string { return "http://" + addr + mcpPath }

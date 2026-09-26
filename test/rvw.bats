@@ -1256,6 +1256,14 @@ mcp_session() {
   [ "$output" = "rvw: $plain is not inside a git repository" ]
 }
 
+@test "mcp serve: --http listens only on a loopback address" {
+  for addr in 0.0.0.0:0 :0 '[::]:0' 192.168.1.5:0 example.com:0; do
+    run "$RVW" mcp serve --http "$addr" </dev/null
+    [ "$status" -eq 1 ]
+    [ "$output" = "rvw: --http must be a loopback address, got '$addr'" ]
+  done
+}
+
 @test "mcp serve: a call naming a workspace outside git is a tool error" {
   plain="$TEST_ROOT/plain"
   mkdir -p "$plain"
@@ -1295,6 +1303,10 @@ mcp_session() {
   run "$RVW" mcp config --http 7777
   [ "$status" -eq 1 ]
   [ "$output" = "rvw: --http '7777' is not HOST:PORT" ]
+
+  run "$RVW" mcp config --http 192.168.1.5:7777
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: --http must be a loopback address, got '192.168.1.5:7777'" ]
 
   mkdir -p "$TEST_ROOT/plain"
   run "$RVW" mcp config --workspace "$TEST_ROOT/plain"

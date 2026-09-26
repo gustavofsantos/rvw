@@ -203,7 +203,8 @@ rvw mcp config --author claude
 
 By default Claude Code starts `rvw mcp serve` itself and talks to it over
 stdio. To keep one server running instead, serve streamable HTTP on a local
-address and point Claude Code at it:
+address and point Claude Code at it. The server has no authentication, so
+`--http` accepts only a loopback address (`127.0.0.1`, `::1` or `localhost`):
 
 ```sh
 rvw mcp serve --http 127.0.0.1:7777
