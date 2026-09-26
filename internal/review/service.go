@@ -501,6 +501,11 @@ func (s *Service) Pull(ctx context.Context, in PullInput) (PullOutput, error) {
 				if !ok {
 					continue
 				}
+				// Resolve refuses a comment of an unpulled review, so this
+				// holds; never let a pull overwrite a recorded decision.
+				if c.Status != StatusPending {
+					return conflictf("%s of %s is already %s", c.ID, r.ID, c.Status)
+				}
 				if !in.Peek {
 					c.Status, c.PulledAt = StatusPulled, &stamp
 					if err := tx.UpdateComment(c); err != nil {

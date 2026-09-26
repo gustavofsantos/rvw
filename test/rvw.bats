@@ -271,6 +271,19 @@ SH
 
 # ── the core guarantee: pulling drains the queue ──────────────────────────────
 
+@test "pull: never overwrites a decision recorded on a linked comment" {
+  queue app.py 1 "first finding"
+  "$RVW" submit --decision comment --summary "one" >/dev/null
+  sqlite3 "$DB" "UPDATE comments SET status = 'done'"
+
+  run "$RVW" pull
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: r1 of rv1 is already done" ]
+
+  run "$RVW" list --status done --format ids
+  [ "$output" = "r1" ]
+}
+
 @test "submit: records one review over the selected comments" {
   queue app.py 1 "first finding"
   queue app.py 2 "second finding"
