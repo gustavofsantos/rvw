@@ -448,7 +448,7 @@ func TestEditorAddsEditsAndSubmits(t *testing.T) {
 		t.Fatalf("a service error is shown as rvw: ..., with where the note is: %q", m.flash)
 	}
 
-	done(editRequest{kind: editSummary, decision: review.DecisionRequestChanges}, "fix it")
+	done(m.summaryRequest(review.DecisionRequestChanges), "fix it")
 	if m.flash != "submitted rv1 · request-changes · 1 comment" {
 		t.Fatalf("submit: %q", m.flash)
 	}
@@ -483,6 +483,26 @@ func TestACommentKeepsTheCodeTheViewerShowed(t *testing.T) {
 	}
 	if strings.TrimSpace(want) == "" || cs[0].Code != want || cs[0].StartLine != 4 || cs[0].EndLine != 5 {
 		t.Fatalf("snapshot %q at %d-%d, want %q at 4-5", cs[0].Code, cs[0].StartLine, cs[0].EndLine, want)
+	}
+}
+
+// A review links the comments its summary's editor listed, not whatever else
+// the same author queued in the meantime.
+func TestASubmitLinksOnlyTheCommentsItListed(t *testing.T) {
+	f := setup(t)
+	f.add("src/api/parse.py", 1, 1, "listed", "tester")
+	m := f.model()
+	req := m.summaryRequest(review.DecisionComment)
+	f.add("src/api/parse.py", 2, 2, "added while the editor was open", "tester")
+
+	path := filepath.Join(t.TempDir(), "summary.md")
+	if err := os.WriteFile(path, []byte("Look at r1.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.Update(editorDoneMsg{req: req, path: path})
+	sheet, err := f.svc.Sheet(f.ctx, review.GetInput{Workspace: f.ws, ID: "rv1"})
+	if err != nil || !slices.Equal(sheet.Review.CommentIDs, []string{"r1"}) {
+		t.Fatalf("rv1 links %v (%v, flash %q), want only r1", sheet.Review.CommentIDs, err, m.flash)
 	}
 }
 

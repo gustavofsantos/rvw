@@ -479,6 +479,7 @@ type editRequest struct {
 	start, end int
 	id         string          // editEdit
 	decision   review.Decision // editSummary
+	ids        []string        // editSummary: the comments it links
 }
 
 type editorDoneMsg struct {
@@ -947,16 +948,27 @@ func (m *model) startEdit() tea.Cmd {
 }
 
 func (m *model) startSummary(d review.Decision) tea.Cmd {
+	req := m.summaryRequest(d)
 	context := []string{"Review: " + string(d)}
-	if mine := m.myPending(); len(mine) > 0 {
+	if len(req.ids) > 0 {
 		context = append(context, "", "Links your pending comments:")
-		for _, c := range mine {
+		for _, c := range m.myPending() {
 			context = append(context, fmt.Sprintf("  %s  %s  %s", c.ID, c.Location(), firstLine(c.Comment)))
 		}
 	} else {
 		context = append(context, "", "You have no pending comments here: the review is summary-only.")
 	}
-	return m.edit(template("", context), editRequest{kind: editSummary, decision: d})
+	return m.edit(template("", context), req)
+}
+
+// summaryRequest is a review over the pending comments the editor will list,
+// named by id, so one queued meanwhile is not linked unseen.
+func (m *model) summaryRequest(d review.Decision) editRequest {
+	ids := []string{}
+	for _, c := range m.myPending() {
+		ids = append(ids, c.ID)
+	}
+	return editRequest{kind: editSummary, decision: d, ids: ids}
 }
 
 // myPending is what an id-less submit will link, to show before submitting.
@@ -1032,6 +1044,7 @@ func (m *model) save(req editRequest, text string) (string, error) {
 	default:
 		r, err := svc.Submit(m.ctx, review.SubmitInput{
 			Workspace: ws, Decision: req.decision, Summary: text, Lane: m.opts.Lane, Author: m.opts.Author,
+			CommentIDs: req.ids, NoComments: len(req.ids) == 0,
 		})
 		if err != nil {
 			return "", err
