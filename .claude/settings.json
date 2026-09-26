@@ -6,7 +6,12 @@
       "Bash(go vet *)",
       "Bash(go mod *)",
       "Bash(gofmt *)",
-      "Bash(bats *)"
+      "Bash(bats *)",
+      "Bash(make lint)",
+      "Bash(make fmt)",
+      "Bash(make vuln)",
+      "Bash(make check)",
+      "Bash(make test)"
     ]
   }
 }

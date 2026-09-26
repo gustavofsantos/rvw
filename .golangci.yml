@@ -1,0 +1,89 @@
+version: "2"
+
+# The bar for new code. Existing debt is listed under exclusions below, so it
+# stays visible; shrink that list, do not grow it.
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    # Bugs
+    - errorlint
+    - exhaustive
+    - forcetypeassert
+    - nilerr
+    - rowserrcheck
+    - sqlclosecheck
+    # Style and simplification
+    - copyloopvar
+    - errname
+    - gocritic
+    - intrange
+    - misspell
+    - modernize
+    - predeclared
+    - revive
+    - unconvert
+    - unparam
+    - usestdlibvars
+    # Tests
+    - thelper
+    - usetesting
+    # Complexity
+    - gocognit
+    - gocyclo
+    # Suppressions must name a linter and say why
+    - nolintlint
+
+  settings:
+    errcheck:
+      exclude-functions:
+        # Deferred after Commit, which reports the error that matters.
+        - (*database/sql.Tx).Rollback
+        # Fail only on programmer error, caught by the bats contract.
+        - (*github.com/spf13/cobra.Command).Help
+        - (*github.com/spf13/cobra.Command).MarkFlagRequired
+    exhaustive:
+      default-signifies-exhaustive: true
+      # Count sentinels that end an iota block, like tui's sides.
+      ignore-enum-members: "/internal/tui\\.sides$"
+    gocognit:
+      min-complexity: 30
+    gocyclo:
+      min-complexity: 30
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    revive:
+      rules:
+        # Every package is internal; doc comments are not enforced.
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
+        # cobra and Bubble Tea fix the signatures.
+        - name: unused-parameter
+          disabled: true
+
+  exclusions:
+    presets:
+      - std-error-handling
+    rules:
+      # Complexity debt. Split these, then delete the entry.
+      - path: internal/review/service.go
+        linters: [gocognit]
+        text: "`\\(\\*Service\\).Pull`"
+      - path: internal/tui/fuzzy.go
+        linters: [gocognit]
+        text: "`fuzzyMatch`"
+      - path: internal/tui/tui.go
+        linters: [gocyclo]
+        text: "`\\(\\*model\\).key`"
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/gustavofsantos/rvw

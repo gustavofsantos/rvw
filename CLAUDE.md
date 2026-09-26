@@ -11,9 +11,20 @@ go build -o bin/rvw ./cmd/rvw   # bin/ is gitignored
 go vet ./...
 go test ./...                   # service, store, MCP schema and MCP server tests
 bats test/rvw.bats              # CLI contract; builds its own binary
+make lint                       # golangci-lint, config in .golangci.yml
+make fmt                        # gofumpt + goimports (not plain gofmt)
+make vuln                       # govulncheck
+make check                      # lint, vuln, vet, go test and bats
 ```
 
-Run both `go test` and `bats` before calling a change done.
+Run `make check` before calling a change done.
+
+`make lint` must stay at 0 issues. Fix the finding; do not raise a threshold.
+A `//nolint:<linter> // why` is for a finding that is wrong in context, never
+for convenience. The complexity exclusions in `.golangci.yml` are old debt:
+remove one when you split that function, and do not add to them.
+Tool versions are pinned in the Makefile and `.github/workflows/ci.yml`;
+change both together.
 
 When you try `bin/rvw` by hand, pass `--db` with a scratch file. The default
 database is the user's real queue.

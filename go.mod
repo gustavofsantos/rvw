@@ -2,6 +2,8 @@ module github.com/gustavofsantos/rvw
 
 go 1.26.0
 
+toolchain go1.26.8
+
 require (
 	charm.land/bubbletea/v2 v2.0.10
 	charm.land/lipgloss/v2 v2.0.6
