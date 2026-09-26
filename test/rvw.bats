@@ -955,6 +955,34 @@ SH
   [ "$(jq 'has("resolved_file_version")' <<<"$output")" = "false" ]
 }
 
+@test "resolve: a slow git does not hold the database lock" {
+  git add app.py
+  queue app.py 1 "rename this"
+  "$RVW" pull >/dev/null
+  mkdir -p "$TEST_ROOT/bin"
+  ln -s "$(command -v git)" "$TEST_ROOT/bin/real-git"
+  cat >"$TEST_ROOT/bin/git" <<'SH'
+#!/bin/sh
+if [ "$3" = hash-object ]; then
+  sleep 3
+fi
+exec "$(dirname "$0")/real-git" "$@"
+SH
+  chmod +x "$TEST_ROOT/bin/git"
+
+  env PATH="$TEST_ROOT/bin:$PATH" "$RVW" resolve r1 --note "done slowly" >/dev/null &
+  resolving=$!
+  sleep 1
+  SECONDS=0
+  run queue other.rb 1 "meanwhile"
+  [ "$status" -eq 0 ]
+  [ "$SECONDS" -lt 2 ]
+  wait "$resolving"
+
+  run "$RVW" list --status done --format ids
+  [ "$output" = "r1" ]
+}
+
 @test "resolve: Git inspection failure leaves the review unresolved and unchanged" {
   git add app.py
   queue app.py 1 "rename this"

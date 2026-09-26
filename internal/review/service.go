@@ -644,37 +644,59 @@ func (s *Service) Resolve(ctx context.Context, in ResolveInput) (Comment, error)
 	if in.Outcome == OutcomeRejected && strings.TrimSpace(in.Note) == "" {
 		return Comment{}, Invalidf("rejecting a comment needs a reason")
 	}
+	// Git runs before the write transaction, so a slow git never holds the
+	// database lock; the checks run again inside it, where they count.
 	var c Comment
-	err := s.update(ctx, in.Workspace, func(tx Tx) error {
+	err := s.view(ctx, in.Workspace, func(tx Tx) error {
 		var err error
-		if c, err = find(tx, in.ID); err != nil {
+		c, err = resolvable(tx, in.ID)
+		return err
+	})
+	if err != nil {
+		return Comment{}, err
+	}
+	var version string
+	if in.Outcome == OutcomeDone {
+		if version, err = snapshotResolved(ctx, in.Workspace, c); err != nil {
+			return Comment{}, err
+		}
+	}
+	err = s.update(ctx, in.Workspace, func(tx Tx) error {
+		var err error
+		if c, err = resolvable(tx, in.ID); err != nil {
 			return err
-		}
-		if c.ReviewID != "" {
-			r, ok, err := tx.Review(c.ReviewID)
-			if err != nil {
-				return err
-			}
-			if ok && r.Status == ReviewPending {
-				return conflictf("%s belongs to %s — pull %s first", c.ID, r.ID, r.ID)
-			}
-		}
-		if c.Status.Resolved() {
-			return conflictf("%s is already %s — it cannot be re-decided", c.ID, c.Status)
-		}
-		if in.Outcome == OutcomeDone {
-			if c.ResolvedFileVersion, err = snapshotResolved(ctx, in.Workspace, c); err != nil {
-				return err
-			}
 		}
 		stamp := s.stamp()
 		c.Status = Status(in.Outcome)
+		c.ResolvedFileVersion = version
 		c.ResolvedAt = &stamp
 		c.ResolvedBy = strPtr(in.Author)
 		c.ResolutionNote = strPtr(strings.Trim(in.Note, "\n"))
 		return tx.UpdateComment(c)
 	})
 	return c, err
+}
+
+// resolvable finds a comment that may take a decision: not yet decided, and
+// not waiting in a review nobody has pulled.
+func resolvable(tx Tx, id string) (Comment, error) {
+	c, err := find(tx, id)
+	if err != nil {
+		return c, err
+	}
+	if c.ReviewID != "" {
+		r, ok, err := tx.Review(c.ReviewID)
+		if err != nil {
+			return c, err
+		}
+		if ok && r.Status == ReviewPending {
+			return c, conflictf("%s belongs to %s — pull %s first", c.ID, r.ID, r.ID)
+		}
+	}
+	if c.Status.Resolved() {
+		return c, conflictf("%s is already %s — it cannot be re-decided", c.ID, c.Status)
+	}
+	return c, nil
 }
 
 // snapshotResolved keeps the current version of a comment's file, when it is
