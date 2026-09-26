@@ -239,7 +239,14 @@ func executable() string {
 	return self
 }
 
+// buildVersion is set by the release build (-ldflags -X); go install leaves it
+// empty and the module version comes from the build info instead.
+var buildVersion string
+
 func version() string {
+	if buildVersion != "" {
+		return buildVersion
+	}
 	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
 		return info.Main.Version
 	}

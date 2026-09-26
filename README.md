@@ -27,6 +27,34 @@ acted on them.
   directory outside a repository has no queue. Lanes divide a queue when
   several branches share one working tree.
 
+## Install
+
+On Linux or macOS (amd64 or arm64):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/gustavofsantos/rvw/main/install.sh | sh
+rvw --version
+```
+
+The script downloads the latest release for your OS and CPU, checks it
+against the release's checksums and puts `rvw` in `~/.local/bin`. Run it again
+to upgrade. Pick a release or another directory with arguments after `sh -s --`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/gustavofsantos/rvw/main/install.sh | sh -s -- --version v1.1.0 --dir /usr/local/bin
+```
+
+Archives for every platform, Windows included, are on the
+[releases page](https://github.com/gustavofsantos/rvw/releases). With Go
+installed you can also build it yourself:
+
+```sh
+go install github.com/gustavofsantos/rvw/cmd/rvw@latest
+```
+
+Or, from a checkout, `make install` (`go install ./cmd/rvw`). `make uninstall`
+removes it.
+
 ## Examples
 
 Leave comments where you read the code:
@@ -140,16 +168,9 @@ rvw tui --lane refactor-auth --editor "code --wait"
 
 ## Claude Code
 
-Install the binary, connect the MCP server, then install the plugin. The
-plugin adds an `rvw` skill that teaches Claude to pull the queue, act on each
-comment and resolve or reject it, through the rvw MCP tools.
-
-```sh
-go install github.com/gustavofsantos/rvw/cmd/rvw@latest
-```
-
-Or, from a checkout, `make install` (`go install ./cmd/rvw`). `make uninstall`
-removes it.
+[Install the binary](#install), connect the MCP server, then install the
+plugin. The plugin adds an `rvw` skill that teaches Claude to pull the queue,
+act on each comment and resolve or reject it, through the rvw MCP tools.
 
 ```
 /plugin marketplace add gustavofsantos/rvw

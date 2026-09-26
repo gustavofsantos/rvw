@@ -16,7 +16,13 @@ make fmt                        # gofumpt + goimports (not plain gofmt)
 make vuln                       # govulncheck
 make check                      # lint, vuln, vet, go test and bats
 make hooks                      # once per clone: pre-push runs make check
+make snapshot                   # goreleaser build of every platform into dist/
 ```
+
+Releases: push a `v*` tag. `.github/workflows/release.yml` runs CI, then
+goreleaser (`.goreleaser.yaml`) publishes the GitHub release. Archive names
+carry no version (`rvw_linux_amd64.tar.gz`); `install.sh` relies on that and
+on `checksums.txt`.
 
 Run `make check` before calling a change done.
 

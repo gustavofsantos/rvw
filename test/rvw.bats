@@ -1459,6 +1459,12 @@ SH
   done
 }
 
+@test "--version prints the version" {
+  run "$RVW" --version
+  [ "$status" -eq 0 ]
+  [[ "$output" == "rvw version "?* ]]
+}
+
 @test "bare invocation prints help instead of failing" {
   run "$RVW"
   [ "$status" -eq 0 ]

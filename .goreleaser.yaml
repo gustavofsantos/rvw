@@ -1,0 +1,47 @@
+# Release build, run by .github/workflows/release.yml when a v* tag is pushed.
+# Try it locally with make snapshot; the result lands in dist/.
+version: 2
+
+project_name: rvw
+
+builds:
+  - main: ./cmd/rvw
+    env:
+      - CGO_ENABLED=0 # modernc SQLite needs no cgo, so every target cross-compiles
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/gustavofsantos/rvw/internal/cli.buildVersion={{ .Tag }}
+
+archives:
+  # No version in the name, so releases/latest/download/<name> always resolves.
+  # install.sh depends on this.
+  - name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  filters:
+    exclude:
+      - "^test:"
+      - "^docs:"
+      - "^build:"
+      - "^refactor:"
+
+release:
+  footer: |
+    Install or upgrade:
+
+    ```sh
+    curl -fsSL https://raw.githubusercontent.com/gustavofsantos/rvw/main/install.sh | sh
+    ```

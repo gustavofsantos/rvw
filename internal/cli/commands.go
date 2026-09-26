@@ -66,9 +66,11 @@ func (a *app) root() *cobra.Command {
 		Example:       examples,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		Version:       version(),
 		Args:          cobra.NoArgs,
 		Run:           func(cmd *cobra.Command, _ []string) { cmd.Help() },
 	}
+	root.SetVersionTemplate(prog + " version {{.Version}}\n")
 	root.CompletionOptions.DisableDefaultCmd = true
 	root.PersistentFlags().StringVar(&a.workspaceFlag, "workspace", "",
 		"queue to act on: the git toplevel of this directory (default: $PWD)")
