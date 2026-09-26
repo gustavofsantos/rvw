@@ -1,0 +1,56 @@
+# Release config. A pushed vX.Y.Z tag runs it (.github/workflows/release.yml);
+# CI runs `goreleaser check` and a snapshot build on every pull request.
+version: 2
+
+project_name: rvw
+
+before:
+  hooks:
+    - go mod tidy -diff
+
+builds:
+  - main: ./cmd/rvw
+    binary: rvw
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  # No version in the name: install.sh fetches
+  # releases/latest/download/rvw_<os>_<arch>.tar.gz without asking the API.
+  - name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    files: [LICENSE, README.md]
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  prerelease: auto
+  extra_files:
+    - glob: ./install.sh
+
+changelog:
+  use: git
+  abbrev: 7
+  sort: asc
+  groups:
+    - title: Breaking changes
+      regexp: '^.*?\w+(\(.+\))?!:.+$'
+      order: 0
+    - title: Features
+      regexp: '^.*?feat(\(.+\))?:.+$'
+      order: 1
+    - title: Fixes
+      regexp: '^.*?fix(\(.+\))?:.+$'
+      order: 2
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - '^Merge '
+      - '^(docs|test|chore|ci)(\(.+\))?:'

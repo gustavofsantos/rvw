@@ -27,6 +27,27 @@ acted on them.
   directory outside a repository has no queue. Lanes divide a queue when
   several branches share one working tree.
 
+## Install
+
+On Linux or macOS, the install script downloads the latest release binary,
+checks it against the release checksums and puts it in `~/.local/bin`:
+
+```sh
+curl -fsSL https://github.com/gustavofsantos/rvw/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/gustavofsantos/rvw/releases/latest/download/install.sh | sh -s -- -b /usr/local/bin -v v0.1.0
+```
+
+Or download an archive from the
+[releases page](https://github.com/gustavofsantos/rvw/releases), or build
+from source with Go:
+
+```sh
+go install github.com/gustavofsantos/rvw/cmd/rvw@latest
+```
+
+From a checkout, `make install` runs `go install ./cmd/rvw` and
+`make uninstall` removes the binary.
+
 ## Examples
 
 Leave comments where you read the code:
@@ -113,16 +134,9 @@ rvw tui --lane refactor-auth --editor "code --wait"
 
 ## Claude Code
 
-Install the binary, connect the MCP server, then install the plugin. The
-plugin adds an `rvw` skill that teaches Claude to pull the queue, act on each
-comment and resolve or reject it, through the rvw MCP tools.
-
-```sh
-go install github.com/gustavofsantos/rvw/cmd/rvw@latest
-```
-
-Or, from a checkout, `make install` (`go install ./cmd/rvw`). `make uninstall`
-removes it.
+[Install](#install) the binary, connect the MCP server, then install the
+plugin. The plugin adds an `rvw` skill that teaches Claude to pull the queue,
+act on each comment and resolve or reject it, through the rvw MCP tools.
 
 ```
 /plugin marketplace add gustavofsantos/rvw
@@ -176,3 +190,11 @@ git the server refuses to start. `--lane` and `--author` on
 - **Audit trail.** `rvw list --status done --format json` gives you every
   addressed comment with who resolved it and when. `rvw show` shows what
   changed.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+[MIT](LICENSE)

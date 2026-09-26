@@ -61,4 +61,6 @@ adapters beside `internal/cli`.
 - `skills/rvw/SKILL.md` teaches agents the MCP tools only; the CLI is for
   people. When a tool changes, update the skill; when a command or flag
   changes, update the README.
+- Releases are cut by pushing a `vX.Y.Z` tag; see `RELEASING.md`. CI
+  (`.github/workflows/ci.yml`) also checks `gofmt` and `go mod tidy`.
 - `bats` needs `sqlite3` and a UTF-8 locale (`LC_ALL=C.UTF-8`) for a few tests.

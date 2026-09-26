@@ -1,0 +1,44 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      LC_ALL: C.UTF-8
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.x"
+          check-latest: true
+      - name: Tag matches the plugin version
+        run: |
+          want="v$(jq -r .version .claude-plugin/plugin.json)"
+          tag="${GITHUB_REF_NAME%%-*}"
+          if [ "$tag" != "$want" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match .claude-plugin/plugin.json ($want)"
+            exit 1
+          fi
+      - name: Install bats
+        run: |
+          git clone --depth 1 --branch v1.14.0 https://github.com/bats-core/bats-core.git "$RUNNER_TEMP/bats"
+          "$RUNNER_TEMP/bats/install.sh" "$HOME/.local"
+          echo "$HOME/.local/bin" >>"$GITHUB_PATH"
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: bats test/rvw.bats
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
