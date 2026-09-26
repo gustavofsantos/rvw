@@ -6,6 +6,8 @@ Code review for humans/AI.
 from an editor, a shell or an agent. The agent working on that code pulls
 them, acts on them, and records what became of each one.
 
+<img width="1400" height="780" alt="tui" src="https://github.com/user-attachments/assets/2f82e697-4fc4-45e0-a8e5-8f6a612bbd8b" />
+
 ## Why
 
 Code review usually happens after the code is pushed, on a hosted platform,
