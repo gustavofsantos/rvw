@@ -1319,7 +1319,8 @@ mcp_session() {
   [[ "$output" == *"<leader> is space unless --leader"*"<leader>p go to file"*"<leader>l open comments"* ]]
   [[ "$output" == *"--leader string"* ]]
   [[ "$output" == *"V select lines"*"c comment"*"e edit"* ]]
-  [[ "$output" == *"t files or changes"*"b compare with"*"uncommitted"*"default branch"*"previous commit"* ]]
+  [[ "$output" == *"t files, changes or reviews"*"b compare with"*"uncommitted"*"default branch"*"previous commit"* ]]
+  [[ "$output" == *"review or comment page"*"o open the file"*"esc back"* ]]
 }
 
 # The TUI on a pseudo-terminal needs util-linux script(1); BSD script differs.

@@ -79,6 +79,9 @@ func (m *model) clickTree(i int) tea.Cmd {
 	}
 	m.treeCur = idx
 	n := m.rows[idx].node
+	if m.side == sideReviews && n.path != standalone {
+		return m.openReviewRow(n)
+	}
 	if n.dir {
 		n.expanded = !n.expanded
 		m.refreshRows()
@@ -89,10 +92,10 @@ func (m *model) clickTree(i int) tea.Cmd {
 
 func (m *model) clickViewer(i int) {
 	f := m.file
-	if f == nil {
+	m.focus = paneViewer
+	if f == nil || m.detail != nil {
 		return
 	}
-	m.focus = paneViewer
 	if f.len() == 0 || f.offset+i >= f.len() {
 		return
 	}
@@ -104,7 +107,7 @@ func (m *model) clickViewer(i int) {
 // drag started. Past the top or bottom of the pane it scrolls one line.
 func (m *model) drag(y int) {
 	f := m.file
-	if f == nil || f.len() == 0 {
+	if f == nil || f.len() == 0 || m.detail != nil {
 		return
 	}
 	body := m.bodyHeight()
@@ -126,6 +129,10 @@ func (m *model) wheel(p pane, n int) {
 	if p == paneTree {
 		m.treeOff = clamp(m.treeOff+n, 0, max(0, len(m.rows)-body))
 		m.treeCur = clamp(m.treeCur, m.treeOff, min(len(m.rows)-1, m.treeOff+body-1))
+		return
+	}
+	if d := m.detail; d != nil {
+		d.offset = clamp(d.offset+n, 0, max(0, len(d.layout(m.viewWidth()))-body))
 		return
 	}
 	f := m.file

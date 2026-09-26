@@ -65,6 +65,8 @@ type sidebar int
 const (
 	sideFiles   sidebar = iota // every file in the workspace
 	sideChanges                // the files that differ from the compared commit
+	sideReviews                // submitted reviews and comments, resolved or not
+	sides
 )
 
 // flashFor is how long a transient message holds the bottom bar.
@@ -79,14 +81,17 @@ type model struct {
 	width, height int
 	focus         pane
 
-	side     sidebar
-	fileTree *node
-	chgTree  *node           // nil until the changes view is first shown
-	status   map[string]byte // git status letter per changed file
-	chgErr   string          // why the changes cannot be listed, if they cannot
-	rows     []row           // visible rows of the shown tree
-	treeCur  int
-	treeOff  int
+	side        sidebar
+	fileTree    *node
+	chgTree     *node                         // nil until the changes view is first shown
+	revTree     *node                         // nil until the reviews side is first shown
+	sheets      map[string]review.ReviewSheet // the reviews side's reviews by id
+	revComments map[string]review.Comment     // and its comments by id
+	status      map[string]byte               // git status letter per changed file
+	chgErr      string                        // why the changes cannot be listed, if they cannot
+	rows        []row                         // visible rows of the shown tree
+	treeCur     int
+	treeOff     int
 
 	branch string    // the checked-out branch, for the status line
 	wd     wdChanges // uncommitted changes, for the status line
@@ -100,6 +105,7 @@ type model struct {
 	counts map[string]int   // open comments per file
 
 	file      *fileView
+	detail    *detail        // a review or comment page shown over the file, if any
 	positions map[string]int // last cursor line per file this session
 	recent    []string       // files opened this session, most recent first
 
@@ -273,23 +279,41 @@ func textLines(path string) int {
 
 // tree is the tree the left pane shows.
 func (m *model) tree() *node {
-	if m.side == sideChanges && m.chgTree != nil {
+	switch {
+	case m.side == sideChanges && m.chgTree != nil:
 		return m.chgTree
+	case m.side == sideReviews && m.revTree != nil:
+		return m.revTree
 	}
 	return m.fileTree
 }
 
-// showSide switches the left pane to side, re-listing the changes when it
-// is them, and puts the tree cursor on the open file when it is listed.
-func (m *model) showSide(side sidebar) {
+// showSide switches the left pane to side, re-listing the changes or the
+// reviews when it is them, and puts the tree cursor on what the viewer shows
+// when it is listed.
+func (m *model) showSide(side sidebar) error {
 	m.side = side
 	m.loadStatus()
-	if side == sideChanges {
+	var err error
+	switch side {
+	case sideChanges:
 		m.loadChanges()
+	case sideReviews:
+		err = m.loadReviews()
 	}
 	m.refreshRows()
 	m.treeCur, m.treeOff = 0, 0
-	if m.file != nil {
+	m.selectShown()
+	return err
+}
+
+// selectShown puts the tree cursor on the row of what the viewer shows: the
+// review or comment on the reviews side, else the open file.
+func (m *model) selectShown() {
+	switch {
+	case m.side == sideReviews && m.detail != nil:
+		m.selectTreeRow(m.detail.id)
+	case m.side != sideReviews && m.file != nil:
 		m.selectTreeRow(m.file.rel)
 	}
 }
@@ -303,7 +327,9 @@ func (m *model) setCompare(c compare) error {
 		return err
 	}
 	m.cmp, m.baseID, m.baseName = c, id, name
-	m.showSide(sideChanges)
+	if err := m.showSide(sideChanges); err != nil {
+		return err
+	}
 	return m.reload(false)
 }
 
@@ -369,7 +395,7 @@ func (m *model) openFile(rel string, line int) error {
 	}
 	f.cursor = clamp(f.cursor, 0, f.len()-1)
 	f.offset = max(0, f.cursor-m.bodyHeight()/3)
-	m.file = f
+	m.file, m.detail = f, nil
 	m.visual = false
 	m.recent = append([]string{rel}, slices.DeleteFunc(m.recent, func(r string) bool { return r == rel })...)
 	m.fileTree.reveal(rel)
@@ -401,6 +427,16 @@ func (m *model) reload(walk bool) error {
 			m.anchor = clamp(m.anchor, 0, f.len()-1)
 		}
 		m.file = f
+	}
+	if m.revTree != nil {
+		if err := m.loadReviews(); err != nil {
+			return err
+		}
+	}
+	if d := m.detail; d != nil {
+		if err := m.showDetail(d.id); err != nil {
+			m.detail = nil
+		}
 	}
 	return m.loadComments()
 }
@@ -536,9 +572,12 @@ func (m *model) key(k tea.KeyPressMsg) tea.Cmd {
 		m.prefix, m.prefixCount = "", 0
 		switch p + s {
 		case "gg":
-			if m.focus == paneTree {
+			switch {
+			case m.focus == paneTree:
 				m.treeCur = 0
-			} else if m.file != nil {
+			case m.detail != nil:
+				m.detail.offset = 0
+			case m.file != nil:
 				m.gotoLine(max(count, 1))
 			}
 		case "]c":
@@ -562,8 +601,8 @@ func (m *model) key(k tea.KeyPressMsg) tea.Cmd {
 	switch s {
 	case "tab":
 		m.focus = 1 - m.focus
-		if m.focus == paneTree && m.file != nil {
-			m.selectTreeRow(m.file.rel)
+		if m.focus == paneTree {
+			m.selectShown()
 		}
 		return nil
 	case "?":
@@ -575,7 +614,9 @@ func (m *model) key(k tea.KeyPressMsg) tea.Cmd {
 		m.submit = &submitMenu{}
 		return nil
 	case "t":
-		m.showSide(1 - m.side)
+		if err := m.showSide((m.side + 1) % sides); err != nil {
+			return m.fail(err)
+		}
 		return nil
 	case "b":
 		m.compare = &compareMenu{cursor: int(m.cmp)}
@@ -590,6 +631,9 @@ func (m *model) key(k tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case "esc":
 		m.visual = false
+		if m.focus == paneViewer && m.detail != nil {
+			m.detail = nil
+		}
 		return nil
 	}
 	if m.focus == paneTree {
@@ -612,6 +656,9 @@ func (m *model) treeKey(s string, count int) tea.Cmd {
 	case "G":
 		m.treeCur = len(m.rows) - 1
 	case "l", "right", "enter":
+		if m.side == sideReviews && cur.path != standalone {
+			return m.openReviewRow(cur)
+		}
 		if !cur.dir {
 			return m.openFromTree(cur.path)
 		}
@@ -628,10 +675,27 @@ func (m *model) treeKey(s string, count int) tea.Cmd {
 	return nil
 }
 
+// openReviewRow shows a review or comment of the reviews side in the viewer,
+// expanding a review to list its comments.
+func (m *model) openReviewRow(n *node) tea.Cmd {
+	if n.dir && !n.expanded {
+		n.expanded = true
+		m.refreshRows()
+	}
+	return m.openFromTree(n.path)
+}
+
 // openFromTree opens a file picked in the tree and moves to the viewer. From
 // the changes view it lands on the file's first change; a file listed there
 // as deleted has nothing on disk to open.
 func (m *model) openFromTree(path string) tea.Cmd {
+	if m.side == sideReviews {
+		if err := m.showDetail(path); err != nil {
+			return m.fail(err)
+		}
+		m.focus = paneViewer
+		return nil
+	}
 	if m.side == sideChanges && m.status[path] == 'D' {
 		return m.setFlash(path+" was deleted: nothing to show", false)
 	}
@@ -647,6 +711,9 @@ func (m *model) openFromTree(path string) tea.Cmd {
 }
 
 func (m *model) viewerKey(s string, count int) tea.Cmd {
+	if m.detail != nil {
+		return m.detailKey(s, count)
+	}
 	f := m.file
 	if f == nil {
 		return nil
@@ -690,6 +757,35 @@ func (m *model) leaderKey() string {
 	return m.opts.Leader
 }
 
+// detailKey scrolls a review or comment page, or leaves it: o for the file
+// the comment is on, esc for the file underneath.
+func (m *model) detailKey(s string, count int) tea.Cmd {
+	d := m.detail
+	n := max(count, 1)
+	switch s {
+	case "j", "down":
+		d.offset += n
+	case "k", "up":
+		d.offset -= n
+	case "ctrl+d", "pgdown":
+		d.offset += max(1, m.bodyHeight()/2)
+	case "ctrl+u", "pgup":
+		d.offset -= max(1, m.bodyHeight()/2)
+	case "G":
+		d.offset = len(d.layout(m.viewWidth()))
+	case "o":
+		if d.ev == nil {
+			return m.setFlash("a review is on no one file: open one of its comments", false)
+		}
+		c := d.ev.Comment
+		if err := m.openFile(c.File, c.StartLine); err != nil {
+			return m.fail(err)
+		}
+		m.selectShown()
+	}
+	return nil
+}
+
 func (m *model) gotoLine(n int) {
 	m.file.cursor = clamp(n-1, 0, m.file.len()-1)
 }
@@ -703,7 +799,7 @@ func (m *model) halfPage(dir int) {
 
 func (m *model) jumpComment(dir int) tea.Cmd {
 	f := m.file
-	if f == nil || m.focus != paneViewer {
+	if f == nil || m.detail != nil || m.focus != paneViewer {
 		return nil
 	}
 	line, ok := nextComment(f.comments, f.cursor+1, dir)
@@ -712,7 +808,7 @@ func (m *model) jumpComment(dir int) tea.Cmd {
 
 func (m *model) jumpHunk(dir int) tea.Cmd {
 	f := m.file
-	if f == nil || m.focus != paneViewer {
+	if f == nil || m.detail != nil || m.focus != paneViewer {
 		return nil
 	}
 	if len(f.hunks) == 0 {
@@ -778,7 +874,9 @@ func (m *model) scroll(margins bool) {
 		}
 		return min(n, (body-1)/2)
 	}
-	if f := m.file; f != nil {
+	if d := m.detail; d != nil {
+		d.offset = clamp(d.offset, 0, max(0, len(d.layout(m.viewWidth()))-body))
+	} else if f := m.file; f != nil {
 		f.offset = follow(f.cursor, f.offset, body, f.len(), margin(3))
 	}
 	m.treeOff = follow(m.treeCur, m.treeOff, body, len(m.rows), margin(2))

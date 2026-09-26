@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"regexp"
 	"testing"
 	"time"
 
@@ -10,8 +11,10 @@ import (
 	"github.com/charmbracelet/x/exp/teatest/v2"
 )
 
-// Golden views at 100x30, colors stripped: they pin the layout. Regenerate
-// with `go test ./internal/tui -update`.
+// Golden views at 100x30, colors stripped and dates masked: they pin the
+// layout. Regenerate with `go test ./internal/tui -update`.
+
+var dates = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
 
 // view drives a program through keys and returns its final screen.
 func view(t *testing.T, f *fixture, msgs ...tea.Msg) []byte {
@@ -24,7 +27,7 @@ func view(t *testing.T, f *fixture, msgs ...tea.Msg) []byte {
 		t.Fatal(err)
 	}
 	final := tm.FinalModel(t, teatest.WithFinalTimeout(5*time.Second))
-	return []byte(ansi.Strip(final.(*model).screen()))
+	return dates.ReplaceAll([]byte(ansi.Strip(final.(*model).screen())), []byte("YYYY-MM-DD"))
 }
 
 // seq is key presses: named keys (see press), and strings typed out.

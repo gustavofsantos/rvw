@@ -93,8 +93,8 @@ comments on the cursor line; elsewhere it shows the branch and the
 uncommitted changes against `HEAD`, as `+added -deleted` counts of lines
 (every line of an untracked text file counts as added), or `clean`.
 
-`t` switches the left pane between every file and only the changed ones,
-each with its git status: `M` modified, `A` added, `D` deleted, `?`
+`t` cycles the left pane through every file, only the changed ones, and the
+reviews. The changed files come with their git status: `M` modified, `A` added, `D` deleted, `?`
 untracked. Opening a file from that list puts the cursor on its first
 change. `b` chooses what the files on disk are compared with, for that
 list and for the gutter marks alike:
@@ -105,6 +105,15 @@ list and for the gutter marks alike:
   or not, like a pull request.
 - **previous commit**: against `HEAD~1`, so the last commit plus anything
   uncommitted.
+
+The reviews pane lists every submitted review, newest first, with its
+comments under it, then the comments that belong to no review. Each is marked
+with where it stands: `○` pending, `◐` pulled, `✓` done (a review once every
+comment is decided), `✗` rejected. Opening one shows a page in the right pane
+of what was asked and how it was addressed: a review's summary and each
+comment's outcome; a comment's note, the code as reviewed, the resolution
+note and, for a done comment, the diff of the file while it was resolved.
+`o` opens the file at the comment, `esc` goes back to the file you had open.
 
 - `<leader>p` opens a file by fuzzy name; `<leader>l` lists the open
   comments. The leader is space; `--leader` makes it another key, such as `,`.

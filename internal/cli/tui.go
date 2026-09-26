@@ -20,7 +20,10 @@ func (a *app) tuiCmd() *cobra.Command {
 with syntax highlighting, and a rail in the gutter marking every line under an
 open comment. Select lines, comment on them, edit a comment, submit a review.
 The workspace is a git worktree; the tree leaves out the files git ignores.
-t switches the tree to the changed files only; b chooses what they, and the
+t cycles the tree through every file, the changed files only, and the
+reviews with their comments; opening a review or comment shows what was asked
+and how it was addressed, with the diff made while resolving it, and o opens
+the file at the comment. b chooses what the changed files, and the
 gutter's change marks, compare with: uncommitted changes (against HEAD, the
 default), the default branch (against its merge-base with main or master),
 or the previous commit (against HEAD~1). Untracked files count as changes.
@@ -34,15 +37,16 @@ gutter shows every lane's open comments.
 
 Nothing is watched: the file and its comments are re-read when you open a
 file, press r, or add, edit or submit; the branch and the changes when you
-press r, t or b.
+press r, t or b; the reviews when you press r or t, or add, edit or submit.
 
 Keys (? shows them in the UI); <leader> is space unless --leader says:
   <leader>p go to file · <leader>l open comments · Tab switch pane · s submit · q quit
-  t files or changes · b compare with: uncommitted, default branch, previous commit
+  t files, changes or reviews · b compare with: uncommitted, default branch, previous commit
   tree    j/k move · l/↵ open or expand · h collapse or go to parent · gg/G
   viewer  j/k · C-d/C-u half page · gg/G · NG or :N go to line
           ]c/[c next/previous comment · ]h/[h next/previous change, around
           V select lines · c comment · e edit
+          on a review or comment page: j/k scroll · o open the file · esc back
           r reload`,
 		Example: `  rvw tui
   rvw tui --lane refactor-auth --editor "code --wait"

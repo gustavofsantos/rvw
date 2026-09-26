@@ -200,7 +200,7 @@ func TestChangesViewListsUncommittedChangesByDefault(t *testing.T) {
 		t.Fatalf("l on a changed file opens it: %s, focus %v", m.file.rel, m.focus)
 	}
 
-	keys(m, "t")
+	keys(m, "t", "t")
 	if m.side != sideFiles || m.sideTitle() != "files" || rowNames(m.rows)[0] != "docs/" {
 		t.Fatalf("t goes back to the files: %v %q", m.side, rowNames(m.rows))
 	}
@@ -437,7 +437,10 @@ func TestOpeningFromTheChangesViewLandsOnTheFirstChange(t *testing.T) {
 		t.Fatalf("a click opens it on its change again, cursor on %d", m.file.cursor+1)
 	}
 
-	keys(m, "gg", "t", "tab", "l") // tab puts the tree cursor on the open file
+	keys(m, "gg", "t", "t", "tab", "l") // tab puts the tree cursor on the open file
+	if m.side != sideFiles {
+		t.Fatalf("t t goes round to the files, side %v", m.side)
+	}
 	if m.file.rel != "src/util.py" || m.file.cursor != 0 {
 		t.Fatalf("the file tree opens it where it was left: %s line %d", m.file.rel, m.file.cursor+1)
 	}

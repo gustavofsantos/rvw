@@ -169,7 +169,10 @@ func (m *model) screen() string {
 func (m *model) main() []string {
 	tw, vw, body := m.treeWidth(), m.viewWidth(), m.bodyHeight()
 	title := "no file"
-	if m.file != nil {
+	switch {
+	case m.detail != nil:
+		title = m.detail.title()
+	case m.file != nil:
 		title = m.file.rel
 	}
 	out := []string{
@@ -201,8 +204,11 @@ func paneTitle(t string, w int, focused bool) string {
 // sideTitle names the left pane; for the changes, what they are against,
 // last, so a narrow pane keeps it.
 func (m *model) sideTitle() string {
-	if m.side == sideFiles {
+	switch m.side {
+	case sideFiles:
 		return "files"
+	case sideReviews:
+		return "reviews"
 	}
 	against := m.baseName
 	if against == "" {
@@ -219,6 +225,8 @@ func (m *model) treeLine(i, w int) string {
 		if len(m.rows) == 0 && i == 0 {
 			empty := "empty workspace"
 			switch {
+			case m.side == sideReviews:
+				empty = "no reviews or comments yet"
 			case m.side == sideChanges && m.chgErr != "":
 				empty = m.chgErr
 			case m.side == sideChanges:
@@ -230,6 +238,21 @@ func (m *model) treeLine(i, w int) string {
 	}
 	r := m.rows[idx]
 	n := r.node
+	var bg color.Color
+	if idx == m.treeCur && m.focus == paneTree {
+		bg = m.theme.cursor
+	}
+	if m.side == sideReviews {
+		name, mark := m.reviewRow(n)
+		if m.detail != nil && m.detail.id == n.path {
+			name = append([]piece{}, name...)
+			for i := range name {
+				name[i].st = name[i].st.Bold(true)
+			}
+		}
+		text := fitPieces(append([]piece{{" ", stPlain}}, name...), w-3)
+		return render(fitPieces(append(text, piece{" ", stPlain}, mark, piece{" ", stPlain}), w), bg)
+	}
 	indent := strings.Repeat("  ", r.depth)
 	var name piece
 	switch {
@@ -268,16 +291,19 @@ func (m *model) treeLine(i, w int) string {
 	if status != 0 {
 		row = append(row, piece{string(status), statusStyles[status]}, piece{" ", stPlain})
 	}
-	var bg color.Color
-	if idx == m.treeCur && m.focus == paneTree {
-		bg = m.theme.cursor
-	}
 	return render(fitPieces(row, w), bg)
 }
 
 // ── viewer ───────────────────────────────────────────────────────────────────
 
 func (m *model) viewLine(i, w int) string {
+	if d := m.detail; d != nil {
+		lines := d.layout(w)
+		if idx := d.offset + i; idx < len(lines) {
+			return render(fitPieces(lines[idx], w), nil)
+		}
+		return strings.Repeat(" ", w)
+	}
 	f := m.file
 	switch {
 	case f == nil:
@@ -362,7 +388,7 @@ func (m *model) bar() []string {
 		return one(piece{"-- VISUAL --", stMode},
 			piece{fmt.Sprintf("  %s (%s) · c comment · esc cancel", lineRange(lo, hi), plural(hi-lo+1, "line")), stDim})
 	}
-	if f := m.file; f != nil && !f.binary && m.focus == paneViewer {
+	if f := m.file; f != nil && !f.binary && m.focus == paneViewer && m.detail == nil {
 		if cs := covering(f.comments, f.cursor+1); len(cs) > 0 {
 			return commentBar(cs, w)
 		}
@@ -621,7 +647,7 @@ var helpKeys = [][2]string{
 	{"<leader>l", "open comments"},
 	{"Tab", "switch pane"},
 	{"s", "submit a review"},
-	{"t  b", "files or changes, compare with"},
+	{"t  b", "files/changes/reviews, compare"},
 	{"r", "reload files, changes and comments"},
 	{"q", "quit (everything is saved)"},
 	{"", "Tree"},
@@ -633,8 +659,8 @@ var helpKeys = [][2]string{
 	{"gg/G  NG  :N", "first, last, line N"},
 	{"]c  [c", "next, previous comment"},
 	{"]h  [h", "next, previous change, around"},
-	{"V", "select lines (esc cancels)"},
-	{"c", "comment on the line or selection"},
+	{"V  c", "select lines, comment on them"},
+	{"o  esc", "review page: open file, close"},
 	{"e", "edit the comment on this line"},
 	{"", "Mouse"},
 	{"click", "open file, toggle directory, move"},
