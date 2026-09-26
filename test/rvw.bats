@@ -92,13 +92,21 @@ queue() {
   [ "$(jq 'has("file_version")' <<<"$output")" = "false" ]
 }
 
+@test "add: a file named like a pathspec is not taken for the tracked files it matches" {
+  git add app.py
+  printf 'glob\n' >'*.py'
+  run "$RVW" add --file '*.py' --lines 1 --comment "look here" --format json </dev/null
+  [ "$status" -eq 0 ]
+  [ "$(jq 'has("file_version")' <<<"$output")" = "false" ]
+}
+
 @test "add: a Git inspection failure cannot enqueue a versionless tracked review" {
   git add app.py
   mkdir -p "$TEST_ROOT/bin"
   ln -s "$(command -v git)" "$TEST_ROOT/bin/real-git"
   cat >"$TEST_ROOT/bin/git" <<'SH'
 #!/bin/sh
-if [ "$3" = "ls-files" ]; then
+if [ "$3" = ls-files ] || [ "$4" = ls-files ]; then
   echo "inspection unavailable" >&2
   exit 128
 fi
@@ -955,7 +963,7 @@ SH
   ln -s "$(command -v git)" "$TEST_ROOT/bin/real-git"
   cat >"$TEST_ROOT/bin/git" <<'SH'
 #!/bin/sh
-if [ "$3" = "ls-files" ]; then
+if [ "$3" = ls-files ] || [ "$4" = ls-files ]; then
   echo "inspection unavailable" >&2
   exit 128
 fi

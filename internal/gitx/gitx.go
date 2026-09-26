@@ -67,7 +67,7 @@ func Toplevel(ctx context.Context, dir string) (string, bool) {
 // Tracked reports whether rel is in the index of the repository at dir. A git
 // failure other than "not tracked" is returned as an error.
 func Tracked(ctx context.Context, dir, rel string) (bool, error) {
-	_, code, err := run(ctx, dir, "", "ls-files", "--error-unmatch", "--", rel)
+	_, code, err := run(ctx, dir, "", "--literal-pathspecs", "ls-files", "--error-unmatch", "--", rel)
 	switch code {
 	case 0:
 		return true, nil
