@@ -10,6 +10,8 @@ import (
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/charmbracelet/x/ansi"
+
+	term "github.com/gustavofsantos/rvw/internal/render"
 )
 
 const (
@@ -118,7 +120,7 @@ func displayText(s string, col int) (string, int) {
 			b.WriteString(strings.Repeat(" ", n))
 			col += n
 			continue
-		case r < 0x20 || r == 0x7f:
+		case r == '\n' || term.IsControl(r):
 			r = '\uFFFD'
 		}
 		b.WriteRune(r)

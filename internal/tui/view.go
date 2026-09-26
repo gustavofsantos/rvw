@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	term "github.com/gustavofsantos/rvw/internal/render"
 	"github.com/gustavofsantos/rvw/internal/review"
 )
 
@@ -87,7 +88,8 @@ func render(ps []piece, bg color.Color) string {
 		if bg != nil {
 			st = st.Background(bg)
 		}
-		b.WriteString(st.Render(p.text))
+		// The last guard: no text reaches the terminal with a control in it.
+		b.WriteString(st.Render(term.Safe(p.text)))
 	}
 	return b.String()
 }
@@ -433,7 +435,7 @@ func commentBar(cs []review.Comment, w int) []string {
 	for _, c := range cs {
 		head := []piece{{c.ID, stID}, {" · " + lineRange(c.StartLine, c.EndLine), stDim}}
 		if a := deref(c.Author); a != "" {
-			head = append(head, piece{" · @" + a, stDim})
+			head = append(head, piece{" · @" + expandTabs(a), stDim})
 		}
 		if c.Status == review.StatusPulled {
 			head = append(head, piece{" (pulled)", stDim})
@@ -441,13 +443,13 @@ func commentBar(cs []review.Comment, w int) []string {
 		head = append(head, piece{"   ", stPlain})
 		hw := width(head)
 		textW := max(10, w-hw)
-		text := strings.Split(ansi.Wrap(strings.TrimSpace(c.Comment), textW, ""), "\n")
+		text := strings.Split(ansi.Wrap(term.Safe(strings.TrimSpace(c.Comment)), textW, ""), "\n")
 		for i, t := range text {
 			lead := head
 			if i > 0 {
 				lead = []piece{{strings.Repeat(" ", hw), stPlain}}
 			}
-			rows = append(rows, append(append([]piece{}, lead...), piece{t, stPlain}))
+			rows = append(rows, append(append([]piece{}, lead...), piece{expandTabs(t), stPlain}))
 		}
 	}
 	if len(rows) > maxBar {

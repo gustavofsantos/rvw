@@ -641,3 +641,19 @@ func TestLeaderKeyIsConfigurable(t *testing.T) {
 		t.Fatal("the key list says what the leader is")
 	}
 }
+
+// Agent text in the comment bar is drawn, never obeyed: the escape it hides
+// behind shows up as a replacement character.
+func TestCommentBarShowsControlCharactersInsteadOfSendingThem(t *testing.T) {
+	author := "ev\x1b[1mil"
+	cs := []review.Comment{{
+		ID: "r1", StartLine: 1, EndLine: 1, Author: &author,
+		Comment: "see \x1b]0;PWNED\x07\x1b[8mhidden\x1b[0m \u009bhere",
+	}}
+	got := ansi.Strip(strings.Join(commentBar(cs, 120), "\n"))
+	for _, want := range []string{"@ev�[1mil", "see �]0;PWNED��[8mhidden�[0m �here"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("comment bar %q does not show %q", got, want)
+		}
+	}
+}

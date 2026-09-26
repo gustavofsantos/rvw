@@ -1075,9 +1075,10 @@ func location(file string, start, end int) string {
 	return fmt.Sprintf("%s:%d-%d", file, start, end)
 }
 
+// firstLine is the first line of s, ready to draw.
 func firstLine(s string) string {
 	s, _, _ = strings.Cut(strings.TrimSpace(s), "\n")
-	return s
+	return expandTabs(s)
 }
 
 func deref(s *string) string {
