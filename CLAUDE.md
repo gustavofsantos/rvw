@@ -15,6 +15,7 @@ make lint                       # golangci-lint, config in .golangci.yml
 make fmt                        # gofumpt + goimports (not plain gofmt)
 make vuln                       # govulncheck
 make check                      # lint, vuln, vet, go test and bats
+make hooks                      # once per clone: pre-push runs make check
 ```
 
 Run `make check` before calling a change done.

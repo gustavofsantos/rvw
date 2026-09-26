@@ -5,7 +5,7 @@ GOBIN := $(or $(shell go env GOBIN),$(shell go env GOPATH)/bin)
 GOLANGCI_LINT := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@v1.8.0
 
-.PHONY: build install uninstall test lint fmt vuln check clean
+.PHONY: build install uninstall test lint fmt vuln check hooks clean
 
 build:
 	go build -o bin/rvw ./cmd/rvw
@@ -31,6 +31,9 @@ vuln:
 	$(GOVULNCHECK) ./...
 
 check: lint vuln test
+
+hooks:
+	git config core.hooksPath .githooks
 
 clean:
 	rm -rf bin
