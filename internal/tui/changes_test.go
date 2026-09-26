@@ -412,3 +412,33 @@ func TestCommentsOnTheCursorLineTakeTheBarOverTheStatus(t *testing.T) {
 		t.Fatalf("with the tree focused the status shows: %q", bar)
 	}
 }
+
+func TestOpeningFromTheChangesViewLandsOnTheFirstChange(t *testing.T) {
+	f := setup(t)
+	f.write("src/util.py", "def util():\n    return 1\n")
+	m := f.model()
+	keys(m, "leader", "p", "srcutil", "enter")
+	if m.file.cursor != 0 {
+		t.Fatalf("the finder opens util.py on line 1, cursor on %d", m.file.cursor+1)
+	}
+
+	keys(m, "t", "tab")
+	if got := rowNames(m.rows); !slices.Equal(got, []string{"src/", "  util.py"}) {
+		t.Fatalf("rows = %q", got)
+	}
+	keys(m, "gg", "j", "l")
+	if m.file.rel != "src/util.py" || m.file.cursor+1 != 2 || m.focus != paneViewer {
+		t.Fatalf("l opens util.py on its change: %s line %d", m.file.rel, m.file.cursor+1)
+	}
+
+	keys(m, "gg")
+	m.Update(click(3, 2))
+	if m.file.cursor+1 != 2 {
+		t.Fatalf("a click opens it on its change again, cursor on %d", m.file.cursor+1)
+	}
+
+	keys(m, "gg", "t", "tab", "l") // tab puts the tree cursor on the open file
+	if m.file.rel != "src/util.py" || m.file.cursor != 0 {
+		t.Fatalf("the file tree opens it where it was left: %s line %d", m.file.rel, m.file.cursor+1)
+	}
+}

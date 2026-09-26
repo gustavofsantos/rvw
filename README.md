@@ -95,7 +95,8 @@ uncommitted changes against `HEAD`, as `+added -deleted` counts of lines
 
 `t` switches the left pane between every file and only the changed ones,
 each with its git status: `M` modified, `A` added, `D` deleted, `?`
-untracked. `b` chooses what the files on disk are compared with, for that
+untracked. Opening a file from that list puts the cursor on its first
+change. `b` chooses what the files on disk are compared with, for that
 list and for the gutter marks alike:
 
 - **uncommitted**, the default: against `HEAD`.

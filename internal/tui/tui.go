@@ -628,14 +628,19 @@ func (m *model) treeKey(s string, count int) tea.Cmd {
 	return nil
 }
 
-// openFromTree opens a file picked in the tree and moves to the viewer. A
-// file the changes view lists as deleted has nothing on disk to open.
+// openFromTree opens a file picked in the tree and moves to the viewer. From
+// the changes view it lands on the file's first change; a file listed there
+// as deleted has nothing on disk to open.
 func (m *model) openFromTree(path string) tea.Cmd {
 	if m.side == sideChanges && m.status[path] == 'D' {
 		return m.setFlash(path+" was deleted: nothing to show", false)
 	}
 	if err := m.openFile(path, 0); err != nil {
 		return m.fail(err)
+	}
+	if f := m.file; m.side == sideChanges && len(f.hunks) > 0 {
+		m.gotoLine(slices.Min(f.hunks))
+		f.offset = max(0, f.cursor-m.bodyHeight()/3)
 	}
 	m.focus = paneViewer
 	return nil
