@@ -2,6 +2,8 @@
 
 Code review for humans/AI.
 
+![rvw tui: comment on uncommitted code, submit a review, read what the agent did](docs/demo/tui.gif)
+
 `rvw` is a local review queue. You leave comments on line ranges of files,
 from an editor, a shell or an agent. The agent working on that code pulls
 them, acts on them, and records what became of each one.
@@ -58,6 +60,8 @@ Or, from a checkout, `make install` (`go install ./cmd/rvw`). `make uninstall`
 removes it.
 
 ## Examples
+
+![rvw from a shell: add, submit, pull, resolve, show](docs/demo/cli.gif)
 
 Leave comments where you read the code:
 
@@ -144,6 +148,8 @@ of what was asked and how it was addressed: a review's summary and each
 comment's outcome; a comment's note, the code as reviewed, the resolution
 note and, for a done comment, the diff of the file while it was resolved.
 `o` opens the file at the comment, `esc` goes back to the file you had open.
+
+![A done comment in rvw tui: the comment, the code as reviewed, the resolution and its diff](docs/demo/tui-resolved.png)
 
 - `<leader>p` opens a file by fuzzy name; `<leader>l` lists the open
   comments. The leader is space; `--leader` makes it another key, such as `,`.
