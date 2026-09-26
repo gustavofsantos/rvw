@@ -404,16 +404,20 @@ func TestEditorAddsEditsAndSubmits(t *testing.T) {
 		t.Fatalf("selected %s:%d-%d", m.file.rel, lo, hi)
 	}
 
-	done := func(req editRequest, text string) {
+	// done feeds the editor's result back; the note's file is removed once
+	// saved, and kept when saving fails, so nothing typed is lost.
+	done := func(req editRequest, text string) string {
 		t.Helper()
 		path := filepath.Join(t.TempDir(), "note.md")
 		if err := os.WriteFile(path, []byte(text+"\n"+template("", nil)), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		m.Update(editorDoneMsg{req: req, path: path})
-		if _, err := os.Stat(path); !os.IsNotExist(err) {
-			t.Error("the temp file is removed")
+		_, err := os.Stat(path)
+		if kept := err == nil; kept != m.flashErr {
+			t.Errorf("note kept = %v after flash %q", kept, m.flash)
 		}
+		return path
 	}
 	req := editRequest{kind: editAdd, file: m.file.abs, start: 4, end: 7}
 
@@ -439,9 +443,9 @@ func TestEditorAddsEditsAndSubmits(t *testing.T) {
 		t.Fatalf("edit: %q %q", m.flash, m.file.comments[0].Comment)
 	}
 
-	done(editRequest{kind: editEdit, id: "r9"}, "nope")
-	if !m.flashErr || !strings.HasPrefix(m.flash, "rvw: ") {
-		t.Fatalf("a service error is shown as rvw: ...: %q", m.flash)
+	kept := done(editRequest{kind: editEdit, id: "r9"}, "nope")
+	if !m.flashErr || !strings.HasPrefix(m.flash, "rvw: ") || !strings.HasSuffix(m.flash, "note kept at "+kept) {
+		t.Fatalf("a service error is shown as rvw: ..., with where the note is: %q", m.flash)
 	}
 
 	done(editRequest{kind: editSummary, decision: review.DecisionRequestChanges}, "fix it")

@@ -971,10 +971,11 @@ func (m *model) edit(content string, req editRequest) tea.Cmd {
 	})
 }
 
+// editorDone saves what the user wrote. The note's file goes only once it is
+// saved: when saving fails, the error says where the note was kept.
 func (m *model) editorDone(msg editorDoneMsg) tea.Cmd {
-	defer os.Remove(msg.path)
 	if msg.err != nil {
-		return m.fail(fmt.Errorf("editor '%s' failed: %w", m.opts.Editor, msg.err))
+		return m.fail(fmt.Errorf("editor '%s' failed: %w — note kept at %s", m.opts.Editor, msg.err, msg.path))
 	}
 	data, err := os.ReadFile(msg.path)
 	if err != nil {
@@ -982,10 +983,24 @@ func (m *model) editorDone(msg editorDoneMsg) tea.Cmd {
 	}
 	text := stripTemplate(string(data))
 	if text == "" {
+		os.Remove(msg.path)
 		return m.setFlash("cancelled: empty note", false)
 	}
-	svc, ws, req := m.opts.Service, m.opts.Workspace, msg.req
-	var flash string
+	flash, err := m.save(msg.req, text)
+	if err != nil {
+		return m.fail(fmt.Errorf("%w — note kept at %s", err, msg.path))
+	}
+	os.Remove(msg.path)
+	if err := m.reload(false); err != nil {
+		return m.fail(err)
+	}
+	return m.setFlash(flash, false)
+}
+
+// save makes the one service call an edit request stands for, and says what
+// it did.
+func (m *model) save(req editRequest, text string) (string, error) {
+	svc, ws := m.opts.Service, m.opts.Workspace
 	switch req.kind {
 	case editAdd:
 		c, err := svc.Add(m.ctx, review.AddInput{
@@ -993,29 +1008,25 @@ func (m *model) editorDone(msg editorDoneMsg) tea.Cmd {
 			Comment: text, Lane: m.opts.Lane, Author: m.opts.Author,
 		})
 		if err != nil {
-			return m.fail(err)
+			return "", err
 		}
 		m.visual = false
-		flash = "queued " + c.ID + " · " + c.Location()
+		return "queued " + c.ID + " · " + c.Location(), nil
 	case editEdit:
 		c, err := svc.Edit(m.ctx, review.EditInput{Workspace: ws, ID: req.id, Comment: text})
 		if err != nil {
-			return m.fail(err)
+			return "", err
 		}
-		flash = "edited " + c.ID + " · " + c.Location()
-	case editSummary:
+		return "edited " + c.ID + " · " + c.Location(), nil
+	default:
 		r, err := svc.Submit(m.ctx, review.SubmitInput{
 			Workspace: ws, Decision: req.decision, Summary: text, Lane: m.opts.Lane, Author: m.opts.Author,
 		})
 		if err != nil {
-			return m.fail(err)
+			return "", err
 		}
-		flash = fmt.Sprintf("submitted %s · %s · %s", r.ID, r.Decision, plural(len(r.CommentIDs), "comment"))
+		return fmt.Sprintf("submitted %s · %s · %s", r.ID, r.Decision, plural(len(r.CommentIDs), "comment")), nil
 	}
-	if err := m.reload(false); err != nil {
-		return m.fail(err)
-	}
-	return m.setFlash(flash, false)
 }
 
 // ── submit menu ──────────────────────────────────────────────────────────────
