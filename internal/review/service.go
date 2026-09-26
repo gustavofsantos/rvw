@@ -722,9 +722,9 @@ func snapshotResolved(ctx context.Context, ws string, c Comment) (string, error)
 	if err != nil {
 		return "", nil //nolint:nilerr // a path that does not resolve has no snapshot
 	}
-	rel, err := filepath.Rel(ws, path)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, "../") || !isFile(path) {
-		return "", nil //nolint:nilerr // a path outside the workspace has no snapshot
+	rel, ok := inWorkspace(ws, path)
+	if !ok || !isFile(path) {
+		return "", nil // a path outside the workspace has no snapshot
 	}
 	label := cmp.Or(c.File, rel)
 	tracked, err := gitx.Tracked(ctx, ws, rel)

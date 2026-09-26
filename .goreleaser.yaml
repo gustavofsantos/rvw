@@ -8,7 +8,7 @@ builds:
   - main: ./cmd/rvw
     env:
       - CGO_ENABLED=0 # modernc SQLite needs no cgo, so every target cross-compiles
-    goos: [linux, darwin, windows]
+    goos: [linux, darwin] # the TUI starts the editor through sh
     goarch: [amd64, arm64]
     flags:
       - -trimpath
@@ -20,9 +20,6 @@ archives:
   # install.sh depends on this.
   - name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
-    format_overrides:
-      - goos: windows
-        formats: [zip]
     files:
       - README.md
 

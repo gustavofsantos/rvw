@@ -46,9 +46,9 @@ to upgrade. Pick a release or another directory with arguments after `sh -s --`:
 curl -fsSL https://raw.githubusercontent.com/gustavofsantos/rvw/main/install.sh | sh -s -- --version v1.1.0 --dir /usr/local/bin
 ```
 
-Archives for every platform, Windows included, are on the
-[releases page](https://github.com/gustavofsantos/rvw/releases). With Go
-installed you can also build it yourself:
+Archives for Linux and macOS are on the
+[releases page](https://github.com/gustavofsantos/rvw/releases). Windows is not
+supported. With Go installed you can also build it yourself:
 
 ```sh
 go install github.com/gustavofsantos/rvw/cmd/rvw@latest
