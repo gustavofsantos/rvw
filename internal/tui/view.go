@@ -35,6 +35,16 @@ var (
 	stNotice    = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
 	stMode      = lipgloss.NewStyle().Foreground(colAccent).Bold(true)
 
+	// statusStyles color a changed file's git status letter.
+	statusStyles = map[byte]lipgloss.Style{
+		'A': lipgloss.NewStyle().Foreground(lipgloss.Color("2")),
+		'?': lipgloss.NewStyle().Foreground(lipgloss.Color("2")),
+		'M': lipgloss.NewStyle().Foreground(lipgloss.Color("4")),
+		'T': lipgloss.NewStyle().Foreground(lipgloss.Color("4")),
+		'D': lipgloss.NewStyle().Foreground(lipgloss.Color("1")),
+		'U': lipgloss.NewStyle().Foreground(lipgloss.Color("3")),
+	}
+
 	signStyles = [...]lipgloss.Style{
 		signNone:       stPlain,
 		signAdded:      lipgloss.NewStyle().Foreground(lipgloss.Color("2")),
@@ -145,6 +155,8 @@ func (m *model) screen() string {
 		box = m.pickerBox()
 	case m.submit != nil:
 		box = m.submitBox()
+	case m.compare != nil:
+		box = m.compareBox()
 	case m.help:
 		box = m.helpBox()
 	}
@@ -161,7 +173,7 @@ func (m *model) main() []string {
 		title = m.file.rel
 	}
 	out := []string{
-		stBorder.Render("┌") + paneTitle("files", tw, m.focus == paneTree) + stBorder.Render("┬") +
+		stBorder.Render("┌") + paneTitle(m.sideTitle(), tw, m.focus == paneTree) + stBorder.Render("┬") +
 			paneTitle(title, vw, m.focus == paneViewer) + stBorder.Render("┐"),
 	}
 	edge := stBorder.Render("│")
@@ -186,13 +198,33 @@ func paneTitle(t string, w int, focused bool) string {
 	return stBorder.Render("─ ") + st.Render(t) + stBorder.Render(" "+strings.Repeat("─", max(0, rest)))
 }
 
+// sideTitle names the left pane; for the changes, what they are against,
+// last, so a narrow pane keeps it.
+func (m *model) sideTitle() string {
+	if m.side == sideFiles {
+		return "files"
+	}
+	against := m.baseName
+	if against == "" {
+		against = compareLabels[m.cmp]
+	}
+	return "changes vs " + against
+}
+
 // ── tree ─────────────────────────────────────────────────────────────────────
 
 func (m *model) treeLine(i, w int) string {
 	idx := m.treeOff + i
 	if idx >= len(m.rows) {
 		if len(m.rows) == 0 && i == 0 {
-			return render(fitPieces([]piece{{" empty workspace", stDim}}, w), nil)
+			empty := "empty workspace"
+			switch {
+			case m.side == sideChanges && m.chgErr != "":
+				empty = m.chgErr
+			case m.side == sideChanges:
+				empty = "no changes"
+			}
+			return render(fitPieces([]piece{{" " + empty, stDim}}, w), nil)
 		}
 		return strings.Repeat(" ", w)
 	}
@@ -214,14 +246,27 @@ func (m *model) treeLine(i, w int) string {
 	if c := m.counts[n.path]; c > 0 && !n.dir {
 		badge = fmt.Sprintf("💬%d", c)
 	}
+	var status byte
+	if m.side == sideChanges && !n.dir {
+		status = m.status[n.path]
+	}
+	if status == 'D' {
+		name.st = stDim
+	}
 	avail := w - 2
 	if badge != "" {
 		avail -= ansi.StringWidth(badge) + 1
+	}
+	if status != 0 {
+		avail -= 2
 	}
 	text := fitPieces([]piece{{" " + indent, stPlain}, name}, avail+1)
 	row := append(text, piece{" ", stPlain})
 	if badge != "" {
 		row = append(row, piece{badge, stBadge}, piece{" ", stPlain})
+	}
+	if status != 0 {
+		row = append(row, piece{string(status), statusStyles[status]}, piece{" ", stPlain})
 	}
 	var bg color.Color
 	if idx == m.treeCur && m.focus == paneTree {
@@ -315,7 +360,7 @@ func (m *model) bar() []string {
 		return one(piece{"-- VISUAL --", stMode},
 			piece{fmt.Sprintf("  %s (%s) · c comment · esc cancel", lineRange(lo, hi), plural(hi-lo+1, "line")), stDim})
 	case m.focus == paneTree:
-		return one(piece{"l open · h collapse · Tab viewer · C-p files · C-l comments · ? help", stDim})
+		return one(piece{"l open · h collapse · t files/changes · b compare · Tab viewer · C-p files · ? help", stDim})
 	}
 	if f := m.file; f != nil && !f.binary {
 		if cs := covering(f.comments, f.cursor+1); len(cs) > 0 {
@@ -527,13 +572,29 @@ func (m *model) submitBox() []string {
 	return frame("Submit review", 36, body, footer, bg)
 }
 
+func (m *model) compareBox() []string {
+	var body [][]piece
+	bg := map[int]color.Color{}
+	for i, l := range compareLabels {
+		marker := "   "
+		if i == m.compare.cursor {
+			marker = " ▸ "
+			bg[i] = m.theme.cursor
+		}
+		body = append(body, []piece{{marker, stTitle}, {fmt.Sprintf("%d", i+1), stID}, {"  " + l, stPlain}})
+	}
+	footer := []piece{{" lists changes, marks the gutter · ↵ · esc ", stDim}}
+	return frame("Compare against", 44, body, footer, bg)
+}
+
 var helpKeys = [][2]string{
 	{"", "Global"},
 	{"C-p", "go to file"},
 	{"C-l", "open comments"},
 	{"Tab", "switch pane"},
 	{"s", "submit a review"},
-	{"r", "reload files and comments"},
+	{"t  b", "files or changes, compare with"},
+	{"r", "reload files, changes and comments"},
 	{"q", "quit (everything is saved)"},
 	{"", "Tree"},
 	{"j/k  gg/G", "move"},
@@ -551,8 +612,7 @@ var helpKeys = [][2]string{
 	{"click", "open file, toggle directory, move"},
 	{"drag", "select lines"},
 	{"", "Overlays"},
-	{"C-n/C-p  ↓/↑", "move"},
-	{"↵  esc", "open, close"},
+	{"C-n/C-p ↵ esc", "move, open, close"},
 }
 
 func (m *model) helpBox() []string {

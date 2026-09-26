@@ -5,8 +5,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/golden"
 	"github.com/gustavofsantos/rvw/internal/gitx"
 	"github.com/gustavofsantos/rvw/internal/workspace"
@@ -135,7 +137,10 @@ func TestGutterSignsNeedHEAD(t *testing.T) {
 	if out, err := exec.Command("git", "-C", ws, "add", "a.txt").CombinedOutput(); err != nil {
 		t.Fatalf("git add: %v\n%s", err, out)
 	}
-	if got, hunks := fileChanges(ws, filepath.Join(ws, "a.txt"), 1); got != nil || hunks != nil {
+	if _, _, err := compareHEAD.base(ws); err == nil {
+		t.Fatal("without a commit there is no HEAD to compare with")
+	}
+	if got, hunks := fileChanges(ws, filepath.Join(ws, "a.txt"), "HEAD", 1); got != nil || hunks != nil {
 		t.Fatalf("without a commit there are no signs: %v %v", got, hunks)
 	}
 }
@@ -143,4 +148,169 @@ func TestGutterSignsNeedHEAD(t *testing.T) {
 func TestGoldenGitChanges(t *testing.T) {
 	f := gitFixture(t)
 	golden.RequireEqual(t, view(t, f, seq("ctrl+p", "apipar", "enter")...))
+}
+
+// ── changes view ─────────────────────────────────────────────────────────────
+
+func TestChangesViewListsUncommittedChangesByDefault(t *testing.T) {
+	f := gitFixture(t)
+	if err := os.Remove(filepath.Join(f.ws, "README.md")); err != nil {
+		t.Fatal(err)
+	}
+	m := f.model()
+	if m.side != sideFiles {
+		t.Fatalf("the sidebar starts on the files, got %v", m.side)
+	}
+	keys(m, "t")
+	if m.side != sideChanges || m.cmp != compareHEAD || m.sideTitle() != "changes vs HEAD" {
+		t.Fatalf("t shows the uncommitted changes: side %v, compare %v, title %q", m.side, m.cmp, m.sideTitle())
+	}
+	want := []string{"src/", "  api/", "    parse.py", "  new.py", "README.md"}
+	if got := rowNames(m.rows); !slices.Equal(got, want) {
+		t.Fatalf("changes rows = %q, want %q", got, want)
+	}
+	if m.status["src/api/parse.py"] != 'M' || m.status["src/new.py"] != '?' || m.status["README.md"] != 'D' {
+		t.Fatalf("status = %q", m.status)
+	}
+
+	keys(m, "tab", "G", "l")
+	if m.file.rel == "README.md" || m.flash != "README.md was deleted: nothing to show" {
+		t.Fatalf("opening a deleted file stays on %s and says %q", m.file.rel, m.flash)
+	}
+	keys(m, "gg", "j", "j", "l")
+	if m.file.rel != "src/api/parse.py" || m.focus != paneViewer {
+		t.Fatalf("l on a changed file opens it: %s, focus %v", m.file.rel, m.focus)
+	}
+
+	keys(m, "t")
+	if m.side != sideFiles || m.sideTitle() != "files" || rowNames(m.rows)[0] != "docs/" {
+		t.Fatalf("t goes back to the files: %v %q", m.side, rowNames(m.rows))
+	}
+}
+
+// branched is the fixture on a feature branch off main: util.py changed in a
+// commit on the branch, papers.md in a commit on main after the branch point,
+// and parse.py edited but not committed.
+func branched(t *testing.T) *fixture {
+	f := setup(t)
+	f.git("branch", "-M", "main")
+	f.git("checkout", "-qb", "feature")
+	f.write("src/util.py", "def util():\n    return 1\n")
+	f.git("commit", "-qam", "util")
+	f.git("checkout", "-q", "main")
+	f.write("docs/api/papers.md", "# Papers\n\nmore\n")
+	f.git("commit", "-qam", "papers")
+	f.git("checkout", "-q", "feature")
+	f.write("src/api/parse.py", "# edited\n"+parsePy)
+	return f
+}
+
+func TestChangesAgainstTheDefaultBranchStartAtTheMergeBase(t *testing.T) {
+	m := branched(t).model()
+	keys(m, "ctrl+p", "srcutil", "enter")
+	if m.file.signs != nil {
+		t.Fatalf("against HEAD the committed util.py is unchanged: %v", m.file.signs)
+	}
+
+	keys(m, "b", "2")
+	if m.compare != nil || m.cmp != compareDefault || m.sideTitle() != "changes vs main" {
+		t.Fatalf("b 2 compares with main: menu %v, compare %v, title %q", m.compare, m.cmp, m.sideTitle())
+	}
+	want := []string{"src/", "  api/", "    parse.py", "  util.py"}
+	if got := rowNames(m.rows); !slices.Equal(got, want) {
+		t.Fatalf("changes vs main = %q, want %q (not main's own papers.md)", got, want)
+	}
+	if !slices.Equal(m.file.signs, []sign{0, signChanged}) {
+		t.Fatalf("the gutter marks against main too: %v", m.file.signs)
+	}
+
+	keys(m, "b", "1")
+	if got := rowNames(m.rows); !slices.Equal(got, []string{"src/", "  api/", "    parse.py"}) {
+		t.Fatalf("b 1 goes back to the uncommitted changes: %q", got)
+	}
+	if m.file.signs != nil {
+		t.Fatalf("and the gutter with it: %v", m.file.signs)
+	}
+}
+
+func TestChangesAgainstThePreviousCommitIncludeTheLastCommit(t *testing.T) {
+	m := branched(t).model()
+	keys(m, "b", "down", "down", "enter")
+	if m.cmp != comparePrev || m.sideTitle() != "changes vs HEAD~1" {
+		t.Fatalf("compare %v, title %q", m.cmp, m.sideTitle())
+	}
+	if got := rowNames(m.rows); !slices.Equal(got, []string{"src/", "  api/", "    parse.py", "  util.py"}) {
+		t.Fatalf("changes vs HEAD~1 = %q", got)
+	}
+}
+
+func TestACompareThatCannotResolveKeepsThePreviousOne(t *testing.T) {
+	f := setup(t)
+	f.git("branch", "-M", "main")
+	m := f.model()
+	keys(m, "b", "3")
+	if m.cmp != compareHEAD || m.side != sideFiles || m.flash != "rvw: no previous commit to compare with" {
+		t.Fatalf("compare %v, side %v, flash %q", m.cmp, m.side, m.flash)
+	}
+	m.flash = ""
+	keys(m, "b", "2")
+	if m.cmp != compareDefault {
+		t.Fatalf("on main itself the default branch resolves: flash %q", m.flash)
+	}
+	if got := rowNames(m.rows); len(got) != 0 {
+		t.Fatalf("main against itself has no changes: %q", got)
+	}
+}
+
+func TestChangesViewWithoutACommitSaysWhy(t *testing.T) {
+	f := setup(t)
+	f.git("update-ref", "-d", "HEAD")
+	m := f.model()
+	keys(m, "t")
+	if len(m.rows) != 0 || m.chgErr != "no commit to compare with yet" {
+		t.Fatalf("rows %q, error %q", rowNames(m.rows), m.chgErr)
+	}
+	if !strings.Contains(ansi.Strip(m.screen()), " no commit to compare") {
+		t.Fatal("the pane shows why there are no changes")
+	}
+}
+
+func TestGoldenChangesView(t *testing.T) {
+	f := gitFixture(t)
+	golden.RequireEqual(t, view(t, f, seq("t", "tab", "b")...))
+}
+
+func TestACommitMadeMeanwhileMovesTheComparison(t *testing.T) {
+	f := setup(t)
+	m := f.model()
+	f.write("src/util.py", "def util():\n    return 1\n")
+	f.git("commit", "-qam", "util")
+	keys(m, "ctrl+p", "srcutil", "enter")
+	if m.file.signs != nil {
+		t.Fatalf("the gutter compares with HEAD as it is now: %v", m.file.signs)
+	}
+	keys(m, "t")
+	if len(m.rows) != 0 {
+		t.Fatalf("so does the changes view: %q", rowNames(m.rows))
+	}
+}
+
+func TestChangesViewFindsTheFirstCommitMadeMeanwhile(t *testing.T) {
+	f := setup(t)
+	f.git("update-ref", "-d", "HEAD")
+	m := f.model()
+	f.git("commit", "-qm", "first")
+	f.write("README.md", "# Demo\n")
+	keys(m, "t")
+	if m.chgErr != "" || !slices.Equal(rowNames(m.rows), []string{"README.md"}) {
+		t.Fatalf("rows %q, error %q", rowNames(m.rows), m.chgErr)
+	}
+}
+
+func TestHelpFitsTheTestTerminal(t *testing.T) {
+	m := setup(t).model()
+	keys(m, "?")
+	if !strings.Contains(ansi.Strip(m.screen()), "move, open, close") {
+		t.Fatal("the last help line shows at 100x30")
+	}
 }

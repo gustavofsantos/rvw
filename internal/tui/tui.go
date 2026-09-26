@@ -55,6 +55,14 @@ const (
 	paneViewer
 )
 
+// sidebar is what the left pane lists.
+type sidebar int
+
+const (
+	sideFiles   sidebar = iota // every file in the workspace
+	sideChanges                // the files that differ from the compared commit
+)
+
 // flashFor is how long a transient message holds the bottom bar.
 const flashFor = 3 * time.Second
 
@@ -67,10 +75,18 @@ type model struct {
 	width, height int
 	focus         pane
 
-	root    *node
-	rows    []row // visible tree rows
-	treeCur int
-	treeOff int
+	side     sidebar
+	fileTree *node
+	chgTree  *node           // nil until the changes view is first shown
+	status   map[string]byte // git status letter per changed file
+	chgErr   string          // why the changes cannot be listed, if they cannot
+	rows     []row           // visible rows of the shown tree
+	treeCur  int
+	treeOff  int
+
+	cmp      compare
+	baseID   string // the revision cmp resolved to; "" for none: no gutter signs
+	baseName string // its short name: HEAD, main, HEAD~1
 
 	files  []string         // every file, relative
 	open   []review.Comment // every open comment in the workspace
@@ -88,9 +104,10 @@ type model struct {
 	prefixCount int     // the count before a prefix, for {count}gg
 	goLine      *string // the :N prompt, when open
 
-	picker *picker
-	submit *submitMenu
-	help   bool
+	picker  *picker
+	submit  *submitMenu
+	compare *compareMenu
+	help    bool
 
 	flash    string
 	flashErr bool
@@ -133,13 +150,14 @@ func newModel(ctx context.Context, opts Options) (*model, error) {
 		ctx: ctx, opts: opts, focus: paneViewer, positions: map[string]int{}, counts: map[string]int{},
 	}
 	m.setTheme(true)
+	m.baseID, m.baseName, _ = m.cmp.base(opts.Workspace)
 	if err := m.loadTree(); err != nil {
 		return nil, err
 	}
 	if err := m.loadComments(); err != nil {
 		return nil, err
 	}
-	if first := m.root.firstFile(); first != "" {
+	if first := m.fileTree.firstFile(); first != "" {
 		if err := m.openFile(first, 0); err != nil {
 			m.flash, m.flashErr = "rvw: "+err.Error(), true
 		}
@@ -158,21 +176,76 @@ func (m *model) loadTree() error {
 		return fmt.Errorf("cannot list workspace %s: %s", m.opts.Workspace, gitx.Stderr(err))
 	}
 	var expanded []string
-	if m.root != nil {
-		expanded = m.root.expandedDirs()
+	if m.fileTree != nil {
+		expanded = m.fileTree.expandedDirs()
 	}
 	m.files = files
-	m.root = buildTree(files)
+	m.fileTree = buildTree(files)
 	for _, d := range expanded {
-		if n := m.root.find(d); n != nil && n.dir {
+		if n := m.fileTree.find(d); n != nil && n.dir {
 			n.expanded = true
 		}
 	}
 	if m.file != nil {
-		m.root.reveal(m.file.rel)
+		m.fileTree.reveal(m.file.rel)
 	}
 	m.refreshRows()
 	return nil
+}
+
+// loadChanges lists the files that differ from the compared commit. A
+// failure is kept to show in the pane, not returned: the rest of the UI works
+// without it.
+func (m *model) loadChanges() {
+	var changes []gitx.Change
+	var err error
+	if m.baseID == "" { // perhaps there is one by now; else it says why not
+		m.baseID, m.baseName, err = m.cmp.base(m.opts.Workspace)
+	}
+	if err == nil {
+		changes, err = gitx.ChangedFiles(m.opts.Workspace, m.baseID)
+	}
+	m.chgErr = ""
+	if err != nil {
+		m.chgErr = gitx.Stderr(err)
+	}
+	m.chgTree, m.status = changeTree(changes)
+	m.refreshRows()
+}
+
+// tree is the tree the left pane shows.
+func (m *model) tree() *node {
+	if m.side == sideChanges && m.chgTree != nil {
+		return m.chgTree
+	}
+	return m.fileTree
+}
+
+// showSide switches the left pane to side, re-listing the changes when it
+// is them, and puts the tree cursor on the open file when it is listed.
+func (m *model) showSide(side sidebar) {
+	m.side = side
+	if side == sideChanges {
+		m.loadChanges()
+	}
+	m.refreshRows()
+	m.treeCur, m.treeOff = 0, 0
+	if m.file != nil {
+		m.selectTreeRow(m.file.rel)
+	}
+}
+
+// setCompare compares the worktree with what c names from now on: the
+// changes view lists against it and the gutter marks against it. When c
+// cannot be resolved, nothing changes but the error.
+func (m *model) setCompare(c compare) error {
+	id, name, err := c.base(m.opts.Workspace)
+	if err != nil {
+		return err
+	}
+	m.cmp, m.baseID, m.baseName = c, id, name
+	m.showSide(sideChanges)
+	return m.reload(false)
 }
 
 // loadComments re-reads the open comments: the workspace's, for counts and
@@ -215,7 +288,7 @@ func (m *model) loadFile(rel string) (*fileView, error) {
 	text := string(data)
 	f.plain = sourceLines(text)
 	f.lines = highlight(rel, text)
-	f.signs, f.hunks = fileChanges(m.opts.Workspace, abs, len(f.lines))
+	f.signs, f.hunks = fileChanges(m.opts.Workspace, abs, m.baseID, len(f.lines))
 	return f, nil
 }
 
@@ -240,7 +313,7 @@ func (m *model) openFile(rel string, line int) error {
 	m.file = f
 	m.visual = false
 	m.recent = append([]string{rel}, slices.DeleteFunc(m.recent, func(r string) bool { return r == rel })...)
-	m.root.reveal(rel)
+	m.fileTree.reveal(rel)
 	m.refreshRows()
 	m.selectTreeRow(rel)
 	return m.loadComments()
@@ -250,8 +323,12 @@ func (m *model) openFile(rel string, line int) error {
 // queue; the cursor stays on its line.
 func (m *model) reload(walk bool) error {
 	if walk {
+		m.baseID, m.baseName, _ = m.cmp.base(m.opts.Workspace)
 		if err := m.loadTree(); err != nil {
 			return err
+		}
+		if m.chgTree != nil {
+			m.loadChanges()
 		}
 	}
 	if old := m.file; old != nil {
@@ -269,7 +346,7 @@ func (m *model) reload(walk bool) error {
 }
 
 func (m *model) refreshRows() {
-	m.rows = m.root.rows()
+	m.rows = m.tree().rows()
 	m.treeCur = clamp(m.treeCur, 0, len(m.rows)-1)
 }
 
@@ -370,6 +447,8 @@ func (m *model) key(k tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case m.submit != nil:
 		return m.submitKey(s)
+	case m.compare != nil:
+		return m.compareKey(s)
 	case m.picker != nil:
 		return m.pickerKey(k)
 	case m.goLine != nil:
@@ -426,6 +505,12 @@ func (m *model) key(k tea.KeyPressMsg) tea.Cmd {
 	case "s":
 		m.submit = &submitMenu{}
 		return nil
+	case "t":
+		m.showSide(1 - m.side)
+		return nil
+	case "b":
+		m.compare = &compareMenu{cursor: int(m.cmp)}
+		return nil
 	case "r":
 		if err := m.reload(true); err != nil {
 			return m.fail(err)
@@ -459,11 +544,7 @@ func (m *model) treeKey(s string, count int) tea.Cmd {
 		m.treeCur = len(m.rows) - 1
 	case "l", "right", "enter":
 		if !cur.dir {
-			if err := m.openFile(cur.path, 0); err != nil {
-				return m.fail(err)
-			}
-			m.focus = paneViewer
-			return nil
+			return m.openFromTree(cur.path)
 		}
 		cur.expanded = !cur.expanded || s != "enter"
 		m.refreshRows()
@@ -471,10 +552,23 @@ func (m *model) treeKey(s string, count int) tea.Cmd {
 		if cur.dir && cur.expanded {
 			cur.expanded = false
 			m.refreshRows()
-		} else if cur.parent != nil && cur.parent != m.root {
+		} else if cur.parent != nil && cur.parent != m.tree() {
 			m.selectTreeRow(cur.parent.path)
 		}
 	}
+	return nil
+}
+
+// openFromTree opens a file picked in the tree and moves to the viewer. A
+// file the changes view lists as deleted has nothing on disk to open.
+func (m *model) openFromTree(path string) tea.Cmd {
+	if m.side == sideChanges && m.status[path] == 'D' {
+		return m.setFlash(path+" was deleted: nothing to show", false)
+	}
+	if err := m.openFile(path, 0); err != nil {
+		return m.fail(err)
+	}
+	m.focus = paneViewer
 	return nil
 }
 
@@ -749,6 +843,31 @@ func (m *model) submitKey(s string) tea.Cmd {
 	case "enter":
 		m.submit = nil
 		return m.startSummary(review.Decisions[menu.cursor])
+	}
+	return nil
+}
+
+// ── compare menu ─────────────────────────────────────────────────────────────
+
+type compareMenu struct{ cursor int }
+
+func (m *model) compareKey(s string) tea.Cmd {
+	menu := m.compare
+	switch s {
+	case "esc", "q":
+		m.compare = nil
+	case "j", "down", "ctrl+n":
+		menu.cursor = min(menu.cursor+1, len(compareLabels)-1)
+	case "k", "up", "ctrl+p":
+		menu.cursor = max(menu.cursor-1, 0)
+	case "1", "2", "3":
+		menu.cursor = int(s[0] - '1')
+		fallthrough
+	case "enter":
+		m.compare = nil
+		if err := m.setCompare(compare(menu.cursor)); err != nil {
+			return m.fail(err)
+		}
 	}
 	return nil
 }

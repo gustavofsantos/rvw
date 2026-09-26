@@ -1,8 +1,75 @@
 package tui
 
-import "github.com/gustavofsantos/rvw/internal/gitx"
+import (
+	"errors"
+	"slices"
 
-// sign is a line's git change against HEAD, drawn left of its number.
+	"github.com/gustavofsantos/rvw/internal/gitx"
+)
+
+// compare is what the worktree is compared with, for the changes view and
+// the gutter signs: always the files on disk against one commit.
+type compare int
+
+const (
+	compareHEAD    compare = iota // uncommitted changes: against HEAD
+	compareDefault                // the branch: against its merge-base with main or master
+	comparePrev                   // against the commit before HEAD
+)
+
+var compareLabels = [...]string{compareHEAD: "uncommitted", compareDefault: "default branch", comparePrev: "previous commit"}
+
+// base resolves what c compares against to a revision git can diff with,
+// and a short name for it: HEAD, main, HEAD~1. HEAD and HEAD~1 stay names,
+// so a commit made meanwhile moves them; a merge-base is a commit id.
+func (c compare) base(dir string) (id, name string, err error) {
+	switch c {
+	case compareDefault:
+		branch, ok := gitx.DefaultBranch(dir)
+		if !ok {
+			return "", "", errors.New("no main or master branch to compare with")
+		}
+		if _, ok := gitx.Commit(dir, "HEAD"); !ok {
+			return "", "", errors.New("no commit to compare with yet")
+		}
+		id, err := gitx.MergeBase(dir, branch, "HEAD")
+		if err != nil || id == "" {
+			return "", "", errors.New("the branch shares no history with " + branch)
+		}
+		return id, branch, nil
+	case comparePrev:
+		if _, ok := gitx.Commit(dir, "HEAD~1"); !ok {
+			return "", "", errors.New("no previous commit to compare with")
+		}
+		return "HEAD~1", "HEAD~1", nil
+	}
+	if _, ok := gitx.Commit(dir, "HEAD"); !ok {
+		return "", "", errors.New("no commit to compare with yet")
+	}
+	return "HEAD", "HEAD", nil
+}
+
+// changeTree is the changed files as a tree, every directory expanded, and
+// each path's status letter.
+func changeTree(changes []gitx.Change) (*node, map[string]byte) {
+	status := map[string]byte{}
+	var paths []string
+	for _, c := range changes {
+		if _, seen := status[c.Path]; !seen {
+			paths = append(paths, c.Path)
+		}
+		status[c.Path] = c.Status
+	}
+	slices.Sort(paths)
+	root := buildTree(paths)
+	for _, r := range root.allRows() {
+		r.node.expanded = r.node.dir
+	}
+	return root, status
+}
+
+// sign is a line's git change against the compared commit, drawn left of its
+// number.
 type sign int
 
 const (
@@ -15,11 +82,15 @@ const (
 
 var signGlyphs = [...]string{signNone: " ", signAdded: "▎", signChanged: "▎", signDeleted: "▁", signDeletedTop: "▔"}
 
-// fileChanges is the change sign of each of a file's n lines, 0-indexed, and
-// the line each hunk starts on, 1-indexed; both are nil when git has nothing
-// to say: without a HEAD commit, or on any git failure.
-func fileChanges(dir, path string, n int) ([]sign, []int) {
-	hunks, untracked, err := gitx.Changes(dir, path)
+// fileChanges is the change sign of each of a file's n lines against the
+// commit base, 0-indexed, and the line each hunk starts on, 1-indexed; both
+// are nil when git has nothing to say: without a base commit, or on any git
+// failure.
+func fileChanges(dir, path, base string, n int) ([]sign, []int) {
+	if base == "" {
+		return nil, nil
+	}
+	hunks, untracked, err := gitx.Changes(dir, path, base)
 	if err != nil {
 		return nil, nil
 	}

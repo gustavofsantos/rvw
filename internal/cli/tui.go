@@ -18,6 +18,10 @@ func (a *app) tuiCmd() *cobra.Command {
 with syntax highlighting, and a rail in the gutter marking every line under an
 open comment. Select lines, comment on them, edit a comment, submit a review.
 The workspace is a git worktree; the tree leaves out the files git ignores.
+t switches the tree to the changed files only; b chooses what they, and the
+gutter's change marks, compare with: uncommitted changes (against HEAD, the
+default), the default branch (against its merge-base with main or master),
+or the previous commit (against HEAD~1). Untracked files count as changes.
 
 Comments are written in your editor: --editor, else $VISUAL, else $EDITOR,
 else vi. Lines from the scissors line down are context and are dropped; an
@@ -29,9 +33,11 @@ file, press r, or add, edit or submit.
 
 Keys (? shows them in the UI):
   C-p go to file · C-l open comments · Tab switch pane · s submit · q quit
+  t files or changes · b compare with: uncommitted, default branch, previous commit
   tree    j/k move · l/↵ open or expand · h collapse or go to parent · gg/G
   viewer  j/k · C-d/C-u half page · gg/G · NG or :N go to line
-          ]c/[c next/previous comment · V select lines · c comment · e edit
+          ]c/[c next/previous comment · ]h/[h next/previous change
+          V select lines · c comment · e edit
           r reload`,
 		Example: `  rvw tui
   rvw tui --lane refactor-auth --editor "code --wait"

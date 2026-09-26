@@ -85,16 +85,29 @@ Or skip the shell: `rvw mcp serve` exposes the same operations as MCP tools
 The left pane is the workspace's file tree, without the files git ignores,
 with `💬N` next to files that have open comments. The right pane is the
 current file, syntax-highlighted, with a rail in the gutter on every line
-under an open comment. The gutter's left edge also marks what changed since
-`HEAD`, staged or not: a green `▎` for an added line, a blue `▎` for a
-changed one, and a red `▁` under the spot where lines were deleted (`▔` over
-the first line when the top was). An untracked file shows as all added. The bottom bar shows the comments on the cursor line.
+under an open comment. The gutter's left edge also marks what changed, staged
+or not: a green `▎` for an added line, a blue `▎` for a changed one, and a red
+`▁` under the spot where lines were deleted (`▔` over the first line when the
+top was). An untracked file shows as all added. The bottom bar shows the
+comments on the cursor line.
+
+`t` switches the left pane between every file and only the changed ones,
+each with its git status: `M` modified, `A` added, `D` deleted, `?`
+untracked. `b` chooses what the files on disk are compared with, for that
+list and for the gutter marks alike:
+
+- **uncommitted**, the default: against `HEAD`.
+- **default branch**: against where the branch left `main` or `master`
+  (`origin/HEAD` when set), so the list is the branch's own work, committed
+  or not, like a pull request.
+- **previous commit**: against `HEAD~1`, so the last commit plus anything
+  uncommitted.
 
 - `C-p` opens a file by fuzzy name; `C-l` lists the open comments.
 - `V` selects lines, `c` comments on the line or the selection, `e` edits the
   comment on the line, `s` submits your pending comments as a review.
 - `]c` and `[c` jump between comments, `]h` and `[h` between git changes;
-  `r` reloads the file, its git changes and the queue.
+  `r` reloads the file, the changed files, their git changes and the queue.
   Nothing is watched, so comments added elsewhere show up on the next reload.
 - `?` lists every key.
 - The mouse works too: click a file in the tree to open it, click a directory

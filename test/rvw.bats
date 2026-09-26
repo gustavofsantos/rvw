@@ -1318,6 +1318,7 @@ mcp_session() {
   [[ "$output" == *"--editor"*'$VISUAL'*'$EDITOR'*"vi"* ]]
   [[ "$output" == *"C-p go to file"* ]]
   [[ "$output" == *"V select lines"*"c comment"*"e edit"* ]]
+  [[ "$output" == *"t files or changes"*"b compare with"*"uncommitted"*"default branch"*"previous commit"* ]]
 }
 
 # The TUI on a pseudo-terminal needs util-linux script(1); BSD script differs.

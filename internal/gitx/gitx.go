@@ -123,10 +123,11 @@ type Hunk struct {
 	NewStart, NewLines int
 }
 
-// Changes diffs the file at path, inside the worktree at dir, against HEAD:
-// staged and unstaged edits together. untracked is set, with no hunks, for a
-// file git does not track and does not ignore. A binary file has no hunks.
-func Changes(dir, path string) (hunks []Hunk, untracked bool, err error) {
+// Changes diffs the file at path, inside the worktree at dir, against the
+// commit base: committed, staged and unstaged edits together. untracked is
+// set, with no hunks, for a file git does not track and does not ignore. A
+// binary file has no hunks.
+func Changes(dir, path, base string) (hunks []Hunk, untracked bool, err error) {
 	others, _, err := run(dir, "", "--literal-pathspecs", "ls-files", "--others", "--exclude-standard", "--", path)
 	if err != nil {
 		return nil, false, err
@@ -134,7 +135,7 @@ func Changes(dir, path string) (hunks []Hunk, untracked bool, err error) {
 	if strings.TrimSpace(others) != "" {
 		return nil, true, nil
 	}
-	out, _, err := run(dir, "", "--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", "--no-textconv", "-U0", "HEAD", "--", path)
+	out, _, err := run(dir, "", "--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", "--no-textconv", "-U0", base, "--", path)
 	if err != nil {
 		return nil, false, err
 	}
@@ -168,4 +169,72 @@ func span(s string) (start, count int) {
 		count, _ = strconv.Atoi(b)
 	}
 	return start, count
+}
+
+// Change is a file that differs between a commit and the worktree. Status is
+// git's letter: A added, M modified, D deleted, T type changed, U unmerged,
+// and ? for an untracked file.
+type Change struct {
+	Path   string
+	Status byte
+}
+
+// ChangedFiles lists what differs between the commit base and the worktree
+// at dir, committed or not, plus the untracked files that are not ignored;
+// paths are relative to dir and slash-separated, in git's order, untracked
+// last. A rename shows as a deletion and an addition.
+func ChangedFiles(dir, base string) ([]Change, error) {
+	diff, _, err := run(dir, "", "diff", "--name-status", "-z", "--no-renames", "--no-ext-diff", base, "--")
+	if err != nil {
+		return nil, err
+	}
+	var out []Change
+	fields := strings.Split(diff, "\x00")
+	for i := 0; i+1 < len(fields); i += 2 {
+		if fields[i] != "" {
+			out = append(out, Change{Path: fields[i+1], Status: fields[i][0]})
+		}
+	}
+	others, _, err := run(dir, "", "ls-files", "-z", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	for f := range strings.SplitSeq(others, "\x00") {
+		if f != "" {
+			out = append(out, Change{Path: f, Status: '?'})
+		}
+	}
+	return out, nil
+}
+
+// Commit resolves rev to a commit id; ok is false when there is no such commit.
+func Commit(dir, rev string) (string, bool) {
+	out, _, err := run(dir, "", "rev-parse", "--verify", "--quiet", "--end-of-options", rev+"^{commit}")
+	id := strings.TrimSpace(out)
+	return id, err == nil && id != ""
+}
+
+// MergeBase is the best common ancestor of commits a and b.
+func MergeBase(dir, a, b string) (string, error) {
+	out, _, err := run(dir, "", "merge-base", a, b)
+	return strings.TrimSpace(out), err
+}
+
+// DefaultBranch names the repository's main line: the branch origin/HEAD
+// points at, else the first of main, master, origin/main and origin/master
+// that exists. ok is false when none does.
+func DefaultBranch(dir string) (string, bool) {
+	if out, _, err := run(dir, "", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"); err == nil {
+		if ref := strings.TrimSpace(out); ref != "" {
+			if _, ok := Commit(dir, ref); ok {
+				return ref, true
+			}
+		}
+	}
+	for _, ref := range []string{"main", "master", "origin/main", "origin/master"} {
+		if _, ok := Commit(dir, ref); ok {
+			return ref, true
+		}
+	}
+	return "", false
 }

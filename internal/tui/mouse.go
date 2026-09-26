@@ -26,7 +26,7 @@ func (m *model) hit(x, y int) (p pane, i int, ok bool) {
 // in the viewer moves the cursor, and dragging from there selects lines.
 func (m *model) mouse(msg tea.MouseMsg) tea.Cmd {
 	e := msg.Mouse()
-	if m.width < 40 || m.height < 10 || m.picker != nil || m.submit != nil || m.goLine != nil {
+	if m.width < 40 || m.height < 10 || m.picker != nil || m.submit != nil || m.compare != nil || m.goLine != nil {
 		return nil
 	}
 	if m.help {
@@ -84,11 +84,7 @@ func (m *model) clickTree(i int) tea.Cmd {
 		m.refreshRows()
 		return nil
 	}
-	if err := m.openFile(n.path, 0); err != nil {
-		return m.fail(err)
-	}
-	m.focus = paneViewer
-	return nil
+	return m.openFromTree(n.path)
 }
 
 func (m *model) clickViewer(i int) {
