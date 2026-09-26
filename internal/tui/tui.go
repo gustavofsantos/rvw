@@ -135,6 +135,7 @@ type fileView struct {
 	abs      string
 	lines    [][]segment
 	plain    []string
+	source   string // the text as read, for a comment's snapshot
 	binary   bool
 	comments []review.Comment // open comments on this file, oldest first
 	signs    []sign           // git change per line, nil for none
@@ -373,6 +374,7 @@ func (m *model) loadFile(rel string) (*fileView, error) {
 		return f, nil
 	}
 	text := string(data)
+	f.source = text
 	f.plain = sourceLines(text)
 	f.lines = highlight(rel, text)
 	f.signs, f.hunks = fileChanges(m.ctx, m.opts.Workspace, abs, m.baseID, len(f.lines))
@@ -472,7 +474,8 @@ const (
 
 type editRequest struct {
 	kind       editKind
-	file       string // editAdd: absolute path
+	file       string  // editAdd: absolute path
+	source     *string // editAdd: the file as the viewer showed it
 	start, end int
 	id         string          // editEdit
 	decision   review.Decision // editSummary
@@ -918,10 +921,18 @@ func (m *model) startComment() tea.Cmd {
 	case f.len() == 0:
 		return m.setFlash("rvw: an empty file has no line to comment on", true)
 	}
+	req := m.commentRequest()
+	loc := location(f.rel, req.start, req.end)
+	context := append([]string{"New comment on " + loc}, quoteCode(f.plain[req.start-1:req.end], req.start)...)
+	return m.edit(template("", context), req)
+}
+
+// commentRequest is a new comment on the selection, carrying the file as the
+// viewer shows it: the snapshot is what the reviewer read, even if the file
+// changes while the editor is open.
+func (m *model) commentRequest() editRequest {
 	start, end := m.selection()
-	loc := location(f.rel, start, end)
-	context := append([]string{"New comment on " + loc}, quoteCode(f.plain[start-1:end], start)...)
-	return m.edit(template("", context), editRequest{kind: editAdd, file: f.abs, start: start, end: end})
+	return editRequest{kind: editAdd, file: m.file.abs, source: &m.file.source, start: start, end: end}
 }
 
 func (m *model) startEdit() tea.Cmd {
@@ -1004,7 +1015,7 @@ func (m *model) save(req editRequest, text string) (string, error) {
 	switch req.kind {
 	case editAdd:
 		c, err := svc.Add(m.ctx, review.AddInput{
-			Workspace: ws, File: req.file, StartLine: req.start, EndLine: req.end,
+			Workspace: ws, File: req.file, StartLine: req.start, EndLine: req.end, Source: req.source,
 			Comment: text, Lane: m.opts.Lane, Author: m.opts.Author,
 		})
 		if err != nil {

@@ -458,6 +458,34 @@ func TestEditorAddsEditsAndSubmits(t *testing.T) {
 	}
 }
 
+// The comment snapshots the lines the reviewer chose, as the viewer showed
+// them, even when the file changes while the editor is open.
+func TestACommentKeepsTheCodeTheViewerShowed(t *testing.T) {
+	f := setup(t)
+	m := f.model()
+	keys(m, "leader", "p", "apipar", "enter", "4G", "V", "j")
+	want := strings.Join(m.file.plain[3:5], "\n")
+	req := m.commentRequest()
+
+	if err := os.WriteFile(m.file.abs, []byte("rewritten\nby\nan\nagent\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "note.md")
+	if err := os.WriteFile(path, []byte("look here\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.Update(editorDoneMsg{req: req, path: path})
+
+	out, err := f.svc.List(f.ctx, review.QueryInput{Workspace: f.ws})
+	cs := out.Comments
+	if err != nil || len(cs) != 1 {
+		t.Fatalf("list = %v %v (flash %q)", cs, err, m.flash)
+	}
+	if strings.TrimSpace(want) == "" || cs[0].Code != want || cs[0].StartLine != 4 || cs[0].EndLine != 5 {
+		t.Fatalf("snapshot %q at %d-%d, want %q at 4-5", cs[0].Code, cs[0].StartLine, cs[0].EndLine, want)
+	}
+}
+
 func TestReloadPicksUpCommentsAddedElsewhere(t *testing.T) {
 	f := setup(t)
 	m := f.model()
