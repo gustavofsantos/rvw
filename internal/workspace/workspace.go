@@ -1,10 +1,11 @@
 // Package workspace decides which queue a command acts on: the git worktree
-// root holding a directory, else the directory itself. Each worktree is its own
-// workspace.
+// root holding a directory. Each worktree is its own workspace; a directory
+// outside git has none.
 package workspace
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -12,17 +13,18 @@ import (
 	"github.com/gustavofsantos/rvw/internal/gitx"
 )
 
-// Resolve returns the canonical workspace for dir: its worktree root when it is
-// inside one, else dir itself, with symlinks resolved.
+// Resolve returns the canonical workspace for dir: the root of the worktree
+// holding it, with symlinks resolved. A dir outside git is an error.
 func Resolve(dir string) (string, error) {
 	base, err := Canonical(dir)
 	if err != nil {
 		return "", err
 	}
-	if top, ok := gitx.Toplevel(base); ok {
-		return Canonical(top)
+	top, ok := gitx.Toplevel(base)
+	if !ok {
+		return "", fmt.Errorf("%s is not inside a git repository", base)
 	}
-	return base, nil
+	return Canonical(top)
 }
 
 // IsDir reports whether path names an existing directory.

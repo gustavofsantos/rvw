@@ -32,26 +32,15 @@ func TestSignsMapZeroContextHunksToLines(t *testing.T) {
 	}
 }
 
-// gitFixture is a git repository with parse.py committed and then edited: a
+// gitFixture is the fixture with parse.py committed and then edited: a
 // line added, one changed, one deleted mid-file, the first one deleted, and
 // an untracked file beside it.
 func gitFixture(t *testing.T) *fixture {
 	t.Helper()
 	f := setup(t)
-	if err := os.RemoveAll(filepath.Join(f.ws, ".git")); err != nil {
-		t.Fatal(err)
-	}
-	git := func(args ...string) {
-		cmd := exec.Command("git", append([]string{"-C", f.ws, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)...)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
-	git("init", "-q")
 	write := func(content string) { f.write("src/api/parse.py", content) }
 	write("# header\n" + parsePy)
-	git("add", ".")
-	git("commit", "-qm", "init")
+	f.git("commit", "-qam", "header")
 	write(`import parse
 
 
@@ -124,19 +113,11 @@ func TestHunkJumpsVisitEveryChange(t *testing.T) {
 	}
 }
 
-func TestHunkJumpsOutsideGitSayThereIsNone(t *testing.T) {
+func TestHunkJumpsWithoutChangesSayThereIsNone(t *testing.T) {
 	m := setup(t).model()
 	keys(m, "ctrl+p", "apipar", "enter", "]", "h")
 	if m.file.cursor != 0 || m.flash != "no next change in this file" {
 		t.Fatalf("cursor on %d, flash %q", m.file.cursor+1, m.flash)
-	}
-}
-
-func TestGutterSignsNeedGit(t *testing.T) {
-	m := setup(t).model()
-	keys(m, "ctrl+p", "apipar", "enter")
-	if m.file.signs != nil {
-		t.Fatalf("outside git there are no signs: %v", m.file.signs)
 	}
 }
 

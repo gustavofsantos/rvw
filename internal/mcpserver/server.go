@@ -26,7 +26,8 @@ type Options struct {
 }
 
 const instructions = `rvw is a local queue of code review comments, keyed by workspace (the git
-root of a directory). Pass your project directory as "workspace" on every call.
+root of a directory; a directory outside git has none). Pass your project
+directory as "workspace" on every call.
 
 To address review comments: call pull once (pulled comments leave the queue;
 use peek to look without taking). Work both the standalone "comments" and the
@@ -157,7 +158,7 @@ func (h *handlers) scope(ws, lane, author *string) error {
 	}
 	resolved, err := workspace.Resolve(dir)
 	if err != nil {
-		return err
+		return review.Invalidf("workspace %s", err)
 	}
 	*ws = resolved
 	if lane != nil {

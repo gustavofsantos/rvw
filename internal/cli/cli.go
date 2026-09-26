@@ -86,7 +86,7 @@ func (a *app) notice(format string, args ...any) {
 }
 
 // workspace resolves which queue to act on: --workspace, else the current
-// directory; then its git worktree root, if any.
+// directory; then its git worktree root, which it must have.
 func (a *app) workspace() (string, error) {
 	dir := a.workspaceFlag
 	if dir == "" {

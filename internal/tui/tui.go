@@ -17,6 +17,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/gustavofsantos/rvw/internal/gitx"
 	"github.com/gustavofsantos/rvw/internal/review"
 )
 
@@ -150,11 +151,11 @@ func newModel(ctx context.Context, opts Options) (*model, error) {
 
 // ── loading ──────────────────────────────────────────────────────────────────
 
-// loadTree walks the workspace, keeping expanded directories expanded.
+// loadTree lists the workspace, keeping expanded directories expanded.
 func (m *model) loadTree() error {
 	files, err := listFiles(m.opts.Workspace)
 	if err != nil {
-		return fmt.Errorf("cannot read workspace %s: %w", m.opts.Workspace, errors.Unwrap(err))
+		return fmt.Errorf("cannot list workspace %s: %s", m.opts.Workspace, gitx.Stderr(err))
 	}
 	var expanded []string
 	if m.root != nil {

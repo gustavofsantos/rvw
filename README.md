@@ -23,8 +23,9 @@ acted on them.
   works the same note twice.
 - **Accounted for.** Each comment ends in a recorded decision: done, or
   rejected with a reason. Done comments keep the diff they produced.
-- **Scoped.** A queue belongs to a workspace (a git worktree). Lanes divide it
-  when several branches share one working tree.
+- **Scoped.** A queue belongs to a workspace: a git worktree. rvw needs git; a
+  directory outside a repository has no queue. Lanes divide a queue when
+  several branches share one working tree.
 
 ## Examples
 
@@ -80,16 +81,14 @@ Or skip the shell: `rvw mcp serve` exposes the same operations as MCP tools
 
 ## Terminal UI
 
-`rvw tui` is code review in the terminal, on the files as they are on disk. It
-works in any directory, with or without git. The left pane is the workspace's
-file tree, with `💬N` next to files that have open comments; in a git worktree
-it leaves out the files git ignores. The right pane is
-the current file, syntax-highlighted, with a rail in the gutter on every line
-under an open comment. In a git worktree, the gutter's left edge also marks
-what changed since `HEAD`, staged or not: a green `▎` for an added line, a
-blue `▎` for a changed one, and a red `▁` under the spot where lines were
-deleted (`▔` over the first line when the top was). An untracked file shows
-as all added. The bottom bar shows the comments on the cursor line.
+`rvw tui` is code review in the terminal, on the files as they are on disk.
+The left pane is the workspace's file tree, without the files git ignores,
+with `💬N` next to files that have open comments. The right pane is the
+current file, syntax-highlighted, with a rail in the gutter on every line
+under an open comment. The gutter's left edge also marks what changed since
+`HEAD`, staged or not: a green `▎` for an added line, a blue `▎` for a
+changed one, and a red `▁` under the spot where lines were deleted (`▔` over
+the first line when the top was). An untracked file shows as all added. The bottom bar shows the comments on the cursor line.
 
 - `C-p` opens a file by fuzzy name; `C-l` lists the open comments.
 - `V` selects lines, `c` comments on the line or the selection, `e` edits the
@@ -159,8 +158,9 @@ rvw mcp config --http 127.0.0.1:7777
 ```
 
 Each tool call names its `workspace`, so one server serves every project. A
-call that leaves it empty uses the directory the server started in. `--lane`
-and `--author` on `rvw mcp serve` fill calls that leave them out.
+call that leaves it empty uses the git worktree the server started in; outside
+git the server refuses to start. `--lane` and `--author` on
+`rvw mcp serve` fill calls that leave them out.
 
 ## Use cases
 

@@ -17,7 +17,7 @@ var signGlyphs = [...]string{signNone: " ", signAdded: "▎", signChanged: "▎"
 
 // fileChanges is the change sign of each of a file's n lines, 0-indexed, and
 // the line each hunk starts on, 1-indexed; both are nil when git has nothing
-// to say: outside a worktree, without a HEAD commit, or on any git failure.
+// to say: without a HEAD commit, or on any git failure.
 func fileChanges(dir, path string, n int) ([]sign, []int) {
 	hunks, untracked, err := gitx.Changes(dir, path)
 	if err != nil {

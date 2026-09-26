@@ -27,9 +27,9 @@ A comment carries who raised it and which lane it belongs to. It ends in a
 recorded resolution: ` + "`resolve`" + ` (done) or ` + "`reject`" + ` (with a reason).
 
 Everything is set with flags:
-  --workspace PATH  the queue to act on (default: the git toplevel of the
-                    current directory, else the directory; worktrees are
-                    their own workspace)
+  --workspace PATH  the queue to act on: the git toplevel of this directory
+                    (default: the current directory); worktrees are their
+                    own workspace, and a directory outside git has none
   --lane NAME       the lane a comment lands in and a read is pinned to
                     (default: every lane). Scoping is strict — a pull pinned
                     to a lane never swallows another lane's comments, and
@@ -70,7 +70,7 @@ func (a *app) root() *cobra.Command {
 	}
 	root.CompletionOptions.DisableDefaultCmd = true
 	root.PersistentFlags().StringVar(&a.workspaceFlag, "workspace", "",
-		"queue to act on (default: git toplevel of $PWD, else $PWD)")
+		"queue to act on: the git toplevel of this directory (default: $PWD)")
 	root.PersistentFlags().StringVar(&a.dbFlag, "db", "",
 		"database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)")
 	root.AddCommand(a.addCmd(), a.submitCmd(), a.listCmd(), a.pullCmd(), a.showCmd(),

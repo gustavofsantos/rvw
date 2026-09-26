@@ -1,7 +1,7 @@
 -- rvw store, schema version 1. Applied once, tracked by PRAGMA user_version.
 
--- One row per workspace (a git worktree root, or a plain directory). It owns
--- the id sequences, so ids stay stable and are never reused.
+-- One row per workspace (a git worktree root). It owns the id sequences, so
+-- ids stay stable and are never reused.
 CREATE TABLE workspaces (
   id               INTEGER PRIMARY KEY,
   path             TEXT    NOT NULL UNIQUE, -- absolute, symlinks resolved

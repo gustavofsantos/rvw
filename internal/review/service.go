@@ -132,9 +132,6 @@ func (s *Service) Add(ctx context.Context, in AddInput) (Comment, error) {
 // snapshotReviewed keeps the reviewed content of a tracked file as a git blob.
 // A git failure refuses the comment rather than enqueue it without its version.
 func snapshotReviewed(ws, rel, source string) (string, error) {
-	if _, ok := gitx.Toplevel(ws); !ok {
-		return "", nil
-	}
 	tracked, err := gitx.Tracked(ws, rel)
 	if err != nil {
 		return "", internalf("cannot inspect Git metadata for %s: %s", rel, gitx.Stderr(err))
@@ -648,9 +645,6 @@ func (s *Service) Resolve(ctx context.Context, in ResolveInput) (Comment, error)
 // snapshotResolved keeps the current version of a comment's file, when it is
 // still tracked at the recorded path inside the workspace.
 func snapshotResolved(ws string, c Comment) (string, error) {
-	if _, ok := gitx.Toplevel(ws); !ok {
-		return "", nil
-	}
 	recorded := cmp.Or(c.Path, c.File)
 	if recorded == "" {
 		return "", nil

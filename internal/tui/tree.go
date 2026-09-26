@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,31 +9,13 @@ import (
 	"github.com/gustavofsantos/rvw/internal/gitx"
 )
 
-// skipDirs are never walked outside git: version control metadata, and the
-// dependency and build directories that would drown the tree. Inside a git
-// worktree, git's ignore rules decide instead.
-var skipDirs = map[string]bool{
-	".git": true, ".hg": true, ".jj": true,
-	"node_modules": true, "vendor": true, "dist": true, "build": true,
-	"target": true, ".venv": true, "__pycache__": true,
-}
-
-// maxFiles caps a walk, so a huge directory cannot stall the UI.
+// maxFiles caps the listing, so a huge worktree cannot stall the UI.
 const maxFiles = 50000
 
-// listFiles lists the files of the workspace at root as sorted, slash-separated
-// relative paths. Inside a git worktree it is the files git sees, so ignored
-// files stay out; elsewhere it walks the directory.
+// listFiles lists the files git sees in the worktree at root, as sorted,
+// slash-separated relative paths: tracked and untracked-but-not-ignored files
+// that are regular files on disk (a symlink counts when it points at one).
 func listFiles(root string) ([]string, error) {
-	if files, err := gitFiles(root); err == nil {
-		return files, nil
-	}
-	return walkFiles(root)
-}
-
-// gitFiles is the tracked and untracked-but-not-ignored files under root that
-// are regular files on disk (a symlink counts when it points at one).
-func gitFiles(root string) ([]string, error) {
 	listed, err := gitx.Files(root)
 	if err != nil {
 		return nil, err
@@ -52,42 +33,6 @@ func gitFiles(root string) ([]string, error) {
 		}
 	}
 	return files, nil
-}
-
-// walkFiles lists every file under root as a slash-separated relative path,
-// sorted. Unreadable entries are skipped; only an unreadable root fails.
-func walkFiles(root string) ([]string, error) {
-	var files []string
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			if path == root {
-				return err
-			}
-			return nil
-		}
-		if d.IsDir() {
-			if path != root && skipDirs[d.Name()] {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !d.Type().IsRegular() {
-			if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
-				return nil
-			}
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return nil
-		}
-		files = append(files, filepath.ToSlash(rel))
-		if len(files) >= maxFiles {
-			return filepath.SkipAll
-		}
-		return nil
-	})
-	slices.Sort(files)
-	return files, err
 }
 
 // node is a file or a directory of the workspace tree. The root is the

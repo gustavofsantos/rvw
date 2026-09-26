@@ -57,8 +57,9 @@ Claude Code starts a local server. With --http it listens on that address and
 serves streamable HTTP at ` + mcpPath + `, for clients that connect to a running
 server.
 
-A call that leaves workspace empty uses --workspace, else the directory the
-server started in. --lane and --author fill calls that leave them empty.`,
+A call that leaves workspace empty uses --workspace, else the git worktree the
+server started in. Outside git the server refuses to start. --lane and
+--author fill calls that leave them empty.`,
 		Example: `  rvw mcp serve
   rvw mcp serve --author claude
   rvw mcp serve --http 127.0.0.1:7777`,
@@ -132,6 +133,11 @@ a server you keep running with ` + "`rvw mcp serve --http ADDR`" + `. --db, --wo
 			}
 			if err := oneOf("--scope", scope, []string{"local", "project", "user"}); err != nil {
 				return err
+			}
+			if a.workspaceFlag != "" {
+				if _, err := a.workspace(); err != nil {
+					return err
+				}
 			}
 			entry, add, err := a.mcpEntry(flags, scope, name)
 			if err != nil {

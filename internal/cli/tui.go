@@ -17,7 +17,7 @@ func (a *app) tuiCmd() *cobra.Command {
 		Long: `Open a full-screen review UI on the workspace: a file tree, the current file
 with syntax highlighting, and a rail in the gutter marking every line under an
 open comment. Select lines, comment on them, edit a comment, submit a review.
-It works in any directory, with or without git.
+The workspace is a git worktree; the tree leaves out the files git ignores.
 
 Comments are written in your editor: --editor, else $VISUAL, else $EDITOR,
 else vi. Lines from the scissors line down are context and are dropped; an

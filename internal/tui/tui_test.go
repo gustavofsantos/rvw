@@ -32,7 +32,7 @@ def default(req):
 	return None
 `
 
-// fixture is a plain directory, no git, with a store beside it.
+// fixture is a git repository with every file committed, and a store beside it.
 type fixture struct {
 	t   *testing.T
 	ctx context.Context
@@ -53,8 +53,9 @@ func setup(t *testing.T) *fixture {
 	f.write("test/api/api_parser_test.go", "package api\n")
 	f.write("docs/api/papers.md", "# Papers\n")
 	f.write("README.md", "# Demo\n\nhello\n")
-	f.write("node_modules/dep/index.js", "skipped\n")
-	f.write(".git/HEAD", "skipped\n")
+	f.git("init", "-q")
+	f.git("add", ".")
+	f.git("commit", "-qm", "init")
 	st, err := store.Open(f.ctx, filepath.Join(root, "rvw.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -72,6 +73,14 @@ func (f *fixture) write(rel, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		f.t.Fatal(err)
+	}
+}
+
+func (f *fixture) git(args ...string) {
+	f.t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", f.ws, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		f.t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 }
 
@@ -130,18 +139,6 @@ func keys(m *model, ks ...string) {
 }
 
 // ── tree ─────────────────────────────────────────────────────────────────────
-
-func TestWalkSkipsVCSAndDependencyDirectories(t *testing.T) {
-	f := setup(t)
-	files, err := walkFiles(f.ws)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{"README.md", "docs/api/papers.md", "src/api/parse.py", "src/util.py", "test/api/api_parser_test.go"}
-	if !slices.Equal(files, want) {
-		t.Fatalf("files = %q, want %q", files, want)
-	}
-}
 
 func TestListFilesObeysGitignore(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {

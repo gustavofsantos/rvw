@@ -7,8 +7,9 @@ allowed-tools: mcp__rvw__pull, mcp__rvw__list, mcp__rvw__list_reviews, mcp__rvw_
 # rvw
 
 `rvw` is a local queue of code review comments, keyed by workspace (the git
-root of the current directory). Each comment points at a file, a line range
-and the code as it stood when the comment was written.
+root of the current directory; a directory outside git has no queue). Each
+comment points at a file, a line range and the code as it stood when the
+comment was written.
 
 You work the queue through the rvw MCP tools (`mcp__rvw__pull`,
 `mcp__rvw__resolve`, ...). If they are not connected, tell the user and stop:

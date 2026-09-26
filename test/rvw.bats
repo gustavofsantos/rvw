@@ -5,7 +5,8 @@
 # guarantee that an editor plugin or an agent leans on:
 #   * a pulled comment LEAVES the queue — no agent works the same note twice
 #   * ids are stable and never reused, so the (stateless) editor can act by id
-#   * workspaces are isolated, and a git worktree/subdir resolves to its root
+#   * workspaces are isolated, and a git worktree/subdir resolves to its root;
+#     a directory outside git is refused
 #   * lane scoping is STRICT — one tree carries several branches at once
 #     (GitButler), so a pinned pull must never swallow another lane's comments
 #   * every comment ends in a recorded decision, attributed to whoever made it
@@ -296,7 +297,8 @@ SH
   [ "$(jq -r '.reviews[0].author' <<<"$output")" = "tester" ]
   [ "$(jq -r '.reviews[0].lane' <<<"$output")" = "null" ]
 
-  cd "$TEST_ROOT"
+  git init -q "$TEST_ROOT/other"
+  cd "$TEST_ROOT/other"
   RVW_WORKSPACE="$WORKSPACE" REVIEW_WORKSPACE="$WORKSPACE" run "$RVW" count
   [ "$output" = "0" ]
 }
@@ -627,6 +629,7 @@ SH
   queue app.py 1 "note-from-the-repo"
   other="$TEST_ROOT/elsewhere"
   mkdir -p "$other"
+  git -C "$other" init -q
   printf 'x\n' >"$other/f.txt"
   "$RVW" add --workspace "$other" --file "$other/f.txt" --lines 1 \
     --comment "note-from-elsewhere" </dev/null >/dev/null
@@ -640,6 +643,24 @@ SH
   run "$RVW" list
   [[ "$output" == *"note-from-the-repo"* ]]
   [[ "$output" != *"note-from-elsewhere"* ]]
+}
+
+@test "workspace: a directory outside git is refused, from cwd or --workspace" {
+  plain="$TEST_ROOT/plain"
+  mkdir -p "$plain"
+  printf 'x\n' >"$plain/f.txt"
+
+  cd "$plain"
+  run "$RVW" add --file f.txt --lines 1 --comment "no git" </dev/null
+  [ "$status" -eq 1 ]
+  [ "${#lines[@]}" -eq 1 ]
+  [ "$output" = "rvw: $plain is not inside a git repository" ]
+
+  cd "$WORKSPACE"
+  run "$RVW" --workspace "$plain" count
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: $plain is not inside a git repository" ]
+  [ ! -f "$DB" ]
 }
 
 @test "workspace: --workspace retargets the queue, before or after the command" {
@@ -1221,6 +1242,30 @@ mcp_session() {
   [[ "$output" == *"r9"* ]]
 }
 
+@test "mcp serve: refuses to start outside git" {
+  plain="$TEST_ROOT/plain"
+  mkdir -p "$plain"
+  cd "$plain"
+  run "$RVW" mcp serve </dev/null
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: $plain is not inside a git repository" ]
+
+  cd "$WORKSPACE"
+  run "$RVW" mcp serve --workspace "$plain" </dev/null
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: $plain is not inside a git repository" ]
+}
+
+@test "mcp serve: a call naming a workspace outside git is a tool error" {
+  plain="$TEST_ROOT/plain"
+  mkdir -p "$plain"
+  run mcp_session \
+    '"method":"tools/call","params":{"name":"count","arguments":{"workspace":"'"$plain"'"}}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"isError":true'* ]]
+  [[ "$output" == *"workspace $plain is not inside a git repository"* ]]
+}
+
 @test "mcp config: prints the claude mcp add command and the .mcp.json entry" {
   run "$RVW" mcp config --author claude
   [ "$status" -eq 0 ]
@@ -1250,6 +1295,11 @@ mcp_session() {
   run "$RVW" mcp config --http 7777
   [ "$status" -eq 1 ]
   [ "$output" = "rvw: --http '7777' is not HOST:PORT" ]
+
+  mkdir -p "$TEST_ROOT/plain"
+  run "$RVW" mcp config --workspace "$TEST_ROOT/plain"
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: $TEST_ROOT/plain is not inside a git repository" ]
 }
 
 # ── tui ───────────────────────────────────────────────────────────────────────
@@ -1307,10 +1357,11 @@ tui_session() {
   [ "$output" = "0" ]
 }
 
-@test "tui: comments on a selection and submits a review through the editor, without git" {
+@test "tui: comments on a selection and submits a review through the editor" {
   needs_pty
   plain="$TEST_ROOT/plain"
   mkdir -p "$plain/src/api" "$plain/test/api"
+  git -C "$plain" init -q
   printf 'import parse\n\ndef handle(req):\n    if req.kind:\n        return parse(req)\n' >"$plain/src/api/parse.py"
   printf 'package api\n' >"$plain/test/api/api_parser_test.go"
   printf 'hello\n' >"$plain/README.md"
@@ -1355,6 +1406,7 @@ SH
 
   other="$TEST_ROOT/elsewhere"
   mkdir -p "$other"
+  git -C "$other" init -q
   run "$RVW" --workspace "$other" path
   [ "$output" = "$XDG_DATA_HOME/rvw/rvw.db" ]
 }

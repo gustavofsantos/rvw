@@ -1,13 +1,13 @@
 ┌─ files ─────────────────┬─ src/api/parse.py ─────────────────────────────────────────────────────┐
 │ ▸ docs/                 │▔  1   import parse                                                     │
-│ ▸ node_modules/         │   2                                                                    │
-│ ▾ src/                  │   3                                                                    │
-│   ▾ api/                │   4   def handle(req):                                                 │
-│       parse.py          │▎  5       if req.kind == "y":                                          │
-│     new.py              │   6           body = req.body                                          │
-│     util.py             │▎  7           log(body)                                                │
-│ ▸ test/                 │▁  8           return parse(body)                                       │
-│   README.md             │   9                                                                    │
+│ ▾ src/                  │   2                                                                    │
+│   ▾ api/                │   3                                                                    │
+│       parse.py          │   4   def handle(req):                                                 │
+│     new.py              │▎  5       if req.kind == "y":                                          │
+│     util.py             │   6           body = req.body                                          │
+│ ▸ test/                 │▎  7           log(body)                                                │
+│   README.md             │▁  8           return parse(body)                                       │
+│                         │   9                                                                    │
 │                         │  10                                                                    │
 │                         │  11   def default(req):                                                │
 │                         │  12       return None                                                  │
