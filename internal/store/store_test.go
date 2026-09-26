@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -145,5 +146,34 @@ func TestConcurrentOpenersShareOneSchemaAndSequence(t *testing.T) {
 	}
 	if len(seen) != n {
 		t.Errorf("expected %d ids, got %d", n, len(seen))
+	}
+}
+
+// The path is part of a URI: a '?', '#' or '%' in it must not cut it short or
+// drop the pragmas that follow.
+func TestPathWithURICharactersKeepsItsNameAndPragmas(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "q #1 50%")
+	path := filepath.Join(dir, "a?b#c%d.db")
+	s := open(t, path)
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("no database at %q: %v", path, err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o600 {
+		t.Errorf("database mode %o, want 600", mode)
+	}
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 1 {
+		t.Errorf("expected only the database in %s, got %v", dir, entries)
+	}
+	for pragma, want := range map[string]int{"busy_timeout": 10000, "foreign_keys": 1} {
+		var got int
+		if err := s.db.QueryRow("PRAGMA " + pragma).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("%s = %d, want %d", pragma, got, want)
+		}
 	}
 }

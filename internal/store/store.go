@@ -56,11 +56,14 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("cannot create %s: %w", filepath.Dir(path), err)
 	}
-	q := url.Values{}
-	q.Add("_pragma", "busy_timeout(10000)")
-	q.Add("_pragma", "foreign_keys(1)")
-	q.Set("_txlock", "immediate")
-	db, err := sql.Open("sqlite", "file:"+path+"?"+q.Encode())
+	// Code snapshots are private to the user: create the file 0600 before
+	// SQLite would create it with the umask's mode.
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("cannot open %s: %w", path, err)
+	}
+	f.Close()
+	db, err := sql.Open("sqlite", dsn(path))
 	if err != nil {
 		return nil, fmt.Errorf("cannot open %s: %w", path, err)
 	}
@@ -70,6 +73,16 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, fmt.Errorf("cannot prepare %s: %w", path, err)
 	}
 	return s, nil
+}
+
+// dsn is the SQLite URI for path. The path is escaped, so a '?', '#' or '%' in
+// it can neither end the file name early nor drop the parameters after it.
+func dsn(path string) string {
+	q := url.Values{}
+	q.Add("_pragma", "busy_timeout(10000)")
+	q.Add("_pragma", "foreign_keys(1)")
+	q.Set("_txlock", "immediate")
+	return "file:" + (&url.URL{Path: filepath.ToSlash(path)}).EscapedPath() + "?" + q.Encode()
 }
 
 // Close releases the database.
