@@ -34,6 +34,9 @@ type Options struct {
 	// Style is the chroma style for source code; empty follows the terminal's
 	// background: monokai on dark, github on light.
 	Style string
+	// Leader is the key that starts leader mappings, as Bubble Tea names it:
+	// "space", or one character such as ",". Empty is space.
+	Leader string
 }
 
 // Run shows the UI on a terminal until the user quits.
@@ -104,6 +107,7 @@ type model struct {
 	anchor      int
 	dragging    bool    // the left button went down in the viewer and is held
 	count       string  // a pending {count}
+	leader      bool    // the leader key was pressed; the next key completes it
 	prefix      string  // a pending g, ] or [
 	prefixCount int     // the count before a prefix, for {count}gg
 	goLine      *string // the :N prompt, when open
@@ -512,6 +516,21 @@ func (m *model) key(k tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 
+	if m.leader {
+		m.leader = false
+		switch s {
+		case "p":
+			m.openPicker(pickFiles)
+		case "l":
+			m.openPicker(pickComments)
+		}
+		return nil
+	}
+	if s == m.leaderKey() {
+		m.leader, m.count = true, ""
+		return nil
+	}
+
 	if p := m.prefix; p != "" {
 		count := m.prefixCount
 		m.prefix, m.prefixCount = "", 0
@@ -541,12 +560,6 @@ func (m *model) key(k tea.KeyPressMsg) tea.Cmd {
 	m.count = ""
 
 	switch s {
-	case "ctrl+p":
-		m.openPicker(pickFiles)
-		return nil
-	case "ctrl+l":
-		m.openPicker(pickComments)
-		return nil
 	case "tab":
 		m.focus = 1 - m.focus
 		if m.focus == paneTree && m.file != nil {
@@ -664,6 +677,14 @@ func (m *model) viewerKey(s string, count int) tea.Cmd {
 	return nil
 }
 
+// leaderKey is the key that starts leader mappings.
+func (m *model) leaderKey() string {
+	if m.opts.Leader == "" {
+		return "space"
+	}
+	return m.opts.Leader
+}
+
 func (m *model) gotoLine(n int) {
 	m.file.cursor = clamp(n-1, 0, m.file.len()-1)
 }
@@ -689,8 +710,20 @@ func (m *model) jumpHunk(dir int) tea.Cmd {
 	if f == nil || m.focus != paneViewer {
 		return nil
 	}
-	line, ok := nearest(f.hunks, f.cursor+1, dir)
-	return m.jumpTo(line, ok, dir, "change")
+	if len(f.hunks) == 0 {
+		return m.setFlash("no changes in this file", false)
+	}
+	if line, ok := nearest(f.hunks, f.cursor+1, dir); ok {
+		m.gotoLine(line)
+		return nil
+	}
+	// Past the last change, go round to the first; before the first, to the last.
+	if dir > 0 {
+		m.gotoLine(slices.Min(f.hunks))
+		return m.setFlash("wrapped to the first change", false)
+	}
+	m.gotoLine(slices.Max(f.hunks))
+	return m.setFlash("wrapped to the last change", false)
 }
 
 // jumpTo moves the cursor to line, or, when there is none (!ok), says there

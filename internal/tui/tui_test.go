@@ -11,6 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/alecthomas/chroma/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/gustavofsantos/rvw/internal/review"
 	"github.com/gustavofsantos/rvw/internal/store"
 	"github.com/gustavofsantos/rvw/internal/workspace"
@@ -110,10 +111,8 @@ func (f *fixture) model() *model {
 // press is a key press: a named key, else one printable character.
 func press(k string) tea.KeyPressMsg {
 	switch k {
-	case "ctrl+p":
-		return tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl}
-	case "ctrl+l":
-		return tea.KeyPressMsg{Code: 'l', Mod: tea.ModCtrl}
+	case "leader": // space, the default leader
+		return tea.KeyPressMsg{Code: tea.KeySpace}
 	case "enter":
 		return tea.KeyPressMsg{Code: tea.KeyEnter}
 	case "esc":
@@ -399,7 +398,7 @@ func TestStripTemplate(t *testing.T) {
 func TestEditorAddsEditsAndSubmits(t *testing.T) {
 	f := setup(t)
 	m := f.model()
-	keys(m, "ctrl+p", "apipar", "enter", "4G", "V", "3j")
+	keys(m, "leader", "p", "apipar", "enter", "4G", "V", "3j")
 	if lo, hi := m.selection(); lo != 4 || hi != 7 || m.file.rel != "src/api/parse.py" {
 		t.Fatalf("selected %s:%d-%d", m.file.rel, lo, hi)
 	}
@@ -457,7 +456,7 @@ func TestEditorAddsEditsAndSubmits(t *testing.T) {
 func TestReloadPicksUpCommentsAddedElsewhere(t *testing.T) {
 	f := setup(t)
 	m := f.model()
-	keys(m, "ctrl+p", "parse.py", "enter")
+	keys(m, "leader", "p", "parse.py", "enter")
 	f.add("src/api/parse.py", 10, 10, "from another shell", "someone")
 	if len(m.file.comments) != 0 {
 		t.Fatal("nothing is watched")
@@ -475,11 +474,11 @@ func TestReloadPicksUpCommentsAddedElsewhere(t *testing.T) {
 func TestOpeningAFileRemembersWhereItWasLeft(t *testing.T) {
 	f := setup(t)
 	m := f.model()
-	keys(m, "ctrl+p", "parse.py", "enter", "9G", "ctrl+p", "util", "enter")
+	keys(m, "leader", "p", "parse.py", "enter", "9G", "leader", "p", "util", "enter")
 	if m.file.rel != "src/util.py" || m.file.cursor != 0 {
 		t.Fatalf("a new file opens on line 1: %s:%d", m.file.rel, m.file.cursor+1)
 	}
-	keys(m, "ctrl+p")
+	keys(m, "leader", "p")
 	if got := m.picker.cands[m.picker.matches[0].index].label; got != "src/util.py" {
 		t.Fatalf("an empty query lists recent files first: %q", got)
 	}
@@ -493,7 +492,7 @@ func TestBinaryFilesCannotBeCommentedOn(t *testing.T) {
 	f := setup(t)
 	f.write("blob.bin", "a\x00b")
 	m := f.model()
-	keys(m, "ctrl+p", "blob", "enter", "c")
+	keys(m, "leader", "p", "blob", "enter", "c")
 	if !m.file.binary || !m.flashErr {
 		t.Fatalf("binary %v, flash %q", m.file.binary, m.flash)
 	}
@@ -539,7 +538,7 @@ func TestClickingTheTreeTogglesDirectoriesAndOpensFiles(t *testing.T) {
 func TestDraggingInTheViewerSelectsLines(t *testing.T) {
 	f := setup(t)
 	m := f.model()
-	keys(m, "ctrl+p", "parse.py", "enter")
+	keys(m, "leader", "p", "parse.py", "enter")
 	m.Update(click(viewerX, 3))
 	m.Update(tea.MouseReleaseMsg{X: viewerX, Y: 3, Button: tea.MouseLeft})
 	if m.file.cursor != 2 || m.visual {
@@ -575,7 +574,7 @@ func TestWheelScrollsThePaneUnderThePointer(t *testing.T) {
 	}
 	f.write("long.txt", long.String())
 	m := f.model()
-	keys(m, "ctrl+p", "long.txt", "enter")
+	keys(m, "leader", "p", "long.txt", "enter")
 	m.Update(tea.MouseWheelMsg{X: viewerX, Y: 5, Button: tea.MouseWheelDown})
 	m.Update(tea.MouseWheelMsg{X: viewerX, Y: 5, Button: tea.MouseWheelDown})
 	if m.file.offset != 6 || m.file.cursor != 6 {
@@ -584,5 +583,60 @@ func TestWheelScrollsThePaneUnderThePointer(t *testing.T) {
 	m.Update(tea.MouseWheelMsg{X: viewerX, Y: 5, Button: tea.MouseWheelUp})
 	if m.file.offset != 3 || m.file.cursor != 6 {
 		t.Fatalf("scrolling back leaves the cursor: offset %d, cursor %d", m.file.offset, m.file.cursor)
+	}
+}
+
+// ── leader ───────────────────────────────────────────────────────────────────
+
+func TestLeaderMappingsOpenThePickers(t *testing.T) {
+	m := commented(t).model()
+	keys(m, "leader")
+	if !m.leader || !strings.Contains(ansi.Strip(m.screen()), "<leader>  p go to file") {
+		t.Fatal("the leader waits for the next key and says what it can be")
+	}
+	keys(m, "p")
+	if m.leader || m.picker == nil || m.picker.kind != pickFiles {
+		t.Fatalf("<leader>p opens the file finder: %+v", m.picker)
+	}
+	keys(m, "esc", "leader", "l")
+	if m.picker == nil || m.picker.kind != pickComments {
+		t.Fatalf("<leader>l lists the comments: %+v", m.picker)
+	}
+	keys(m, "esc")
+
+	keys(m, "leader", "j")
+	if m.leader || m.picker != nil || m.file.cursor != 0 {
+		t.Fatalf("another key after the leader does nothing: cursor on %d", m.file.cursor+1)
+	}
+	keys(m, "3", "leader", "p", "esc", "j")
+	if m.file.cursor != 1 {
+		t.Fatalf("the leader drops a pending count: cursor on %d", m.file.cursor+1)
+	}
+
+	m.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
+	m.Update(tea.KeyPressMsg{Code: 'l', Mod: tea.ModCtrl})
+	if m.picker != nil {
+		t.Fatal("C-p and C-l are left to tmux and the terminal")
+	}
+}
+
+func TestLeaderKeyIsConfigurable(t *testing.T) {
+	f := commented(t)
+	m, err := newModel(f.ctx, Options{Service: f.svc, Workspace: f.ws, Leader: ","})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	keys(m, "leader", "p")
+	if m.picker != nil {
+		t.Fatal("space is no leader when another key is")
+	}
+	keys(m, ",", "p")
+	if m.picker == nil || m.picker.kind != pickFiles {
+		t.Fatal(",p opens the file finder")
+	}
+	keys(m, "esc", "?")
+	if !strings.Contains(ansi.Strip(m.screen()), "<leader> is ,") {
+		t.Fatal("the key list says what the leader is")
 	}
 }

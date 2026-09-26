@@ -3,6 +3,8 @@ package cli
 import (
 	"os"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/gustavofsantos/rvw/internal/tui"
 	"github.com/spf13/cobra"
@@ -10,7 +12,7 @@ import (
 )
 
 func (a *app) tuiCmd() *cobra.Command {
-	var lane, author, editor string
+	var lane, author, editor, leader string
 	cmd := &cobra.Command{
 		Use:   "tui",
 		Short: "browse the workspace and leave review comments in a terminal UI",
@@ -34,19 +36,24 @@ Nothing is watched: the file and its comments are re-read when you open a
 file, press r, or add, edit or submit; the branch and the changes when you
 press r, t or b.
 
-Keys (? shows them in the UI):
-  C-p go to file · C-l open comments · Tab switch pane · s submit · q quit
+Keys (? shows them in the UI); <leader> is space unless --leader says:
+  <leader>p go to file · <leader>l open comments · Tab switch pane · s submit · q quit
   t files or changes · b compare with: uncommitted, default branch, previous commit
   tree    j/k move · l/↵ open or expand · h collapse or go to parent · gg/G
   viewer  j/k · C-d/C-u half page · gg/G · NG or :N go to line
-          ]c/[c next/previous comment · ]h/[h next/previous change
+          ]c/[c next/previous comment · ]h/[h next/previous change, around
           V select lines · c comment · e edit
           r reload`,
 		Example: `  rvw tui
   rvw tui --lane refactor-auth --editor "code --wait"
+  rvw tui --leader ,
   rvw --workspace ~/src/project tui`,
 		Args: cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
+			leaderKey, err := leaderOf(leader)
+			if err != nil {
+				return err
+			}
 			in, inOK := a.stdin.(*os.File)
 			out, outOK := a.stdout.(*os.File)
 			if !inOK || !outOK || !term.IsTerminal(int(in.Fd())) || !term.IsTerminal(int(out.Fd())) {
@@ -62,14 +69,28 @@ Keys (? shows them in the UI):
 			}
 			return tui.Run(a.ctx, tui.Options{
 				Service: svc, Workspace: ws, Lane: laneOf(lane), Author: authorOf(author),
-				Editor: editorOf(editor),
+				Editor: editorOf(editor), Leader: leaderKey,
 			}, in, out)
 		},
 	}
 	cmd.Flags().StringVar(&lane, "lane", "", "lane the comments and reviews you write land in")
 	cmd.Flags().StringVar(&author, "author", "", "who is reviewing (default: $USER)")
 	cmd.Flags().StringVar(&editor, "editor", "", "command to write comments in (default: $VISUAL, else $EDITOR, else vi)")
+	cmd.Flags().StringVar(&leader, "leader", "space", `key that starts leader mappings: "space" or one character, such as ","`)
 	return cmd
+}
+
+// leaderOf is the leader key as the UI names keys: "space", or the one
+// printable character given.
+func leaderOf(flag string) (string, error) {
+	if flag == "space" || flag == " " {
+		return "space", nil
+	}
+	r, size := utf8.DecodeRuneInString(flag)
+	if size == 0 || size != len(flag) || !unicode.IsPrint(r) || unicode.IsSpace(r) {
+		return "", usageError("--leader must be space or one character, got %q", flag)
+	}
+	return flag, nil
 }
 
 // editorOf is the command comments are written in: the flag, else the user's

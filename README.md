@@ -105,10 +105,12 @@ list and for the gutter marks alike:
 - **previous commit**: against `HEAD~1`, so the last commit plus anything
   uncommitted.
 
-- `C-p` opens a file by fuzzy name; `C-l` lists the open comments.
+- `<leader>p` opens a file by fuzzy name; `<leader>l` lists the open
+  comments. The leader is space; `--leader` makes it another key, such as `,`.
 - `V` selects lines, `c` comments on the line or the selection, `e` edits the
   comment on the line, `s` submits your pending comments as a review.
-- `]c` and `[c` jump between comments, `]h` and `[h` between git changes;
+- `]c` and `[c` jump between comments, `]h` and `[h` between git changes,
+  going round from the last change to the first and back;
   `r` reloads the file, the changed files, their git changes and the queue.
   Nothing is watched, so comments added elsewhere show up on the next reload.
 - `?` lists every key.

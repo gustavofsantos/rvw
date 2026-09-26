@@ -1316,7 +1316,8 @@ mcp_session() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"Usage:"*"rvw tui"* ]]
   [[ "$output" == *"--editor"*'$VISUAL'*'$EDITOR'*"vi"* ]]
-  [[ "$output" == *"C-p go to file"* ]]
+  [[ "$output" == *"<leader> is space unless --leader"*"<leader>p go to file"*"<leader>l open comments"* ]]
+  [[ "$output" == *"--leader string"* ]]
   [[ "$output" == *"V select lines"*"c comment"*"e edit"* ]]
   [[ "$output" == *"t files or changes"*"b compare with"*"uncommitted"*"default branch"*"previous commit"* ]]
 }
@@ -1327,7 +1328,7 @@ needs_pty() {
 }
 
 # Run `rvw tui FLAGS...` on a pseudo-terminal, typing each KEYS argument after
-# `--` in turn (printf %b escapes: \x10 is C-p, \r is Enter). An argument
+# `--` in turn (printf %b escapes: \r is Enter; space is the leader). An argument
 # `wait:CMD` instead retries CMD until it succeeds, so keys never race the
 # editor. Typing starts after a second: keys sent before the TUI takes the
 # terminal go through its cooked mode, where Enter arrives as a newline.
@@ -1373,7 +1374,7 @@ SH
   chmod +x "$TEST_ROOT/editor"
   cd "$plain"
 
-  tui_session --editor "$TEST_ROOT/editor" -- '\x10apipar\r' '3GV2jc' \
+  tui_session --editor "$TEST_ROOT/editor" -- ' papipar\r' '3GV2jc' \
     'wait:[ "$("$RVW" count)" = 1 ]' 's3' \
     'wait:"$RVW" list --reviews --format ids | grep -q rv1' q
 
@@ -1389,6 +1390,22 @@ SH
   [ "$(jq -r '.sheets[0].review.decision' <<<"$output")" = "request-changes" ]
   [ "$(jq -r '.sheets[0].review.summary' <<<"$output")" = "from the editor" ]
   [ "$(jq -r '.sheets[0].comments | map(.id) | join(",")' <<<"$output")" = "r1" ]
+}
+
+@test "tui --leader takes space or one character, and fails before the terminal check" {
+  run "$RVW" tui --leader ab </dev/null
+  [ "$status" -eq 1 ]
+  [ "$output" = 'rvw: --leader must be space or one character, got "ab"' ]
+  run "$RVW" tui --leader ctrl+p </dev/null
+  [ "$output" = 'rvw: --leader must be space or one character, got "ctrl+p"' ]
+  run "$RVW" tui --leader "" </dev/null
+  [ "$output" = 'rvw: --leader must be space or one character, got ""' ]
+  run "$RVW" tui --leader $'\t' </dev/null
+  [ "$output" = 'rvw: --leader must be space or one character, got "\t"' ]
+  run "$RVW" tui --leader , </dev/null
+  [ "$output" = "rvw: tui needs an interactive terminal on stdin and stdout" ]
+  run "$RVW" tui --leader space </dev/null
+  [ "$output" = "rvw: tui needs an interactive terminal on stdin and stdout" ]
 }
 
 # ── shape of the tool itself ──────────────────────────────────────────────────

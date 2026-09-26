@@ -51,20 +51,20 @@ func commented(t *testing.T) *fixture {
 
 func TestGoldenMainView(t *testing.T) {
 	f := commented(t)
-	golden.RequireEqual(t, view(t, f, seq("ctrl+p", "apipar", "enter", "6G")...))
+	golden.RequireEqual(t, view(t, f, seq("leader", "p", "apipar", "enter", "6G")...))
 }
 
 func TestGoldenVisualMode(t *testing.T) {
 	f := commented(t)
-	golden.RequireEqual(t, view(t, f, seq("ctrl+p", "apipar", "enter", "2G", "V", "2j")...))
+	golden.RequireEqual(t, view(t, f, seq("leader", "p", "apipar", "enter", "2G", "V", "2j")...))
 }
 
 func TestGoldenQuickOpen(t *testing.T) {
 	f := commented(t)
-	golden.RequireEqual(t, view(t, f, seq("ctrl+p", "apipar")...))
+	golden.RequireEqual(t, view(t, f, seq("leader", "p", "apipar")...))
 }
 
 func TestGoldenCommentPicker(t *testing.T) {
 	f := commented(t)
-	golden.RequireEqual(t, view(t, f, seq("ctrl+l")...))
+	golden.RequireEqual(t, view(t, f, seq("leader", "l")...))
 }

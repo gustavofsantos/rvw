@@ -282,7 +282,7 @@ func (m *model) viewLine(i, w int) string {
 	switch {
 	case f == nil:
 		if i == 0 {
-			return render(fitPieces([]piece{{" No file open. C-p to find one.", stDim}}, w), nil)
+			return render(fitPieces([]piece{{" No file open. <leader>p to find one.", stDim}}, w), nil)
 		}
 		return strings.Repeat(" ", w)
 	case f.binary:
@@ -355,6 +355,8 @@ func (m *model) bar() []string {
 		return one(piece{m.flash, stNotice})
 	case m.goLine != nil:
 		return one(piece{":" + *m.goLine + "▏", stPlain})
+	case m.leader:
+		return one(piece{"<leader>", stMode}, piece{"  p go to file · l open comments · esc cancel", stDim})
 	case m.visual && m.file != nil:
 		lo, hi := m.selection()
 		return one(piece{"-- VISUAL --", stMode},
@@ -615,8 +617,8 @@ func (m *model) compareBox() []string {
 
 var helpKeys = [][2]string{
 	{"", "Global"},
-	{"C-p", "go to file"},
-	{"C-l", "open comments"},
+	{"<leader>p", "go to file"},
+	{"<leader>l", "open comments"},
 	{"Tab", "switch pane"},
 	{"s", "submit a review"},
 	{"t  b", "files or changes, compare with"},
@@ -630,7 +632,7 @@ var helpKeys = [][2]string{
 	{"j/k  C-d/C-u", "move, half page"},
 	{"gg/G  NG  :N", "first, last, line N"},
 	{"]c  [c", "next, previous comment"},
-	{"]h  [h", "next, previous git change"},
+	{"]h  [h", "next, previous change, around"},
 	{"V", "select lines (esc cancels)"},
 	{"c", "comment on the line or selection"},
 	{"e", "edit the comment on this line"},
@@ -645,7 +647,11 @@ func (m *model) helpBox() []string {
 	var body [][]piece
 	for _, k := range helpKeys {
 		if k[0] == "" {
-			body = append(body, []piece{{" " + k[1], stTitle}})
+			head := []piece{{" " + k[1], stTitle}}
+			if k[1] == "Global" {
+				head = append(head, piece{"  <leader> is " + m.leaderKey(), stDim})
+			}
+			body = append(body, head)
 			continue
 		}
 		body = append(body, []piece{{fmt.Sprintf("   %-14s", k[0]), stID}, {k[1], stPlain}})

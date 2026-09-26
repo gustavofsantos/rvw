@@ -62,7 +62,7 @@ func (m *model) mouse(msg tea.MouseMsg) tea.Cmd {
 		if e.Button != tea.MouseLeft {
 			return nil
 		}
-		m.count, m.prefix = "", ""
+		m.count, m.prefix, m.leader = "", "", false
 		if p == paneTree {
 			return m.clickTree(i)
 		}

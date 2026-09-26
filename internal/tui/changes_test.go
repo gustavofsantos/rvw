@@ -63,19 +63,19 @@ def default(req):
 func TestGutterSignsFollowGitChanges(t *testing.T) {
 	f := gitFixture(t)
 	m := f.model()
-	keys(m, "ctrl+p", "apipar", "enter")
+	keys(m, "leader", "p", "apipar", "enter")
 	const _, A, C, D, T = signNone, signAdded, signChanged, signDeleted, signDeletedTop
 	want := []sign{T, 0, 0, 0, C, 0, A, D, 0, 0, 0, 0}
 	if !slices.Equal(m.file.signs, want) {
 		t.Fatalf("parse.py signs = %v, want %v", m.file.signs, want)
 	}
 
-	keys(m, "ctrl+p", "srcnew", "enter")
+	keys(m, "leader", "p", "srcnew", "enter")
 	if !slices.Equal(m.file.signs, []sign{A, A}) {
 		t.Fatalf("an untracked file is all added: %v", m.file.signs)
 	}
 
-	keys(m, "ctrl+p", "util", "enter")
+	keys(m, "leader", "p", "util", "enter")
 	if m.file.signs != nil {
 		t.Fatalf("an unchanged file has no signs: %v", m.file.signs)
 	}
@@ -87,9 +87,9 @@ func TestGutterSignsFollowGitChanges(t *testing.T) {
 	}
 }
 
-func TestHunkJumpsVisitEveryChange(t *testing.T) {
+func TestHunkJumpsVisitEveryChangeAndGoRound(t *testing.T) {
 	m := gitFixture(t).model()
-	keys(m, "ctrl+p", "apipar", "enter")
+	keys(m, "leader", "p", "apipar", "enter")
 	if !slices.Equal(m.file.hunks, []int{1, 5, 7, 8}) {
 		t.Fatalf("hunks = %v", m.file.hunks)
 	}
@@ -102,8 +102,12 @@ func TestHunkJumpsVisitEveryChange(t *testing.T) {
 		t.Fatalf("]h from line 1 visits %v, want [5 7 8]", visited)
 	}
 	keys(m, "]", "h")
-	if m.file.cursor+1 != 8 || m.flash != "no next change in this file" {
-		t.Fatalf("]h past the last change stays on line %d and says %q", m.file.cursor+1, m.flash)
+	if m.file.cursor+1 != 1 || m.flash != "wrapped to the first change" {
+		t.Fatalf("]h past the last change goes round to line 1, cursor on %d, flash %q", m.file.cursor+1, m.flash)
+	}
+	keys(m, "[", "h")
+	if m.file.cursor+1 != 8 || m.flash != "wrapped to the last change" {
+		t.Fatalf("[h before the first change goes round to line 8, cursor on %d, flash %q", m.file.cursor+1, m.flash)
 	}
 	keys(m, "12G", "[", "h")
 	if m.file.cursor+1 != 8 {
@@ -115,10 +119,24 @@ func TestHunkJumpsVisitEveryChange(t *testing.T) {
 	}
 }
 
+func TestHunkJumpsGoRoundASingleChange(t *testing.T) {
+	f := setup(t)
+	f.write("src/util.py", "def util():\n    return 1\n")
+	m := f.model()
+	keys(m, "leader", "p", "srcutil", "enter", "]", "h")
+	if m.file.cursor+1 != 2 {
+		t.Fatalf("]h goes to the change, cursor on %d", m.file.cursor+1)
+	}
+	keys(m, "]", "h")
+	if m.file.cursor+1 != 2 || m.flash != "wrapped to the first change" {
+		t.Fatalf("]h on the only change stays on it, cursor on %d, flash %q", m.file.cursor+1, m.flash)
+	}
+}
+
 func TestHunkJumpsWithoutChangesSayThereIsNone(t *testing.T) {
 	m := setup(t).model()
-	keys(m, "ctrl+p", "apipar", "enter", "]", "h")
-	if m.file.cursor != 0 || m.flash != "no next change in this file" {
+	keys(m, "leader", "p", "apipar", "enter", "]", "h")
+	if m.file.cursor != 0 || m.flash != "no changes in this file" {
 		t.Fatalf("cursor on %d, flash %q", m.file.cursor+1, m.flash)
 	}
 }
@@ -147,7 +165,7 @@ func TestGutterSignsNeedHEAD(t *testing.T) {
 
 func TestGoldenGitChanges(t *testing.T) {
 	f := gitFixture(t)
-	golden.RequireEqual(t, view(t, f, seq("ctrl+p", "apipar", "enter")...))
+	golden.RequireEqual(t, view(t, f, seq("leader", "p", "apipar", "enter")...))
 }
 
 // ── changes view ─────────────────────────────────────────────────────────────
@@ -206,7 +224,7 @@ func branched(t *testing.T) *fixture {
 
 func TestChangesAgainstTheDefaultBranchStartAtTheMergeBase(t *testing.T) {
 	m := branched(t).model()
-	keys(m, "ctrl+p", "srcutil", "enter")
+	keys(m, "leader", "p", "srcutil", "enter")
 	if m.file.signs != nil {
 		t.Fatalf("against HEAD the committed util.py is unchanged: %v", m.file.signs)
 	}
@@ -282,7 +300,7 @@ func TestACommitMadeMeanwhileMovesTheComparison(t *testing.T) {
 	m := f.model()
 	f.write("src/util.py", "def util():\n    return 1\n")
 	f.git("commit", "-qam", "util")
-	keys(m, "ctrl+p", "srcutil", "enter")
+	keys(m, "leader", "p", "srcutil", "enter")
 	if m.file.signs != nil {
 		t.Fatalf("the gutter compares with HEAD as it is now: %v", m.file.signs)
 	}
@@ -385,7 +403,7 @@ func TestStatusLineWithoutACommit(t *testing.T) {
 func TestCommentsOnTheCursorLineTakeTheBarOverTheStatus(t *testing.T) {
 	f := commented(t)
 	m := f.model()
-	keys(m, "ctrl+p", "apipar", "enter", "5G")
+	keys(m, "leader", "p", "apipar", "enter", "5G")
 	if bar := ansi.Strip(strings.Join(m.bar(), "\n")); !strings.HasPrefix(bar, "r1 · 5-8") {
 		t.Fatalf("bar = %q", bar)
 	}
