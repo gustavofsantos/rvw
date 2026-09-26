@@ -141,7 +141,7 @@ changes (pass the WHOLE buffer; --lines slices it). The comment comes from
 			}
 			switch format.value {
 			case "json":
-				return render.JSON(a.stdout, c)
+				return render.JSON(a.rawStdout, c)
 			case "ids":
 				fmt.Fprintln(a.stdout, c.ID)
 			default:
@@ -261,7 +261,7 @@ comments in this exact lane; --no-comments submits a summary-only review.`,
 			}
 			switch format.value {
 			case "json":
-				return render.JSON(a.stdout, r)
+				return render.JSON(a.rawStdout, r)
 			case "ids":
 				fmt.Fprintln(a.stdout, r.ID)
 			default:
@@ -343,7 +343,7 @@ then takes pending, pulled, complete, open (not yet complete) or all.`,
 			}
 			switch format.value {
 			case "json":
-				return render.JSON(a.stdout, render.Envelope{Workspace: out.Workspace, Count: len(out.Comments), Comments: out.Comments})
+				return render.JSON(a.rawStdout, render.Envelope{Workspace: out.Workspace, Count: len(out.Comments), Comments: out.Comments})
 			case "ids":
 				render.IDs(a.stdout, nil, out.Comments)
 			case "count":
@@ -391,7 +391,7 @@ func (a *app) listSheets(lanes *laneFlags, file, status, format string) error {
 	}
 	switch format {
 	case "json":
-		return render.JSON(a.stdout, out)
+		return render.JSON(a.rawStdout, out)
 	case "ids":
 		for _, rs := range out.Sheets {
 			fmt.Fprintln(a.stdout, rs.Review.ID)
@@ -515,7 +515,7 @@ stderr when comments are waiting elsewhere, so nothing starves unseen.`,
 			}
 			switch format.value {
 			case "json":
-				if err := render.JSON(a.stdout, render.Envelope{
+				if err := render.JSON(a.rawStdout, render.Envelope{
 					Workspace: out.Workspace, Count: out.Count(), Comments: out.Comments, SubmittedReviews: out.Reviews,
 				}); err != nil {
 					return err
@@ -571,7 +571,7 @@ shows the whole review sheet. Nothing is dequeued.`,
 				}
 				switch format.value {
 				case "json":
-					return render.JSON(a.stdout, sheet)
+					return render.JSON(a.rawStdout, sheet)
 				case "markdown":
 					handoff := review.Handoff{Review: sheet.Review, Comments: sheet.Comments}
 					fmt.Fprint(a.stdout, render.Markdown(in.Workspace, []review.Handoff{handoff}, nil, false))
@@ -586,7 +586,7 @@ shows the whole review sheet. Nothing is dequeued.`,
 			}
 			switch format.value {
 			case "json":
-				return render.JSON(a.stdout, ev)
+				return render.JSON(a.rawStdout, ev)
 			case "markdown":
 				fmt.Fprint(a.stdout, render.Markdown(in.Workspace, nil, []review.Comment{ev.Comment}, false))
 			default:
@@ -633,7 +633,7 @@ func (a *app) workspacesCmd() *cobra.Command {
 			rows := out.Workspaces
 			switch {
 			case format.value == "json":
-				return render.JSON(a.stdout, rows)
+				return render.JSON(a.rawStdout, rows)
 			case len(rows) == 0:
 				a.notice("no workspace has pending review comments")
 			default:
@@ -777,7 +777,7 @@ pulled its text is what the agent was asked, so it can no longer be edited.`,
 				return err
 			}
 			if format.value == "json" {
-				return render.JSON(a.stdout, c)
+				return render.JSON(a.rawStdout, c)
 			}
 			fmt.Fprintf(a.stdout, "%s  %s  %s\n", c.ID, c.Location(), render.FirstLine(c.Comment))
 			return nil

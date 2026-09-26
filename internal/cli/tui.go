@@ -60,7 +60,7 @@ Keys (? shows them in the UI); <leader> is space unless --leader says:
 				return err
 			}
 			in, inOK := a.stdin.(*os.File)
-			out, outOK := a.stdout.(*os.File)
+			out, outOK := a.rawStdout.(*os.File)
 			if !inOK || !outOK || !term.IsTerminal(int(in.Fd())) || !term.IsTerminal(int(out.Fd())) {
 				return usageError("tui needs an interactive terminal on stdin and stdout")
 			}

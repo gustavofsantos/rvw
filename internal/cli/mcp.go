@@ -153,7 +153,7 @@ a server you keep running with ` + "`rvw mcp serve --http ADDR`" + `. --db, --wo
 				return err
 			}
 			if format.value == "json" {
-				return render.JSON(a.stdout, map[string]any{"mcpServers": map[string]mcpServer{name: entry}})
+				return render.JSON(a.rawStdout, map[string]any{"mcpServers": map[string]mcpServer{name: entry}})
 			}
 			var b strings.Builder
 			if flags.http != "" {

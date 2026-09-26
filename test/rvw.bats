@@ -280,6 +280,32 @@ SH
   [[ "$output" == *"does not exist"* ]]
 }
 
+@test "output: text and markdown never pass terminal escapes through; json keeps them" {
+  payload=$(printf 'see \033]0;PWNED\007\033[8mhidden\033[0m \302\233here')
+  printf 'x = 1 \033[2J\n' >esc.py
+  "$RVW" add --file esc.py --lines 1 --comment "$payload" --author "$(printf 'ev\033[1mil')" \
+    --lane "$(printf 'l\033[0m')" --format ids </dev/null
+  "$RVW" submit --author "$(printf 'ev\033[1mil')" --lane "$(printf 'l\033[0m')" \
+    --decision comment --summary "$payload" --format ids >/dev/null
+
+  for cmd in "list" "list --format markdown" "list --reviews" "show r1" "show rv1" "show rv1 --format markdown" \
+    "pull --peek" "pull --peek --format text"; do
+    run $RVW $cmd
+    [ "$status" -eq 0 ]
+    [[ "$output" != *$'\033'* ]]
+    [[ "$output" != *$'\302\233'* ]]
+    [[ "$output" == *"see"* ]]
+  done
+
+  "$RVW" pull >/dev/null
+  run "$RVW" reject r1 --note "$payload"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *$'\033'* ]]
+
+  run "$RVW" show r1 --format json
+  [ "$(jq -r '.comment.comment' <<<"$output")" = "$payload" ]
+}
+
 # ── the core guarantee: pulling drains the queue ──────────────────────────────
 
 @test "pull: never overwrites a decision recorded on a linked comment" {

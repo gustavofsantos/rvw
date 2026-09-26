@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/gustavofsantos/rvw/internal/render"
 	"github.com/gustavofsantos/rvw/internal/review"
 	"github.com/gustavofsantos/rvw/internal/store"
 	"github.com/gustavofsantos/rvw/internal/workspace"
@@ -28,15 +29,22 @@ func usageError(format string, args ...any) error { return fmt.Errorf(format, ar
 
 // Main runs the command line and returns the process exit status.
 func Main(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	a := &app{ctx: ctx, stdin: stdin, stdout: stdout, stderr: stderr}
+	// Text output carries comments, code and names that agents wrote: it goes
+	// through a Terminal writer so none of it can drive the terminal. JSON is
+	// escaped by its encoder and the TUI draws its own escapes, so both use
+	// the raw stream.
+	out, errOut := render.NewTerminal(stdout), render.NewTerminal(stderr)
+	defer out.Flush()
+	defer errOut.Flush()
+	a := &app{ctx: ctx, stdin: stdin, stdout: out, rawStdout: stdout, stderr: errOut}
 	defer a.close()
 	root := a.root()
 	root.SetArgs(args)
 	root.SetIn(stdin)
-	root.SetOut(stdout)
-	root.SetErr(stderr)
+	root.SetOut(out)
+	root.SetErr(errOut)
 	if err := root.ExecuteContext(ctx); err != nil {
-		fmt.Fprintf(stderr, "%s: %s\n", prog, err)
+		fmt.Fprintf(errOut, "%s: %s\n", prog, err)
 		return 1
 	}
 	return 0
@@ -45,7 +53,8 @@ func Main(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io
 type app struct {
 	ctx            context.Context
 	stdin          io.Reader
-	stdout, stderr io.Writer
+	stdout, stderr io.Writer // text: control characters shown, not sent
+	rawStdout      io.Writer // JSON and the TUI
 
 	workspaceFlag string
 	dbFlag        string
