@@ -210,12 +210,13 @@ func (m *model) sideTitle() string {
 		return "files"
 	case sideReviews:
 		return "reviews"
+	default:
+		against := m.baseName
+		if against == "" {
+			against = compareLabels[m.cmp]
+		}
+		return "changes vs " + against
 	}
-	against := m.baseName
-	if against == "" {
-		against = compareLabels[m.cmp]
-	}
-	return "changes vs " + against
 }
 
 // ── tree ─────────────────────────────────────────────────────────────────────
@@ -284,8 +285,8 @@ func (m *model) treeLine(i, w int) string {
 	if status != 0 {
 		avail -= 2
 	}
-	text := fitPieces([]piece{{" " + indent, stPlain}, name}, avail+1)
-	row := append(text, piece{" ", stPlain})
+	row := fitPieces([]piece{{" " + indent, stPlain}, name}, avail+1)
+	row = append(row, piece{" ", stPlain})
 	if badge != "" {
 		row = append(row, piece{badge, stBadge}, piece{" ", stPlain})
 	}

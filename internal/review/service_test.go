@@ -42,13 +42,12 @@ func setup(t *testing.T) *fixture {
 	return &fixture{t: t, svc: review.NewService(st), ws: canon, ctx: context.Background()}
 }
 
-func git(t *testing.T, dir string, args ...string) string {
+func git(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
-	return string(out)
 }
 
 func write(t *testing.T, path, content string) {

@@ -297,6 +297,7 @@ func (m *model) showSide(side sidebar) error {
 	m.loadStatus()
 	var err error
 	switch side {
+	case sideFiles:
 	case sideChanges:
 		m.loadChanges()
 	case sideReviews:

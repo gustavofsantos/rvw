@@ -56,6 +56,7 @@ func (m *model) mouse(msg tea.MouseMsg) tea.Cmd {
 			m.wheel(p, -wheelStep)
 		case tea.MouseWheelDown:
 			m.wheel(p, wheelStep)
+		default:
 		}
 		return nil
 	case tea.MouseClickMsg:

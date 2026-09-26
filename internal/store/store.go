@@ -305,11 +305,11 @@ func (t *tx) Reviews(statuses ...review.ReviewStatus) ([]review.Review, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 	reviews := []review.Review{}
 	for rows.Next() {
 		r, err := t.scanReview(rows)
 		if err != nil {
-			rows.Close()
 			return nil, err
 		}
 		reviews = append(reviews, r)

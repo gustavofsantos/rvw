@@ -42,11 +42,12 @@ func (c compare) base(dir string) (id, name string, err error) {
 			return "", "", errors.New("no previous commit to compare with")
 		}
 		return "HEAD~1", "HEAD~1", nil
+	default:
+		if _, ok := gitx.Commit(dir, "HEAD"); !ok {
+			return "", "", errors.New("no commit to compare with yet")
+		}
+		return "HEAD", "HEAD", nil
 	}
-	if _, ok := gitx.Commit(dir, "HEAD"); !ok {
-		return "", "", errors.New("no commit to compare with yet")
-	}
-	return "HEAD", "HEAD", nil
 }
 
 // changeTree is the changed files as a tree, every directory expanded, and

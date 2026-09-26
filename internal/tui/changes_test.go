@@ -211,6 +211,7 @@ func TestChangesViewListsUncommittedChangesByDefault(t *testing.T) {
 // commit on the branch, papers.md in a commit on main after the branch point,
 // and parse.py edited but not committed.
 func branched(t *testing.T) *fixture {
+	t.Helper()
 	f := setup(t)
 	f.git("checkout", "-qb", "feature")
 	f.write("src/util.py", "def util():\n    return 1\n")

@@ -26,8 +26,11 @@ func view(t *testing.T, f *fixture, msgs ...tea.Msg) []byte {
 	if err := tm.Quit(); err != nil {
 		t.Fatal(err)
 	}
-	final := tm.FinalModel(t, teatest.WithFinalTimeout(5*time.Second))
-	return dates.ReplaceAll([]byte(ansi.Strip(final.(*model).screen())), []byte("YYYY-MM-DD"))
+	final, ok := tm.FinalModel(t, teatest.WithFinalTimeout(5*time.Second)).(*model)
+	if !ok {
+		t.Fatal("final model is not a *model")
+	}
+	return dates.ReplaceAll([]byte(ansi.Strip(final.screen())), []byte("YYYY-MM-DD"))
 }
 
 // seq is key presses: named keys (see press), and strings typed out.
@@ -46,6 +49,7 @@ func seq(ks ...string) []tea.Msg {
 }
 
 func commented(t *testing.T) *fixture {
+	t.Helper()
 	f := setup(t)
 	f.add("src/api/parse.py", 5, 8, "extract this branch into parse_x()", "gustavo")
 	f.add("src/api/parse.py", 12, 12, "typo", "reviewer")

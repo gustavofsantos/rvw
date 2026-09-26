@@ -86,8 +86,9 @@ func statusMark(s review.Status) piece {
 		return piece{"✗", stRejected}
 	case review.StatusPulled:
 		return piece{"◐", stPulled}
+	default:
+		return piece{"○", stDim}
 	}
-	return piece{"○", stDim}
 }
 
 // stateMark is a review's progress at a glance.
@@ -97,8 +98,9 @@ func stateMark(s review.SheetState) piece {
 		return piece{"✓", stDone}
 	case review.SheetPulled:
 		return piece{"◐", stPulled}
+	default:
+		return piece{"○", stDim}
 	}
-	return piece{"○", stDim}
 }
 
 // reviewRow is a row of the reviews side: the name and its mark on the right.

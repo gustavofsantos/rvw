@@ -44,12 +44,12 @@ func Canonical(path string) (string, error) {
 	}
 	var missing []string
 	for cur := abs; ; {
-		real, err := filepath.EvalSymlinks(cur)
+		resolved, err := filepath.EvalSymlinks(cur)
 		if err == nil {
 			for _, m := range slices.Backward(missing) {
-				real = filepath.Join(real, m)
+				resolved = filepath.Join(resolved, m)
 			}
-			return real, nil
+			return resolved, nil
 		}
 		parent := filepath.Dir(cur)
 		if !errors.Is(err, fs.ErrNotExist) || parent == cur {
