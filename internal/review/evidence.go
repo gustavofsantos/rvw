@@ -1,6 +1,7 @@
 package review
 
 import (
+	"context"
 	"strings"
 
 	"github.com/pmezard/go-difflib/difflib"
@@ -22,12 +23,12 @@ var filetypes = map[string]string{
 // snapshotDiff is the unified diff between the file as reviewed and as
 // resolved, read back from the git object store. ok is false when either
 // version is gone or was never kept.
-func snapshotDiff(c Comment) (lines []string, ok bool) {
+func snapshotDiff(ctx context.Context, c Comment) (lines []string, ok bool) {
 	if c.FileVersion == "" || c.ResolvedFileVersion == "" {
 		return []string{}, false
 	}
-	before, okBefore := gitx.Blob(c.Workspace, c.FileVersion)
-	after, okAfter := gitx.Blob(c.Workspace, c.ResolvedFileVersion)
+	before, okBefore := gitx.Blob(ctx, c.Workspace, c.FileVersion)
+	after, okAfter := gitx.Blob(ctx, c.Workspace, c.ResolvedFileVersion)
 	if !okBefore || !okAfter {
 		return []string{}, false
 	}

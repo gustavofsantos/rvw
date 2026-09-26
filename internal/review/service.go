@@ -93,7 +93,7 @@ func (s *Service) Add(ctx context.Context, in AddInput) (Comment, error) {
 	lines.End = min(lines.End, len(sourceLines))
 	code := strings.Join(sourceLines[lines.Start-1:lines.End], "\n")
 
-	fileVersion, err := snapshotReviewed(in.Workspace, rel, source)
+	fileVersion, err := snapshotReviewed(ctx, in.Workspace, rel, source)
 	if err != nil {
 		return Comment{}, err
 	}
@@ -166,15 +166,15 @@ func readSource(path string, buffer *string) (string, error) {
 
 // snapshotReviewed keeps the reviewed content of a tracked file as a git blob.
 // A git failure refuses the comment rather than enqueue it without its version.
-func snapshotReviewed(ws, rel, source string) (string, error) {
-	tracked, err := gitx.Tracked(ws, rel)
+func snapshotReviewed(ctx context.Context, ws, rel, source string) (string, error) {
+	tracked, err := gitx.Tracked(ctx, ws, rel)
 	if err != nil {
 		return "", internalf("cannot inspect Git metadata for %s: %s", rel, gitx.Stderr(err))
 	}
 	if !tracked {
 		return "", nil
 	}
-	id, err := gitx.StoreContent(ws, source)
+	id, err := gitx.StoreContent(ctx, ws, source)
 	if err != nil {
 		return "", internalf("cannot store the reviewed version of %s: %s", rel, gitx.Stderr(err))
 	}
@@ -324,7 +324,7 @@ func (s *Service) Evidence(ctx context.Context, in GetInput) (Evidence, error) {
 	}
 	ev := Evidence{Comment: c, Diff: []string{}}
 	if c.Status == StatusDone {
-		ev.Diff, ev.DiffAvailable = snapshotDiff(c)
+		ev.Diff, ev.DiffAvailable = snapshotDiff(ctx, c)
 	}
 	return ev, nil
 }
@@ -663,7 +663,7 @@ func (s *Service) Resolve(ctx context.Context, in ResolveInput) (Comment, error)
 			return conflictf("%s is already %s — it cannot be re-decided", c.ID, c.Status)
 		}
 		if in.Outcome == OutcomeDone {
-			if c.ResolvedFileVersion, err = snapshotResolved(in.Workspace, c); err != nil {
+			if c.ResolvedFileVersion, err = snapshotResolved(ctx, in.Workspace, c); err != nil {
 				return err
 			}
 		}
@@ -679,7 +679,7 @@ func (s *Service) Resolve(ctx context.Context, in ResolveInput) (Comment, error)
 
 // snapshotResolved keeps the current version of a comment's file, when it is
 // still tracked at the recorded path inside the workspace.
-func snapshotResolved(ws string, c Comment) (string, error) {
+func snapshotResolved(ctx context.Context, ws string, c Comment) (string, error) {
 	recorded := cmp.Or(c.Path, c.File)
 	if recorded == "" {
 		return "", nil
@@ -696,14 +696,14 @@ func snapshotResolved(ws string, c Comment) (string, error) {
 		return "", nil //nolint:nilerr // a path outside the workspace has no snapshot
 	}
 	label := cmp.Or(c.File, rel)
-	tracked, err := gitx.Tracked(ws, rel)
+	tracked, err := gitx.Tracked(ctx, ws, rel)
 	if err != nil {
 		return "", internalf("cannot inspect Git metadata for %s: %s", label, gitx.Stderr(err))
 	}
 	if !tracked {
 		return "", nil
 	}
-	id, err := gitx.StoreFile(ws, rel)
+	id, err := gitx.StoreFile(ctx, ws, rel)
 	if err != nil {
 		if !isFile(path) {
 			return "", nil

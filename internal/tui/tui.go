@@ -165,7 +165,7 @@ func newModel(ctx context.Context, opts Options) (*model, error) {
 		ctx: ctx, opts: opts, focus: paneViewer, positions: map[string]int{}, counts: map[string]int{},
 	}
 	m.setTheme(true)
-	m.baseID, m.baseName, _ = m.cmp.base(opts.Workspace)
+	m.baseID, m.baseName, _ = m.cmp.base(ctx, opts.Workspace)
 	m.loadStatus()
 	if err := m.loadTree(); err != nil {
 		return nil, err
@@ -187,7 +187,7 @@ func newModel(ctx context.Context, opts Options) (*model, error) {
 
 // loadTree lists the workspace, keeping expanded directories expanded.
 func (m *model) loadTree() error {
-	files, err := listFiles(m.opts.Workspace)
+	files, err := listFiles(m.ctx, m.opts.Workspace)
 	if err != nil {
 		return fmt.Errorf("cannot list workspace %s: %s", m.opts.Workspace, gitx.Stderr(err))
 	}
@@ -216,10 +216,10 @@ func (m *model) loadChanges() {
 	var changes []gitx.Change
 	var err error
 	if m.baseID == "" { // perhaps there is one by now; else it says why not
-		m.baseID, m.baseName, err = m.cmp.base(m.opts.Workspace)
+		m.baseID, m.baseName, err = m.cmp.base(m.ctx, m.opts.Workspace)
 	}
 	if err == nil {
-		changes, err = gitx.ChangedFiles(m.opts.Workspace, m.baseID)
+		changes, err = gitx.ChangedFiles(m.ctx, m.opts.Workspace, m.baseID)
 	}
 	m.chgErr = ""
 	if err != nil {
@@ -242,15 +242,15 @@ type wdChanges struct {
 // line. Like the changes view, it never fails the UI.
 func (m *model) loadStatus() {
 	ws := m.opts.Workspace
-	m.branch = gitx.Branch(ws)
+	m.branch = gitx.Branch(m.ctx, ws)
 	m.wd = wdChanges{}
-	if _, ok := gitx.Commit(ws, "HEAD"); !ok {
+	if _, ok := gitx.Commit(m.ctx, ws, "HEAD"); !ok {
 		m.wd.err = "no commits yet"
 		return
 	}
-	changes, err := gitx.ChangedFiles(ws, "HEAD")
+	changes, err := gitx.ChangedFiles(m.ctx, ws, "HEAD")
 	if err == nil {
-		m.wd.added, m.wd.deleted, err = gitx.LineChanges(ws, "HEAD")
+		m.wd.added, m.wd.deleted, err = gitx.LineChanges(m.ctx, ws, "HEAD")
 	}
 	if err != nil {
 		m.wd = wdChanges{err: gitx.Stderr(err)}
@@ -324,7 +324,7 @@ func (m *model) selectShown() {
 // changes view lists against it and the gutter marks against it. When c
 // cannot be resolved, nothing changes but the error.
 func (m *model) setCompare(c compare) error {
-	id, name, err := c.base(m.opts.Workspace)
+	id, name, err := c.base(m.ctx, m.opts.Workspace)
 	if err != nil {
 		return err
 	}
@@ -375,7 +375,7 @@ func (m *model) loadFile(rel string) (*fileView, error) {
 	text := string(data)
 	f.plain = sourceLines(text)
 	f.lines = highlight(rel, text)
-	f.signs, f.hunks = fileChanges(m.opts.Workspace, abs, m.baseID, len(f.lines))
+	f.signs, f.hunks = fileChanges(m.ctx, m.opts.Workspace, abs, m.baseID, len(f.lines))
 	return f, nil
 }
 
@@ -410,7 +410,7 @@ func (m *model) openFile(rel string, line int) error {
 // queue; the cursor stays on its line.
 func (m *model) reload(walk bool) error {
 	if walk {
-		m.baseID, m.baseName, _ = m.cmp.base(m.opts.Workspace)
+		m.baseID, m.baseName, _ = m.cmp.base(m.ctx, m.opts.Workspace)
 		m.loadStatus()
 		if err := m.loadTree(); err != nil {
 			return err

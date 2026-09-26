@@ -50,7 +50,7 @@ func setup(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &fixture{t: t, ctx: context.Background(), ws: ws}
+	f := &fixture{t: t, ctx: t.Context(), ws: ws}
 	f.write("src/api/parse.py", parsePy)
 	f.write("src/util.py", "def util():\n    pass\n")
 	f.write("test/api/api_parser_test.go", "package api\n")
@@ -180,7 +180,7 @@ func TestListFilesObeysGitignore(t *testing.T) {
 	write("forced.log", "tracked though ignored\n")
 	git("add", "-f", "forced.log")
 
-	files, err := listFiles(ws)
+	files, err := listFiles(t.Context(), ws)
 	if err != nil {
 		t.Fatal(err)
 	}

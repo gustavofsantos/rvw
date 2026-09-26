@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,8 +16,8 @@ const maxFiles = 50000
 // listFiles lists the files git sees in the worktree at root, as sorted,
 // slash-separated relative paths: tracked and untracked-but-not-ignored files
 // that are regular files on disk (a symlink counts when it points at one).
-func listFiles(root string) ([]string, error) {
-	listed, err := gitx.Files(root)
+func listFiles(ctx context.Context, root string) ([]string, error) {
+	listed, err := gitx.Files(ctx, root)
 	if err != nil {
 		return nil, err
 	}

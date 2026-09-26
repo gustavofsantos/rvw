@@ -95,13 +95,13 @@ func (a *app) workspace() (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return workspace.Resolve(cwd)
+		return workspace.Resolve(a.ctx, cwd)
 	}
 	dir = expandHome(dir)
 	if !workspace.IsDir(dir) {
 		return "", usageError("--workspace '%s' is not a directory", dir)
 	}
-	return workspace.Resolve(dir)
+	return workspace.Resolve(a.ctx, dir)
 }
 
 // ── shared flags ─────────────────────────────────────────────────────────────

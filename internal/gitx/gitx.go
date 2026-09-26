@@ -5,11 +5,13 @@ package gitx
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Error is a git command that ran and failed; Stderr is its trimmed message.
@@ -30,9 +32,13 @@ func Stderr(err error) string {
 	return err.Error()
 }
 
-func run(dir, stdin string, args ...string) (string, int, error) {
+// waitDelay bounds how long a cancelled git may keep its pipes open.
+const waitDelay = time.Second
+
+func run(ctx context.Context, dir, stdin string, args ...string) (string, int, error) {
 	full := append([]string{"-C", dir}, args...)
-	cmd := exec.Command("git", full...)
+	cmd := exec.CommandContext(ctx, "git", full...)
+	cmd.WaitDelay = waitDelay
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
 	}
@@ -41,6 +47,8 @@ func run(dir, stdin string, args ...string) (string, int, error) {
 	err := cmd.Run()
 	var exit *exec.ExitError
 	switch {
+	case err != nil && ctx.Err() != nil:
+		return "", -1, ctx.Err() // killed on cancel: why, not git's silence
 	case errors.As(err, &exit):
 		return out.String(), exit.ExitCode(), &Error{Args: args, Stderr: strings.TrimSpace(errOut.String())}
 	case err != nil:
@@ -50,16 +58,16 @@ func run(dir, stdin string, args ...string) (string, int, error) {
 }
 
 // Toplevel is the root of the worktree holding dir, if dir is inside one.
-func Toplevel(dir string) (string, bool) {
-	out, _, err := run(dir, "", "rev-parse", "--show-toplevel")
+func Toplevel(ctx context.Context, dir string) (string, bool) {
+	out, _, err := run(ctx, dir, "", "rev-parse", "--show-toplevel")
 	top := strings.TrimSpace(out)
 	return top, err == nil && top != ""
 }
 
 // Tracked reports whether rel is in the index of the repository at dir. A git
 // failure other than "not tracked" is returned as an error.
-func Tracked(dir, rel string) (bool, error) {
-	_, code, err := run(dir, "", "ls-files", "--error-unmatch", "--", rel)
+func Tracked(ctx context.Context, dir, rel string) (bool, error) {
+	_, code, err := run(ctx, dir, "", "ls-files", "--error-unmatch", "--", rel)
 	switch code {
 	case 0:
 		return true, nil
@@ -70,14 +78,14 @@ func Tracked(dir, rel string) (bool, error) {
 }
 
 // StoreContent writes content to the object store and returns its blob id.
-func StoreContent(dir, content string) (string, error) {
-	out, _, err := run(dir, content, "hash-object", "-w", "--stdin")
+func StoreContent(ctx context.Context, dir, content string) (string, error) {
+	out, _, err := run(ctx, dir, content, "hash-object", "-w", "--stdin")
 	return blobID(out, err)
 }
 
 // StoreFile writes the file at rel (relative to dir) to the object store.
-func StoreFile(dir, rel string) (string, error) {
-	out, _, err := run(dir, "", "hash-object", "-w", "--", rel)
+func StoreFile(ctx context.Context, dir, rel string) (string, error) {
+	out, _, err := run(ctx, dir, "", "hash-object", "-w", "--", rel)
 	return blobID(out, err)
 }
 
@@ -90,8 +98,8 @@ func blobID(out string, err error) (string, error) {
 }
 
 // Blob reads a blob back, if the repository at dir still has it.
-func Blob(dir, id string) (string, bool) {
-	out, _, err := run(dir, "", "cat-file", "blob", id)
+func Blob(ctx context.Context, dir, id string) (string, bool) {
+	out, _, err := run(ctx, dir, "", "cat-file", "blob", id)
 	return out, err == nil
 }
 
@@ -99,8 +107,8 @@ func Blob(dir, id string) (string, bool) {
 // slash-separated: tracked files plus untracked ones that are not ignored by
 // .gitignore, .git/info/exclude or the global excludes file. A tracked file
 // deleted from disk is still listed; callers that need it on disk must check.
-func Files(dir string) ([]string, error) {
-	out, _, err := run(dir, "", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+func Files(ctx context.Context, dir string) ([]string, error) {
+	out, _, err := run(ctx, dir, "", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
 	if err != nil {
 		return nil, err
 	}
@@ -126,15 +134,15 @@ type Hunk struct {
 // commit base: committed, staged and unstaged edits together. untracked is
 // set, with no hunks, for a file git does not track and does not ignore. A
 // binary file has no hunks.
-func Changes(dir, path, base string) (hunks []Hunk, untracked bool, err error) {
-	others, _, err := run(dir, "", "--literal-pathspecs", "ls-files", "--others", "--exclude-standard", "--", path)
+func Changes(ctx context.Context, dir, path, base string) (hunks []Hunk, untracked bool, err error) {
+	others, _, err := run(ctx, dir, "", "--literal-pathspecs", "ls-files", "--others", "--exclude-standard", "--", path)
 	if err != nil {
 		return nil, false, err
 	}
 	if strings.TrimSpace(others) != "" {
 		return nil, true, nil
 	}
-	out, _, err := run(dir, "", "--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", "--no-textconv", "-U0", base, "--", path)
+	out, _, err := run(ctx, dir, "", "--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", "--no-textconv", "-U0", base, "--", path)
 	if err != nil {
 		return nil, false, err
 	}
@@ -182,8 +190,8 @@ type Change struct {
 // at dir, committed or not, plus the untracked files that are not ignored;
 // paths are relative to dir and slash-separated, in git's order, untracked
 // last. A rename shows as a deletion and an addition.
-func ChangedFiles(dir, base string) ([]Change, error) {
-	diff, _, err := run(dir, "", "diff", "--name-status", "-z", "--no-renames", "--no-ext-diff", base, "--")
+func ChangedFiles(ctx context.Context, dir, base string) ([]Change, error) {
+	diff, _, err := run(ctx, dir, "", "diff", "--name-status", "-z", "--no-renames", "--no-ext-diff", base, "--")
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +202,7 @@ func ChangedFiles(dir, base string) ([]Change, error) {
 			out = append(out, Change{Path: fields[i+1], Status: fields[i][0]})
 		}
 	}
-	others, _, err := run(dir, "", "ls-files", "-z", "--others", "--exclude-standard")
+	others, _, err := run(ctx, dir, "", "ls-files", "-z", "--others", "--exclude-standard")
 	if err != nil {
 		return nil, err
 	}
@@ -209,8 +217,8 @@ func ChangedFiles(dir, base string) ([]Change, error) {
 // LineChanges counts the lines added and deleted between the commit base and
 // the worktree at dir, as git diff --numstat does: binary files and untracked
 // ones count for nothing.
-func LineChanges(dir, base string) (added, deleted int, err error) {
-	out, _, err := run(dir, "", "diff", "--numstat", "--no-renames", "--no-ext-diff", base, "--")
+func LineChanges(ctx context.Context, dir, base string) (added, deleted int, err error) {
+	out, _, err := run(ctx, dir, "", "diff", "--numstat", "--no-renames", "--no-ext-diff", base, "--")
 	if err != nil {
 		return 0, 0, err
 	}
@@ -225,26 +233,26 @@ func LineChanges(dir, base string) (added, deleted int, err error) {
 }
 
 // Commit resolves rev to a commit id; ok is false when there is no such commit.
-func Commit(dir, rev string) (string, bool) {
-	out, _, err := run(dir, "", "rev-parse", "--verify", "--quiet", "--end-of-options", rev+"^{commit}")
+func Commit(ctx context.Context, dir, rev string) (string, bool) {
+	out, _, err := run(ctx, dir, "", "rev-parse", "--verify", "--quiet", "--end-of-options", rev+"^{commit}")
 	id := strings.TrimSpace(out)
 	return id, err == nil && id != ""
 }
 
 // MergeBase is the best common ancestor of commits a and b.
-func MergeBase(dir, a, b string) (string, error) {
-	out, _, err := run(dir, "", "merge-base", a, b)
+func MergeBase(ctx context.Context, dir, a, b string) (string, error) {
+	out, _, err := run(ctx, dir, "", "merge-base", a, b)
 	return strings.TrimSpace(out), err
 }
 
 // Branch names the branch checked out in the worktree at dir, one without
 // commits yet included, or "detached <short id>" when HEAD is detached. It
 // is "" when git cannot tell.
-func Branch(dir string) string {
-	if out, _, err := run(dir, "", "symbolic-ref", "--short", "--quiet", "HEAD"); err == nil {
+func Branch(ctx context.Context, dir string) string {
+	if out, _, err := run(ctx, dir, "", "symbolic-ref", "--short", "--quiet", "HEAD"); err == nil {
 		return strings.TrimSpace(out)
 	}
-	if out, _, err := run(dir, "", "rev-parse", "--short", "HEAD"); err == nil {
+	if out, _, err := run(ctx, dir, "", "rev-parse", "--short", "HEAD"); err == nil {
 		return "detached " + strings.TrimSpace(out)
 	}
 	return ""
@@ -253,16 +261,16 @@ func Branch(dir string) string {
 // DefaultBranch names the repository's main line: the branch origin/HEAD
 // points at, else the first of main, master, origin/main and origin/master
 // that exists. ok is false when none does.
-func DefaultBranch(dir string) (string, bool) {
-	if out, _, err := run(dir, "", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"); err == nil {
+func DefaultBranch(ctx context.Context, dir string) (string, bool) {
+	if out, _, err := run(ctx, dir, "", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"); err == nil {
 		if ref := strings.TrimSpace(out); ref != "" {
-			if _, ok := Commit(dir, ref); ok {
+			if _, ok := Commit(ctx, dir, ref); ok {
 				return ref, true
 			}
 		}
 	}
 	for _, ref := range []string{"main", "master", "origin/main", "origin/master"} {
-		if _, ok := Commit(dir, ref); ok {
+		if _, ok := Commit(ctx, dir, ref); ok {
 			return ref, true
 		}
 	}

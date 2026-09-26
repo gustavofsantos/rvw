@@ -4,6 +4,7 @@
 package workspace
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -16,12 +17,12 @@ import (
 
 // Resolve returns the canonical workspace for dir: the root of the worktree
 // holding it, with symlinks resolved. A dir outside git is an error.
-func Resolve(dir string) (string, error) {
+func Resolve(ctx context.Context, dir string) (string, error) {
 	base, err := Canonical(dir)
 	if err != nil {
 		return "", err
 	}
-	top, ok := gitx.Toplevel(base)
+	top, ok := gitx.Toplevel(ctx, base)
 	if !ok {
 		return "", fmt.Errorf("%s is not inside a git repository", base)
 	}

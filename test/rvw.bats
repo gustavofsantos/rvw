@@ -115,6 +115,31 @@ SH
   [ "$output" = "0" ]
 }
 
+@test "add: SIGTERM stops a git call that hangs" {
+  command -v timeout >/dev/null || skip "needs timeout(1)"
+  mkdir -p "$TEST_ROOT/bin"
+  ln -s "$(command -v git)" "$TEST_ROOT/bin/real-git"
+  cat >"$TEST_ROOT/bin/git" <<'SH'
+#!/bin/sh
+if [ "$3" = ls-files ] || [ "$4" = ls-files ]; then
+  trap '' TERM
+  exec sleep 30
+fi
+exec "$(dirname "$0")/real-git" "$@"
+SH
+  chmod +x "$TEST_ROOT/bin/git"
+
+  # git ignores SIGTERM, as a stuck one might; rvw must still stop it.
+  SECONDS=0
+  run env PATH="$TEST_ROOT/bin:$PATH" timeout -s KILL 10 timeout 1 \
+    "$RVW" add --file app.py --lines 1 --comment "look here" </dev/null
+  [ "$SECONDS" -lt 5 ]
+  [ "$output" = "rvw: cannot inspect Git metadata for app.py: context canceled" ]
+
+  run "$RVW" count
+  [ "$output" = "0" ]
+}
+
 @test "add: a Git storage failure cannot enqueue a versionless tracked review" {
   git add app.py
   mkdir -p "$TEST_ROOT/bin"

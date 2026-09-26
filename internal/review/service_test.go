@@ -35,7 +35,7 @@ func setup(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	canon, err := workspace.Resolve(ws)
+	canon, err := workspace.Resolve(context.Background(), ws)
 	if err != nil {
 		t.Fatal(err)
 	}

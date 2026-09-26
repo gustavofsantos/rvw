@@ -156,10 +156,10 @@ func TestGutterSignsNeedHEAD(t *testing.T) {
 	if out, err := exec.Command("git", "-C", ws, "add", "a.txt").CombinedOutput(); err != nil {
 		t.Fatalf("git add: %v\n%s", err, out)
 	}
-	if _, _, err := compareHEAD.base(ws); err == nil {
+	if _, _, err := compareHEAD.base(t.Context(), ws); err == nil {
 		t.Fatal("without a commit there is no HEAD to compare with")
 	}
-	if got, hunks := fileChanges(ws, filepath.Join(ws, "a.txt"), "HEAD", 1); got != nil || hunks != nil {
+	if got, hunks := fileChanges(t.Context(), ws, filepath.Join(ws, "a.txt"), "HEAD", 1); got != nil || hunks != nil {
 		t.Fatalf("without a commit there are no signs: %v %v", got, hunks)
 	}
 }

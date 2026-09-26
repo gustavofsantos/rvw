@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"slices"
 
@@ -22,28 +23,28 @@ var compareLabels = [...]string{compareHEAD: "uncommitted", compareDefault: "def
 // base resolves what c compares against to a revision git can diff with,
 // and a short name for it: HEAD, main, HEAD~1. HEAD and HEAD~1 stay names,
 // so a commit made meanwhile moves them; a merge-base is a commit id.
-func (c compare) base(dir string) (id, name string, err error) {
+func (c compare) base(ctx context.Context, dir string) (id, name string, err error) {
 	switch c {
 	case compareDefault:
-		branch, ok := gitx.DefaultBranch(dir)
+		branch, ok := gitx.DefaultBranch(ctx, dir)
 		if !ok {
 			return "", "", errors.New("no main or master branch to compare with")
 		}
-		if _, ok := gitx.Commit(dir, "HEAD"); !ok {
+		if _, ok := gitx.Commit(ctx, dir, "HEAD"); !ok {
 			return "", "", errors.New("no commit to compare with yet")
 		}
-		id, err := gitx.MergeBase(dir, branch, "HEAD")
+		id, err := gitx.MergeBase(ctx, dir, branch, "HEAD")
 		if err != nil || id == "" {
 			return "", "", errors.New("the branch shares no history with " + branch)
 		}
 		return id, branch, nil
 	case comparePrev:
-		if _, ok := gitx.Commit(dir, "HEAD~1"); !ok {
+		if _, ok := gitx.Commit(ctx, dir, "HEAD~1"); !ok {
 			return "", "", errors.New("no previous commit to compare with")
 		}
 		return "HEAD~1", "HEAD~1", nil
 	default:
-		if _, ok := gitx.Commit(dir, "HEAD"); !ok {
+		if _, ok := gitx.Commit(ctx, dir, "HEAD"); !ok {
 			return "", "", errors.New("no commit to compare with yet")
 		}
 		return "HEAD", "HEAD", nil
@@ -87,11 +88,11 @@ var signGlyphs = [...]string{signNone: " ", signAdded: "▎", signChanged: "▎"
 // commit base, 0-indexed, and the line each hunk starts on, 1-indexed; both
 // are nil when git has nothing to say: without a base commit, or on any git
 // failure.
-func fileChanges(dir, path, base string, n int) ([]sign, []int) {
+func fileChanges(ctx context.Context, dir, path, base string, n int) ([]sign, []int) {
 	if base == "" {
 		return nil, nil
 	}
-	hunks, untracked, err := gitx.Changes(dir, path, base)
+	hunks, untracked, err := gitx.Changes(ctx, dir, path, base)
 	if err != nil {
 		return nil, nil
 	}
