@@ -5,6 +5,7 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -84,6 +85,9 @@ type model struct {
 	treeCur  int
 	treeOff  int
 
+	branch string    // the checked-out branch, for the status line
+	wd     wdChanges // uncommitted changes, for the status line
+
 	cmp      compare
 	baseID   string // the revision cmp resolved to; "" for none: no gutter signs
 	baseName string // its short name: HEAD, main, HEAD~1
@@ -151,6 +155,7 @@ func newModel(ctx context.Context, opts Options) (*model, error) {
 	}
 	m.setTheme(true)
 	m.baseID, m.baseName, _ = m.cmp.base(opts.Workspace)
+	m.loadStatus()
 	if err := m.loadTree(); err != nil {
 		return nil, err
 	}
@@ -213,6 +218,55 @@ func (m *model) loadChanges() {
 	m.refreshRows()
 }
 
+// wdChanges counts the uncommitted changes since HEAD: lines added (every
+// line of an untracked text file too) and deleted. dirty is set when any file
+// differs, even one whose change has no lines. err says why there are no counts.
+type wdChanges struct {
+	added, deleted int
+	dirty          bool
+	err            string
+}
+
+// loadStatus reads the branch and the uncommitted changes for the status
+// line. Like the changes view, it never fails the UI.
+func (m *model) loadStatus() {
+	ws := m.opts.Workspace
+	m.branch = gitx.Branch(ws)
+	m.wd = wdChanges{}
+	if _, ok := gitx.Commit(ws, "HEAD"); !ok {
+		m.wd.err = "no commits yet"
+		return
+	}
+	changes, err := gitx.ChangedFiles(ws, "HEAD")
+	if err == nil {
+		m.wd.added, m.wd.deleted, err = gitx.LineChanges(ws, "HEAD")
+	}
+	if err != nil {
+		m.wd = wdChanges{err: gitx.Stderr(err)}
+		return
+	}
+	m.wd.dirty = len(changes) > 0
+	for _, c := range changes {
+		if c.Status == '?' {
+			m.wd.added += textLines(filepath.Join(ws, filepath.FromSlash(c.Path)))
+		}
+	}
+}
+
+// textLines counts the lines of a text file; a binary or unreadable one has
+// none.
+func textLines(path string) int {
+	data, err := os.ReadFile(path)
+	if err != nil || len(data) == 0 || isBinary(data) {
+		return 0
+	}
+	n := bytes.Count(data, []byte{'\n'})
+	if data[len(data)-1] != '\n' {
+		n++
+	}
+	return n
+}
+
 // tree is the tree the left pane shows.
 func (m *model) tree() *node {
 	if m.side == sideChanges && m.chgTree != nil {
@@ -225,6 +279,7 @@ func (m *model) tree() *node {
 // is them, and puts the tree cursor on the open file when it is listed.
 func (m *model) showSide(side sidebar) {
 	m.side = side
+	m.loadStatus()
 	if side == sideChanges {
 		m.loadChanges()
 	}
@@ -324,6 +379,7 @@ func (m *model) openFile(rel string, line int) error {
 func (m *model) reload(walk bool) error {
 	if walk {
 		m.baseID, m.baseName, _ = m.cmp.base(m.opts.Workspace)
+		m.loadStatus()
 		if err := m.loadTree(); err != nil {
 			return err
 		}

@@ -22,6 +22,8 @@ t switches the tree to the changed files only; b chooses what they, and the
 gutter's change marks, compare with: uncommitted changes (against HEAD, the
 default), the default branch (against its merge-base with main or master),
 or the previous commit (against HEAD~1). Untracked files count as changes.
+The bottom bar shows the comments on the cursor line, else the branch and
+the uncommitted changes as +added -deleted line counts.
 
 Comments are written in your editor: --editor, else $VISUAL, else $EDITOR,
 else vi. Lines from the scissors line down are context and are dropped; an
@@ -29,7 +31,8 @@ empty note cancels. --lane and --author stamp what you add and submit; the
 gutter shows every lane's open comments.
 
 Nothing is watched: the file and its comments are re-read when you open a
-file, press r, or add, edit or submit.
+file, press r, or add, edit or submit; the branch and the changes when you
+press r, t or b.
 
 Keys (? shows them in the UI):
   C-p go to file · C-l open comments · Tab switch pane · s submit · q quit

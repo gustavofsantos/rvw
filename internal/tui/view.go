@@ -359,15 +359,41 @@ func (m *model) bar() []string {
 		lo, hi := m.selection()
 		return one(piece{"-- VISUAL --", stMode},
 			piece{fmt.Sprintf("  %s (%s) · c comment · esc cancel", lineRange(lo, hi), plural(hi-lo+1, "line")), stDim})
-	case m.focus == paneTree:
-		return one(piece{"l open · h collapse · t files/changes · b compare · Tab viewer · C-p files · ? help", stDim})
 	}
-	if f := m.file; f != nil && !f.binary {
+	if f := m.file; f != nil && !f.binary && m.focus == paneViewer {
 		if cs := covering(f.comments, f.cursor+1); len(cs) > 0 {
 			return commentBar(cs, w)
 		}
 	}
-	return one(piece{"V select · c comment · C-p files · C-l comments · s submit · ? help", stDim})
+	return []string{render(m.statusLine(w), nil)}
+}
+
+// statusLine is the branch and the uncommitted changes on the left, the way
+// to the key list on the right; a long branch name is what gets cut.
+func (m *model) statusLine(w int) []piece {
+	var counts []piece
+	switch d := m.wd; {
+	case d.err != "":
+		counts = []piece{{d.err, stDim}}
+	case !d.dirty:
+		counts = []piece{{"clean", stDim}}
+	default:
+		counts = []piece{
+			{"uncommitted", stDim},
+			{fmt.Sprintf(" +%d", d.added), signStyles[signAdded]},
+			{fmt.Sprintf(" -%d", d.deleted), signStyles[signDeleted]},
+		}
+	}
+	help := piece{"? help", stDim}
+	var left []piece
+	if m.branch != "" {
+		branchW := max(1, w-width(counts)-ansi.StringWidth(help.text)-4) // " · ", and a space before help
+		left = fitPieces([]piece{{"⎇ " + m.branch, stTitle}}, branchW)
+		left = append(left[:len(left)-1], piece{" · ", stDim}) // drop fitPieces' padding
+	}
+	left = append(left, counts...)
+	gap := max(1, w-width(left)-ansi.StringWidth(help.text))
+	return fitPieces(append(left, piece{strings.Repeat(" ", gap), stPlain}, help), w)
 }
 
 // commentBar lists every comment covering the cursor line, the text wrapped

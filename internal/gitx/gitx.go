@@ -207,6 +207,24 @@ func ChangedFiles(dir, base string) ([]Change, error) {
 	return out, nil
 }
 
+// LineChanges counts the lines added and deleted between the commit base and
+// the worktree at dir, as git diff --numstat does: binary files and untracked
+// ones count for nothing.
+func LineChanges(dir, base string) (added, deleted int, err error) {
+	out, _, err := run(dir, "", "diff", "--numstat", "--no-renames", "--no-ext-diff", base, "--")
+	if err != nil {
+		return 0, 0, err
+	}
+	for line := range strings.SplitSeq(out, "\n") {
+		a, rest, _ := strings.Cut(line, "\t")
+		d, _, _ := strings.Cut(rest, "\t")
+		na, _ := strconv.Atoi(a) // "-" for a binary file
+		nd, _ := strconv.Atoi(d)
+		added, deleted = added+na, deleted+nd
+	}
+	return added, deleted, nil
+}
+
 // Commit resolves rev to a commit id; ok is false when there is no such commit.
 func Commit(dir, rev string) (string, bool) {
 	out, _, err := run(dir, "", "rev-parse", "--verify", "--quiet", "--end-of-options", rev+"^{commit}")
@@ -218,6 +236,19 @@ func Commit(dir, rev string) (string, bool) {
 func MergeBase(dir, a, b string) (string, error) {
 	out, _, err := run(dir, "", "merge-base", a, b)
 	return strings.TrimSpace(out), err
+}
+
+// Branch names the branch checked out in the worktree at dir, one without
+// commits yet included, or "detached <short id>" when HEAD is detached. It
+// is "" when git cannot tell.
+func Branch(dir string) string {
+	if out, _, err := run(dir, "", "symbolic-ref", "--short", "--quiet", "HEAD"); err == nil {
+		return strings.TrimSpace(out)
+	}
+	if out, _, err := run(dir, "", "rev-parse", "--short", "HEAD"); err == nil {
+		return "detached " + strings.TrimSpace(out)
+	}
+	return ""
 }
 
 // DefaultBranch names the repository's main line: the branch origin/HEAD

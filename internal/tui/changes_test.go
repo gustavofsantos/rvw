@@ -193,7 +193,6 @@ func TestChangesViewListsUncommittedChangesByDefault(t *testing.T) {
 // and parse.py edited but not committed.
 func branched(t *testing.T) *fixture {
 	f := setup(t)
-	f.git("branch", "-M", "main")
 	f.git("checkout", "-qb", "feature")
 	f.write("src/util.py", "def util():\n    return 1\n")
 	f.git("commit", "-qam", "util")
@@ -245,9 +244,7 @@ func TestChangesAgainstThePreviousCommitIncludeTheLastCommit(t *testing.T) {
 }
 
 func TestACompareThatCannotResolveKeepsThePreviousOne(t *testing.T) {
-	f := setup(t)
-	f.git("branch", "-M", "main")
-	m := f.model()
+	m := setup(t).model()
 	keys(m, "b", "3")
 	if m.cmp != compareHEAD || m.side != sideFiles || m.flash != "rvw: no previous commit to compare with" {
 		t.Fatalf("compare %v, side %v, flash %q", m.cmp, m.side, m.flash)
@@ -312,5 +309,88 @@ func TestHelpFitsTheTestTerminal(t *testing.T) {
 	keys(m, "?")
 	if !strings.Contains(ansi.Strip(m.screen()), "move, open, close") {
 		t.Fatal("the last help line shows at 100x30")
+	}
+}
+
+// ── status line ──────────────────────────────────────────────────────────────
+
+// status is the status line at width w, colors stripped, with the gap before
+// "? help" squeezed to one space; it fails unless the line is w wide.
+func status(t *testing.T, m *model, w int) string {
+	t.Helper()
+	line := ansi.Strip(render(m.statusLine(w), nil))
+	if got := ansi.StringWidth(line); got != w {
+		t.Fatalf("status %q is %d wide, want %d", line, got, w)
+	}
+	left, found := strings.CutSuffix(line, "? help")
+	if !found {
+		t.Fatalf("status %q does not end with ? help", line)
+	}
+	return strings.TrimRight(left, " ") + " ? help"
+}
+
+func TestStatusLineShowsTheBranchAndUncommittedChanges(t *testing.T) {
+	f := gitFixture(t)
+	if err := os.Remove(filepath.Join(f.ws, "README.md")); err != nil {
+		t.Fatal(err)
+	}
+	m := f.model()
+	if got := status(t, m, 60); got != "⎇ main · uncommitted +4 -6 ? help" {
+		t.Fatalf("status = %q", got)
+	}
+
+	f.git("add", "-A")
+	f.git("commit", "-qm", "all")
+	keys(m, "r")
+	if got := status(t, m, 30); got != "⎇ main · clean ? help" {
+		t.Fatalf("r re-reads the status: %q", got)
+	}
+
+	f.git("checkout", "-qb", "a-very-long-feature-branch-name")
+	keys(m, "r")
+	if got := status(t, m, 30); got != "⎇ a-very-long-… · clean ? help" {
+		t.Fatalf("a long branch is cut, not the rest: %q", got)
+	}
+
+	f.git("checkout", "-q", "--detach")
+	keys(m, "r")
+	if got := status(t, m, 40); !strings.HasPrefix(got, "⎇ detached ") {
+		t.Fatalf("a detached HEAD says so: %q", got)
+	}
+}
+
+func TestUntrackedFilesCountTheirTextLines(t *testing.T) {
+	f := setup(t)
+	f.write("a.txt", "one\ntwo\nthree") // no newline at the end
+	f.write("b.bin", "\x00\x01\x02\n")
+	f.write("empty.txt", "")
+	m := f.model()
+	if m.wd != (wdChanges{added: 3, dirty: true}) {
+		t.Fatalf("wd = %+v", m.wd)
+	}
+	if got := status(t, m, 60); got != "⎇ main · uncommitted +3 -0 ? help" {
+		t.Fatalf("status = %q", got)
+	}
+}
+
+func TestStatusLineWithoutACommit(t *testing.T) {
+	f := setup(t)
+	f.git("update-ref", "-d", "HEAD")
+	m := f.model()
+	if got := status(t, m, 40); got != "⎇ main · no commits yet ? help" {
+		t.Fatalf("status = %q", got)
+	}
+}
+
+func TestCommentsOnTheCursorLineTakeTheBarOverTheStatus(t *testing.T) {
+	f := commented(t)
+	m := f.model()
+	keys(m, "ctrl+p", "apipar", "enter", "5G")
+	if bar := ansi.Strip(strings.Join(m.bar(), "\n")); !strings.HasPrefix(bar, "r1 · 5-8") {
+		t.Fatalf("bar = %q", bar)
+	}
+	keys(m, "tab")
+	if bar := ansi.Strip(strings.Join(m.bar(), "\n")); !strings.HasPrefix(bar, "⎇ main") {
+		t.Fatalf("with the tree focused the status shows: %q", bar)
 	}
 }

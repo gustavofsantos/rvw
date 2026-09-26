@@ -32,7 +32,8 @@ def default(req):
 	return None
 `
 
-// fixture is a git repository with every file committed, and a store beside it.
+// fixture is a git repository with every file committed on main, and a store
+// beside it.
 type fixture struct {
 	t   *testing.T
 	ctx context.Context
@@ -56,6 +57,7 @@ func setup(t *testing.T) *fixture {
 	f.git("init", "-q")
 	f.git("add", ".")
 	f.git("commit", "-qm", "init")
+	f.git("branch", "-M", "main")
 	st, err := store.Open(f.ctx, filepath.Join(root, "rvw.db"))
 	if err != nil {
 		t.Fatal(err)

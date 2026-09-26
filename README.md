@@ -89,7 +89,9 @@ under an open comment. The gutter's left edge also marks what changed, staged
 or not: a green `▎` for an added line, a blue `▎` for a changed one, and a red
 `▁` under the spot where lines were deleted (`▔` over the first line when the
 top was). An untracked file shows as all added. The bottom bar shows the
-comments on the cursor line.
+comments on the cursor line; elsewhere it shows the branch and the
+uncommitted changes against `HEAD`, as `+added -deleted` counts of lines
+(every line of an untracked text file counts as added), or `clean`.
 
 `t` switches the left pane between every file and only the changed ones,
 each with its git status: `M` modified, `A` added, `D` deleted, `?`
