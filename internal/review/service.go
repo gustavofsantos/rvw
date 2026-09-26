@@ -739,7 +739,8 @@ func snapshotResolved(ctx context.Context, ws string, c Comment) (string, error)
 	return id, nil
 }
 
-// Edit replaces a comment's text. Where it points and what it snapshotted stay.
+// Edit replaces a pending comment's text. Where it points and what it
+// snapshotted stay.
 func (s *Service) Edit(ctx context.Context, in EditInput) (Comment, error) {
 	if strings.TrimSpace(in.Comment) == "" {
 		return Comment{}, Invalidf("refusing to replace a comment with empty text")
@@ -749,6 +750,11 @@ func (s *Service) Edit(ctx context.Context, in EditInput) (Comment, error) {
 		var err error
 		if c, err = find(tx, in.ID); err != nil {
 			return err
+		}
+		// Once pulled, the text is what was asked; rewriting it would falsify
+		// the record the decision answers.
+		if c.Status != StatusPending {
+			return conflictf("%s is %s — only a pending comment can be edited", c.ID, c.Status)
 		}
 		c.Comment = strings.Trim(in.Comment, "\n")
 		c.EditedAt = s.stamp()

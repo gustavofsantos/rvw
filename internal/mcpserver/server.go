@@ -115,7 +115,7 @@ func New(svc *review.Service, opts Options) *mcp.Server {
 			}
 			return svc.Resolve(ctx, in)
 		})
-	tool(s, "edit", "Replace the text of a queued comment. File, range and code snapshot are unchanged.", nil,
+	tool(s, "edit", "Replace the text of a pending comment; a pulled or decided one is refused. File, range and code snapshot are unchanged.", nil,
 		func(ctx context.Context, in review.EditInput) (review.Comment, error) {
 			if err := h.scope(ctx, &in.Workspace, nil, nil); err != nil {
 				return review.Comment{}, err

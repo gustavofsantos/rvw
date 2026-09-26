@@ -152,7 +152,7 @@ note and, for a done comment, the diff of the file while it was resolved.
 - `<leader>p` opens a file by fuzzy name; `<leader>l` lists the open
   comments. The leader is space; `--leader` makes it another key, such as `,`.
 - `V` selects lines, `c` comments on the line or the selection, `e` edits the
-  comment on the line, `s` submits your pending comments as a review.
+  pending comment on the line, `s` submits your pending comments as a review.
 - `]c` and `[c` jump between comments, `]h` and `[h` between git changes,
   going round from the last change to the first and back;
   `r` reloads the file, the changed files, their git changes and the queue.

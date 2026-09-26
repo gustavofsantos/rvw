@@ -676,6 +676,30 @@ SH
   [[ "$output" == *"keep me"* ]]
 }
 
+@test "edit: refuses a comment that was pulled or decided" {
+  queue app.py 1 "as asked"
+  queue app.py 2 "withdrawn"
+  "$RVW" pull --id r1 >/dev/null
+  "$RVW" reject r2 --note "misread" >/dev/null
+
+  run "$RVW" edit r1 --comment "rewritten" </dev/null
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: r1 is pulled — only a pending comment can be edited" ]
+
+  "$RVW" resolve r1 --note "did it" >/dev/null
+  run "$RVW" edit r1 --comment "rewritten" </dev/null
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: r1 is done — only a pending comment can be edited" ]
+
+  run "$RVW" edit r2 --comment "rewritten" </dev/null
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: r2 is rejected — only a pending comment can be edited" ]
+
+  run "$RVW" show r1 --format json
+  [ "$(jq -r '.comment.comment' <<<"$output")" = "as asked" ]
+  [ "$(jq '.comment | has("edited_at")' <<<"$output")" = "false" ]
+}
+
 @test "edit: rejects an unknown id" {
   run "$RVW" edit r9 --comment x </dev/null
   [ "$status" -eq 1 ]

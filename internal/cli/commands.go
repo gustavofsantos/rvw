@@ -748,8 +748,9 @@ func (a *app) editCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "edit ID [--comment TEXT]",
 		Short: "replace the text of a queued review comment",
-		Long: `Replace the text of one review comment. The file, range, and code snapshot
-are unchanged — reject and re-add to move a comment.`,
+		Long: `Replace the text of one pending review comment. The file, range, and code
+snapshot are unchanged — reject and re-add to move a comment. Once a comment is
+pulled its text is what the agent was asked, so it can no longer be edited.`,
 		Example: `  rvw edit r3 --comment "split this function"
   pbpaste | rvw edit r3`,
 		Args: cobra.ExactArgs(1),
