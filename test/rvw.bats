@@ -195,6 +195,34 @@ SH
   [ "$output" = "0" ]
 }
 
+@test "add: refuses a file that is not a regular file, without reading it" {
+  command -v timeout >/dev/null || skip "needs timeout(1)"
+  mkfifo pipe.py
+  run timeout -s KILL 5 "$RVW" add --file pipe.py --lines 1 --comment x </dev/null
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: $WORKSPACE/pipe.py is not a regular file" ]
+
+  mkdir dir.py
+  run "$RVW" add --file dir.py --lines 1 --comment x </dev/null
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: $WORKSPACE/dir.py is not a regular file" ]
+}
+
+@test "add: refuses a file or a buffer larger than 4 MiB" {
+  head -c 4194305 /dev/zero | tr '\0' 'x' >big.txt
+  run "$RVW" add --file big.txt --lines 1 --comment x </dev/null
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: $WORKSPACE/big.txt is larger than 4 MiB" ]
+
+  run "$RVW" add --file app.py --lines 1 --comment x --code-file big.txt </dev/null
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: $WORKSPACE/app.py is larger than 4 MiB" ]
+
+  head -c 4194304 /dev/zero | tr '\0' 'x' >edge.txt
+  run "$RVW" add --file edge.txt --lines 1 --comment x </dev/null
+  [ "$status" -eq 0 ]
+}
+
 @test "add: refuses a file that does not exist without a snapshot" {
   run "$RVW" add --file ghost.py --lines 1 --comment x </dev/null
   [ "$status" -eq 1 ]

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -205,11 +206,17 @@ func (a *app) codeSource(codeFile string) (*string, error) {
 		text, _, err := a.readStdinIfPiped()
 		return &text, err
 	}
-	data, err := os.ReadFile(expandHome(codeFile))
+	f, err := os.Open(expandHome(codeFile))
 	if err != nil {
 		if isNotExist(err) {
 			return nil, usageError("--code-file '%s' does not exist", codeFile)
 		}
+		return nil, err
+	}
+	defer f.Close()
+	// One byte past the limit is enough for the service to refuse it.
+	data, err := io.ReadAll(io.LimitReader(f, review.MaxSource+1))
+	if err != nil {
 		return nil, err
 	}
 	text := string(data)

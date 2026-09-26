@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -81,15 +82,9 @@ func (s *Service) Add(ctx context.Context, in AddInput) (Comment, error) {
 		return Comment{}, Invalidf("%s is outside the workspace %s", path, in.Workspace)
 	}
 
-	var source string
-	if in.Source != nil {
-		source = *in.Source
-	} else {
-		data, err := os.ReadFile(path)
-		if err != nil || !isFile(path) {
-			return Comment{}, notFoundf("%s does not exist — pass its content to snapshot unsaved changes", path)
-		}
-		source = string(data)
+	source, err := readSource(path, in.Source)
+	if err != nil {
+		return Comment{}, err
 	}
 	sourceLines := splitSource(source)
 	if lines.Start > len(sourceLines) {
@@ -130,6 +125,42 @@ func (s *Service) Add(ctx context.Context, in AddInput) (Comment, error) {
 		return tx.InsertComment(c)
 	})
 	return c, err
+}
+
+// MaxSource is the largest file, or buffer, a comment snapshots.
+const MaxSource = 4 << 20
+
+// readSource is the reviewed content: the buffer when given, else the file at
+// path. Only a regular file is opened, so a FIFO or a device never blocks or
+// floods the read.
+func readSource(path string, buffer *string) (string, error) {
+	tooLarge := Invalidf("%s is larger than %d MiB", path, MaxSource>>20)
+	if buffer != nil {
+		if len(*buffer) > MaxSource {
+			return "", tooLarge
+		}
+		return *buffer, nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", notFoundf("%s does not exist — pass its content to snapshot unsaved changes", path)
+	}
+	if !info.Mode().IsRegular() {
+		return "", Invalidf("%s is not a regular file", path)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", notFoundf("%s cannot be read: %v", path, err)
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, MaxSource+1))
+	if err != nil {
+		return "", internalf("cannot read %s: %v", path, err)
+	}
+	if len(data) > MaxSource {
+		return "", tooLarge
+	}
+	return string(data), nil
 }
 
 // snapshotReviewed keeps the reviewed content of a tracked file as a git blob.
