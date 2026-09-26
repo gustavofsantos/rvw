@@ -3,8 +3,9 @@ package review
 import (
 	"strings"
 
-	"github.com/gustavofsantos/rvw/internal/gitx"
 	"github.com/pmezard/go-difflib/difflib"
+
+	"github.com/gustavofsantos/rvw/internal/gitx"
 )
 
 // filetypes maps an extension to the fence language of its code snapshot.

@@ -13,11 +13,12 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/spf13/cobra"
+	"golang.org/x/term"
+
 	"github.com/gustavofsantos/rvw/internal/review"
 	"github.com/gustavofsantos/rvw/internal/store"
 	"github.com/gustavofsantos/rvw/internal/workspace"
-	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 const prog = "rvw"

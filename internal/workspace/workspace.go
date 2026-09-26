@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/gustavofsantos/rvw/internal/gitx"
 )
@@ -45,8 +46,8 @@ func Canonical(path string) (string, error) {
 	for cur := abs; ; {
 		real, err := filepath.EvalSymlinks(cur)
 		if err == nil {
-			for i := len(missing) - 1; i >= 0; i-- {
-				real = filepath.Join(real, missing[i])
+			for _, m := range slices.Backward(missing) {
+				real = filepath.Join(real, m)
 			}
 			return real, nil
 		}

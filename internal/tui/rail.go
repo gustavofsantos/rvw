@@ -1,6 +1,10 @@
 package tui
 
-import "github.com/gustavofsantos/rvw/internal/review"
+import (
+	"slices"
+
+	"github.com/gustavofsantos/rvw/internal/review"
+)
 
 // Rail glyphs mark every line of a comment's range in the gutter.
 const (
@@ -14,8 +18,7 @@ const (
 // recent of those covering it (comments come oldest first). ok is false for
 // an uncovered line.
 func railAt(cs []review.Comment, line int) (c review.Comment, glyph string, ok bool) {
-	for i := len(cs) - 1; i >= 0; i-- {
-		c := cs[i]
+	for _, c := range slices.Backward(cs) {
 		if covers(c, line) {
 			return c, railGlyph(c, line), true
 		}

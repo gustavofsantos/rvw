@@ -9,9 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/gustavofsantos/rvw/internal/review"
 	"github.com/gustavofsantos/rvw/internal/workspace"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Options are the server's defaults, set by `rvw mcp serve` flags.

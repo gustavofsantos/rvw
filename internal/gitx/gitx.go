@@ -24,8 +24,7 @@ func (e *Error) Error() string {
 
 // Stderr returns what git said when err is a failed git command, else err's text.
 func Stderr(err error) string {
-	var gerr *Error
-	if errors.As(err, &gerr) {
+	if gerr, ok := errors.AsType[*Error](err); ok {
 		return gerr.Stderr
 	}
 	return err.Error()

@@ -113,7 +113,7 @@ func (n *node) rows() []row {
 // find returns the node at a relative path, or nil.
 func (n *node) find(path string) *node {
 	cur := n
-	for _, name := range strings.Split(path, "/") {
+	for name := range strings.SplitSeq(path, "/") {
 		var next *node
 		for _, c := range cur.children {
 			if c.name == name {

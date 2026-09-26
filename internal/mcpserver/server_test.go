@@ -10,10 +10,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/gustavofsantos/rvw/internal/mcpserver"
 	"github.com/gustavofsantos/rvw/internal/review"
 	"github.com/gustavofsantos/rvw/internal/store"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 type fixture struct {

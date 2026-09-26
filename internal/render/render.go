@@ -142,7 +142,7 @@ func appendCommentMarkdown(out []string, heading string, n int, c review.Comment
 	out = append(out, head+")", "", "```"+c.Filetype)
 	out = append(out, strings.Split(c.Code, "\n")...)
 	out = append(out, "```", "")
-	for _, line := range strings.Split(c.Comment, "\n") {
+	for line := range strings.SplitSeq(c.Comment, "\n") {
 		if line == "" {
 			out = append(out, ">")
 		} else {

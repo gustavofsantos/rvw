@@ -10,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/golden"
+
 	"github.com/gustavofsantos/rvw/internal/gitx"
 	"github.com/gustavofsantos/rvw/internal/workspace"
 )

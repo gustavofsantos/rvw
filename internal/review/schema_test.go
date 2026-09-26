@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/jsonschema-go/jsonschema"
+
 	"github.com/gustavofsantos/rvw/internal/review"
 )
 
@@ -14,14 +15,24 @@ import (
 // stays a matter of wiring. Outputs must be objects to be structured content.
 func TestOperationTypesInferMCPSchemas(t *testing.T) {
 	types := []any{
-		review.AddInput{}, review.Comment{},
-		review.SubmitInput{}, review.Review{},
-		review.QueryInput{}, review.ListOutput{}, review.CountOutput{},
-		review.PullInput{}, review.PullOutput{},
-		review.ResolveInput{}, review.EditInput{},
-		review.GetInput{}, review.Evidence{}, review.ReviewSheet{},
-		review.SheetsInput{}, review.SheetsOutput{},
-		review.WorkspacesInput{}, review.WorkspacesOutput{},
+		review.AddInput{},
+		review.Comment{},
+		review.SubmitInput{},
+		review.Review{},
+		review.QueryInput{},
+		review.ListOutput{},
+		review.CountOutput{},
+		review.PullInput{},
+		review.PullOutput{},
+		review.ResolveInput{},
+		review.EditInput{},
+		review.GetInput{},
+		review.Evidence{},
+		review.ReviewSheet{},
+		review.SheetsInput{},
+		review.SheetsOutput{},
+		review.WorkspacesInput{},
+		review.WorkspacesOutput{},
 	}
 	for _, v := range types {
 		typ := reflect.TypeOf(v)

@@ -5,9 +5,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/spf13/cobra"
+
 	"github.com/gustavofsantos/rvw/internal/render"
 	"github.com/gustavofsantos/rvw/internal/review"
-	"github.com/spf13/cobra"
 )
 
 const about = `rvw — a per-workspace queue of code review feedback, written in an editor or

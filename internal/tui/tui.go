@@ -18,6 +18,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
 	"github.com/gustavofsantos/rvw/internal/gitx"
 	"github.com/gustavofsantos/rvw/internal/review"
 )
@@ -46,7 +47,7 @@ func Run(ctx context.Context, opts Options, in io.Reader, out io.Writer) error {
 		return err
 	}
 	p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out))
-	if _, err := p.Run(); err != nil && !(errors.Is(err, tea.ErrProgramKilled) && ctx.Err() != nil) {
+	if _, err := p.Run(); err != nil && (!errors.Is(err, tea.ErrProgramKilled) || ctx.Err() == nil) {
 		return err
 	}
 	return nil
@@ -972,7 +973,7 @@ func (m *model) edit(content string, req editRequest) tea.Cmd {
 func (m *model) editorDone(msg editorDoneMsg) tea.Cmd {
 	defer os.Remove(msg.path)
 	if msg.err != nil {
-		return m.fail(fmt.Errorf("editor '%s' failed: %v", m.opts.Editor, msg.err))
+		return m.fail(fmt.Errorf("editor '%s' failed: %w", m.opts.Editor, msg.err))
 	}
 	data, err := os.ReadFile(msg.path)
 	if err != nil {

@@ -47,7 +47,7 @@ func (s *sheet) source(c review.Comment) {
 
 func (s *sheet) note(text string) {
 	s.raw("", "NOTE")
-	for _, l := range strings.Split(text, "\n") {
+	for l := range strings.SplitSeq(text, "\n") {
 		s.line(l, "  ")
 	}
 }
@@ -95,7 +95,7 @@ func Display(ev review.Evidence) string {
 		s.line(details, "  ")
 	}
 	if c.ResolutionNote != nil {
-		for _, l := range strings.Split(*c.ResolutionNote, "\n") {
+		for l := range strings.SplitSeq(*c.ResolutionNote, "\n") {
 			s.line(l, "  ")
 		}
 	}
@@ -118,7 +118,7 @@ func Sheet(rs review.ReviewSheet) string {
 	s.line("DECISION  "+strings.ToUpper(strings.ReplaceAll(string(r.Decision), "-", " ")), "")
 	s.rule()
 	s.raw("SUMMARY")
-	for _, l := range strings.Split(r.Summary, "\n") {
+	for l := range strings.SplitSeq(r.Summary, "\n") {
 		s.line(l, "  ")
 	}
 

@@ -26,8 +26,7 @@ func (e *Error) Error() string { return e.Message }
 
 // KindOf returns the kind of err, or [KindInternal] for an unclassified error.
 func KindOf(err error) ErrorKind {
-	var e *Error
-	if errors.As(err, &e) {
+	if e, ok := errors.AsType[*Error](err); ok {
 		return e.Kind
 	}
 	return KindInternal

@@ -14,8 +14,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gustavofsantos/rvw/internal/review"
 	_ "modernc.org/sqlite"
+
+	"github.com/gustavofsantos/rvw/internal/review"
 )
 
 //go:embed schema.sql

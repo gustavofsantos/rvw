@@ -7,6 +7,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+
 	"github.com/gustavofsantos/rvw/internal/review"
 )
 
@@ -193,7 +194,7 @@ func (p *page) heading(t string) {
 
 // text wraps prose under a heading, indented by lead.
 func (p *page) text(s string, lead string, st lipgloss.Style) {
-	for _, l := range strings.Split(ansi.Wrap(strings.TrimSpace(s), max(10, p.w-2-ansi.StringWidth(lead)), ""), "\n") {
+	for l := range strings.SplitSeq(ansi.Wrap(strings.TrimSpace(s), max(10, p.w-2-ansi.StringWidth(lead)), ""), "\n") {
 		p.line(piece{lead, stPlain}, piece{expandTabs(l), st})
 	}
 }

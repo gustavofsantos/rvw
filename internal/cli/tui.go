@@ -6,9 +6,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/gustavofsantos/rvw/internal/tui"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
+
+	"github.com/gustavofsantos/rvw/internal/tui"
 )
 
 func (a *app) tuiCmd() *cobra.Command {

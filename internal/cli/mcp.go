@@ -11,10 +11,11 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/gustavofsantos/rvw/internal/mcpserver"
-	"github.com/gustavofsantos/rvw/internal/render"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
+
+	"github.com/gustavofsantos/rvw/internal/mcpserver"
+	"github.com/gustavofsantos/rvw/internal/render"
 )
 
 const mcpPath = "/mcp"

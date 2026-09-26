@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/alecthomas/chroma/v2"
 	"github.com/charmbracelet/x/ansi"
+
 	"github.com/gustavofsantos/rvw/internal/review"
 	"github.com/gustavofsantos/rvw/internal/store"
 	"github.com/gustavofsantos/rvw/internal/workspace"
