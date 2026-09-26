@@ -90,7 +90,8 @@ func (s *Service) Add(ctx context.Context, in AddInput) (Comment, error) {
 	if lines.Start > len(sourceLines) {
 		return Comment{}, Invalidf("lines %s is past the end of %s (%d lines)", lines.label(), path, len(sourceLines))
 	}
-	code := strings.Join(sourceLines[lines.Start-1:min(lines.End, len(sourceLines))], "\n")
+	lines.End = min(lines.End, len(sourceLines))
+	code := strings.Join(sourceLines[lines.Start-1:lines.End], "\n")
 
 	fileVersion, err := snapshotReviewed(in.Workspace, rel, source)
 	if err != nil {

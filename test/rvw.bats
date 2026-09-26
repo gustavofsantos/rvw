@@ -182,6 +182,13 @@ SH
   [[ "$output" == *"past the end of"* ]]
 }
 
+@test "add: a range running past the end of the file ends at its last line" {
+  run "$RVW" add --file app.py --lines 3-9999 --comment x --format json </dev/null
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.end_line' <<<"$output")" = "4" ]
+  [ "$(jq -r '.code' <<<"$output")" = "$(printf 'three\nfour')" ]
+}
+
 @test "add: refuses a file outside the workspace" {
   printf 'secret\n' >"$TEST_ROOT/outside.py"
   ln -s "$TEST_ROOT/outside.py" linked.py
