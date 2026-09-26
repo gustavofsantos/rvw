@@ -66,7 +66,9 @@ func nextComment(cs []review.Comment, line, dir int) (int, bool) {
 func nearest(lines []int, line, dir int) (int, bool) {
 	best, ok := 0, false
 	for _, s := range lines {
-		if (dir > 0 && s > line || dir < 0 && s < line) && (!ok || (s-best)*dir < 0) {
+		onSide := dir > 0 && s > line || dir < 0 && s < line
+		closer := !ok || (s-best)*dir < 0
+		if onSide && closer {
 			best, ok = s, true
 		}
 	}
