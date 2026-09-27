@@ -366,6 +366,15 @@ func TestStatusLineShowsTheBranchAndUncommittedChanges(t *testing.T) {
 		t.Fatalf("r re-reads the status: %q", got)
 	}
 
+	if err := os.Remove(filepath.Join(f.ws, "src", "new.py")); err != nil {
+		t.Fatal(err)
+	}
+	keys(m, "r")
+	if got := status(t, m, 40); got != "⎇ main · uncommitted -2 ? help" {
+		t.Fatalf("no +0 when only lines went: %q", got)
+	}
+	f.git("checkout", "-q", "--", ".")
+
 	f.git("checkout", "-qb", "a-very-long-feature-branch-name")
 	keys(m, "r")
 	if got := status(t, m, 30); got != "⎇ a-very-long-… · clean ? help" {
@@ -388,7 +397,7 @@ func TestUntrackedFilesCountTheirTextLines(t *testing.T) {
 	if m.wd != (wdChanges{added: 3, dirty: true}) {
 		t.Fatalf("wd = %+v", m.wd)
 	}
-	if got := status(t, m, 60); got != "⎇ main · uncommitted +3 -0 ? help" {
+	if got := status(t, m, 60); got != "⎇ main · uncommitted +3 ? help" {
 		t.Fatalf("status = %q", got)
 	}
 }

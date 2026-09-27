@@ -410,10 +410,13 @@ func (m *model) statusLine(w int) []piece {
 	case !d.dirty:
 		counts = []piece{{"clean", stDim}}
 	default:
-		counts = []piece{
-			{"uncommitted", stDim},
-			{fmt.Sprintf(" +%d", d.added), signStyles[signAdded]},
-			{fmt.Sprintf(" -%d", d.deleted), signStyles[signDeleted]},
+		// A zero count says nothing: +3 alone, not +3 -0.
+		counts = []piece{{"uncommitted", stDim}}
+		if d.added > 0 {
+			counts = append(counts, piece{fmt.Sprintf(" +%d", d.added), signStyles[signAdded]})
+		}
+		if d.deleted > 0 {
+			counts = append(counts, piece{fmt.Sprintf(" -%d", d.deleted), signStyles[signDeleted]})
 		}
 	}
 	help := piece{"? help", stDim}
