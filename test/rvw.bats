@@ -313,9 +313,9 @@ SH
   "$RVW" submit --decision comment --summary "one" >/dev/null
   sqlite3 "$DB" "UPDATE comments SET status = 'done'"
 
-  run "$RVW" pull
-  [ "$status" -eq 1 ]
-  [ "$output" = "rvw: r1 of rv1 is already done" ]
+  run "$RVW" pull --format json
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.submitted_reviews[0].comments | length' <<<"$output")" = "0" ]
 
   run "$RVW" list --status done --format ids
   [ "$output" = "r1" ]
@@ -414,7 +414,7 @@ SH
 
   run "$RVW" resolve r1 --note "too early"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"pull rv1 first"* ]]
+  [[ "$output" == *"pull r1 first"* ]]
 
   "$RVW" pull >/dev/null
   run "$RVW" resolve r1 --note "done after handoff"
@@ -434,15 +434,23 @@ SH
   [ "$output" = "0" ]
 }
 
-@test "pulling one linked comment hands over its whole review" {
+@test "pulling one linked comment hands over that comment, not its whole review" {
   queue app.py 1 "first linked finding"
   queue app.py 2 "second linked finding"
   "$RVW" submit --id r1 --id r2 --decision request-changes \
-    --summary "Treat these as one handoff." >/dev/null
+    --summary "Two findings." >/dev/null
 
-  run "$RVW" pull --id r1 --format ids
+  run "$RVW" pull --id r1 --format json
   [ "$status" -eq 0 ]
-  [ "$output" = "rv1" ]
+  [ "$(jq -r '[.submitted_reviews[0].comments[].id] | join(",")' <<<"$output")" = "r1" ]
+  [ "$(jq -r '.submitted_reviews[0].summary' <<<"$output")" = "Two findings." ]
+  [ "$(jq -r '.remaining' <<<"$output")" = "1" ]
+
+  run "$RVW" count
+  [ "$output" = "1" ]
+
+  run "$RVW" pull --id rv1 --format json
+  [ "$(jq -r '[.submitted_reviews[0].comments[].id] | join(",")' <<<"$output")" = "r2" ]
 
   run "$RVW" count
   [ "$output" = "0" ]
@@ -532,6 +540,31 @@ SH
 
   run "$RVW" list --format ids
   [ "$output" = "r2" ]
+}
+
+@test "pull: --limit cuts a submitted review and leaves the rest queued" {
+  queue app.py 1 "first"
+  queue app.py 2 "second"
+  queue app.py 3 "third"
+  "$RVW" submit --decision request-changes --summary "All three." >/dev/null
+
+  run "$RVW" pull --limit 2 --format json
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '[.submitted_reviews[0].comments[].id] | join(",")' <<<"$output")" = "r1,r2" ]
+  [ "$(jq -r '.remaining' <<<"$output")" = "1" ]
+
+  run "$RVW" resolve r1 --note "done"
+  [ "$status" -eq 0 ]
+  run "$RVW" resolve r3 --note "not pulled yet"
+  [ "$status" -eq 1 ]
+
+  run "$RVW" count
+  [ "$output" = "1" ]
+
+  run "$RVW" pull --format json
+  [ "$(jq -r '[.submitted_reviews[0].comments[].id] | join(",")' <<<"$output")" = "r3" ]
+  run "$RVW" count
+  [ "$output" = "0" ]
 }
 
 @test "pull: --id takes named comments only" {

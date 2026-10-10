@@ -25,14 +25,20 @@ the user.)
 
 ## Address review comments
 
-1. Call `pull`. Pulled comments leave the queue, so pull once and keep the
-   result.
+1. Call `pull`. Pulled comments leave the queue, so keep each result.
 
    ```json
    {"workspace": "/abs/project"}
    ```
 
    - Set `peek: true` to look without taking anything.
+   - Pull in batches when the queue is big. `limit: 3` takes the 3 oldest
+     comments and leaves the rest queued, even the rest of a review (the
+     review's `decision` and `summary` come with every batch). `remaining`
+     says how many comments are still waiting. Work and `resolve` the
+     batch, then pull again until `remaining` is absent. `ids` takes named
+     comments: a comment id takes just that comment, a review id all of
+     its pending ones.
    - Set `lane` when the user names a lane or branch. A pinned pull takes
      only that lane. If it comes back empty, `elsewhere` says whether work
      waits in other lanes. Report that to the user; do not pull the other

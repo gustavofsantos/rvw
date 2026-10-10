@@ -86,6 +86,7 @@ Hand the review to the agent, as markdown or JSON:
 rvw pull
 rvw pull --lane refactor-auth --format json
 rvw pull --peek                # read without dequeuing
+rvw pull --limit 3             # the 3 oldest comments; the rest stays queued
 ```
 
 Close the loop:

@@ -61,8 +61,8 @@ type PullInput struct {
 	Workspace string   `json:"workspace" jsonschema:"absolute workspace path"`
 	Lane      string   `json:"lane,omitempty" jsonschema:"only this lane; a pinned pull never takes another lane's or an unlaned comment"`
 	File      string   `json:"file,omitempty" jsonschema:"only handoffs touching this file"`
-	IDs       []string `json:"ids,omitempty" jsonschema:"only these comment or review ids; a linked comment brings its whole review"`
-	Limit     int      `json:"limit,omitempty" jsonschema:"at most this many handoffs, oldest first; 0 means no limit"`
+	IDs       []string `json:"ids,omitempty" jsonschema:"only these comment or review ids; a review id takes all its pending comments, a linked comment id takes just that comment"`
+	Limit     int      `json:"limit,omitempty" jsonschema:"at most this many comments, oldest first; a review is cut to fit and its rest stays queued; 0 means no limit"`
 	Peek      bool     `json:"peek,omitempty" jsonschema:"read without dequeuing"`
 }
 
@@ -72,6 +72,7 @@ type PullOutput struct {
 	Drained   bool      `json:"drained" jsonschema:"true when the handoffs left the queue (not a peek)"`
 	Reviews   []Handoff `json:"reviews" jsonschema:"submitted reviews, each with its linked comments"`
 	Comments  []Comment `json:"comments" jsonschema:"standalone comments"`
+	Remaining int       `json:"remaining,omitempty" jsonschema:"comments still pending in scope that this pull did not return; pull again for the next batch"`
 	// Elsewhere is set when a lane-pinned pull came back empty while handoffs
 	// wait in other lanes, so an empty result never hides work.
 	Elsewhere *Elsewhere `json:"elsewhere,omitempty" jsonschema:"handoffs waiting in other lanes, when this pinned pull took nothing"`

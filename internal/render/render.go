@@ -27,6 +27,7 @@ type Envelope struct {
 	Count            int              `json:"count"`
 	Comments         []review.Comment `json:"reviews"`
 	SubmittedReviews []review.Handoff `json:"submitted_reviews,omitempty"`
+	Remaining        int              `json:"remaining,omitempty"` // pull only: comments left pending
 }
 
 // FirstLine is the first line of text, trimmed of surrounding blank lines.

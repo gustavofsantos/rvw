@@ -68,9 +68,9 @@ func (f *fixture) add(line int, text, lane, author string) review.Comment {
 	return c
 }
 
-func (f *fixture) pending(lane string) int {
+func (f *fixture) pending() int {
 	f.t.Helper()
-	out, err := f.svc.Count(f.ctx, review.QueryInput{Workspace: f.ws, Lane: lane})
+	out, err := f.svc.Count(f.ctx, review.QueryInput{Workspace: f.ws})
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestPullHandsEachCommentOverOnce(t *testing.T) {
 		t.Errorf("pulled comment not stamped: %+v", out.Comments[0])
 	}
 	again, _ := f.svc.Pull(f.ctx, review.PullInput{Workspace: f.ws})
-	if again.Count() != 0 || f.pending("") != 0 {
+	if again.Count() != 0 || f.pending() != 0 {
 		t.Errorf("a comment was handed over twice: %+v", again)
 	}
 }
@@ -122,7 +122,7 @@ func TestPinnedPullIsStrictAndSaysWhatWaitsElsewhere(t *testing.T) {
 	if out.Elsewhere == nil || out.Elsewhere.Count != want.Count || !slices.Equal(out.Elsewhere.Lanes, want.Lanes) {
 		t.Errorf("elsewhere = %+v, want %+v", out.Elsewhere, want)
 	}
-	if f.pending("") != 2 {
+	if f.pending() != 2 {
 		t.Errorf("other lanes were drained")
 	}
 }
@@ -142,16 +142,19 @@ func TestSubmittedReviewMovesAsOneHandoff(t *testing.T) {
 	if !slices.Equal(r.CommentIDs, []string{"r1", "r2"}) {
 		t.Fatalf("default selection took %v, want only alice's", r.CommentIDs)
 	}
-	if n := f.pending(""); n != 2 {
+	if n := f.pending(); n != 2 {
 		t.Errorf("pending handoffs = %d, want the review plus bob's comment", n)
 	}
 
-	out, err := f.svc.Pull(f.ctx, review.PullInput{Workspace: f.ws, IDs: []string{"r2"}})
+	out, err := f.svc.Pull(f.ctx, review.PullInput{Workspace: f.ws, IDs: []string{"rv1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(out.Reviews) != 1 || len(out.Comments) != 0 || !slices.Equal(ids(out.Reviews[0].Comments), []string{"r1", "r2"}) {
-		t.Fatalf("pulling a linked comment did not bring its review: %+v", out)
+		t.Fatalf("pulling a review id did not bring all its comments: %+v", out)
+	}
+	if out.Remaining != 1 {
+		t.Errorf("remaining = %d, want bob's comment", out.Remaining)
 	}
 
 	sheet, _ := f.svc.Sheet(f.ctx, review.GetInput{Workspace: f.ws, ID: "rv1"})
@@ -265,5 +268,73 @@ func TestCommentJSONShape(t *testing.T) {
 	list, _ := f.svc.List(f.ctx, review.QueryInput{Workspace: f.ws, Status: review.FilterDone})
 	if list.Comments == nil {
 		t.Error("an empty list must marshal as [], not null")
+	}
+}
+
+func TestPullTakesAReviewInParts(t *testing.T) {
+	f := setup(t)
+	f.add(1, "one", "", "alice")
+	f.add(2, "two", "", "alice")
+	f.add(3, "three", "", "alice")
+	if _, err := f.svc.Submit(f.ctx, review.SubmitInput{
+		Workspace: f.ws, Decision: review.DecisionRequestChanges, Summary: "Fix all.", Author: "alice",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := f.svc.Pull(f.ctx, review.PullInput{Workspace: f.ws, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Reviews) != 1 || !slices.Equal(ids(first.Reviews[0].Comments), []string{"r1"}) || first.Remaining != 2 {
+		t.Fatalf("limit 1 = %+v, want r1 of rv1 and 2 remaining", first)
+	}
+	if first.Reviews[0].Summary != "Fix all." {
+		t.Errorf("a partial handoff lost the review summary")
+	}
+	if n := f.pending(); n != 1 {
+		t.Errorf("pending handoffs = %d, want the review to wait with its rest", n)
+	}
+
+	// The pulled part can be decided while the rest still waits.
+	if _, err := f.svc.Resolve(f.ctx, review.ResolveInput{Workspace: f.ws, ID: "r1", Outcome: review.OutcomeDone}); err != nil {
+		t.Fatalf("resolving the pulled part: %v", err)
+	}
+	if _, err := f.svc.Resolve(f.ctx, review.ResolveInput{Workspace: f.ws, ID: "r2", Outcome: review.OutcomeDone}); err == nil {
+		t.Error("resolved a comment that was never pulled")
+	}
+
+	peek, err := f.svc.Pull(f.ctx, review.PullInput{Workspace: f.ws, Peek: true, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(peek.Reviews) != 1 || !slices.Equal(ids(peek.Reviews[0].Comments), []string{"r2"}) || peek.Remaining != 1 {
+		t.Fatalf("peek = %+v, want r2 and 1 remaining", peek)
+	}
+
+	byID, err := f.svc.Pull(f.ctx, review.PullInput{Workspace: f.ws, IDs: []string{"r3"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(byID.Reviews) != 1 || !slices.Equal(ids(byID.Reviews[0].Comments), []string{"r3"}) {
+		t.Fatalf("pulling r3 = %+v", byID)
+	}
+	if _, err := f.svc.Pull(f.ctx, review.PullInput{Workspace: f.ws, IDs: []string{"r3"}}); err == nil {
+		t.Error("pulled r3 twice")
+	}
+
+	last, err := f.svc.Pull(f.ctx, review.PullInput{Workspace: f.ws, Limit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(last.Reviews) != 1 || !slices.Equal(ids(last.Reviews[0].Comments), []string{"r2"}) || last.Remaining != 0 {
+		t.Fatalf("last pull = %+v, want r2 and nothing remaining", last)
+	}
+	if n := f.pending(); n != 0 {
+		t.Errorf("pending handoffs = %d after the last part", n)
+	}
+	sheet, _ := f.svc.Sheet(f.ctx, review.GetInput{Workspace: f.ws, ID: "rv1"})
+	if sheet.State != review.SheetPulled {
+		t.Errorf("state = %s, want pulled once every part is out", sheet.State)
 	}
 }

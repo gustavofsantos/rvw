@@ -452,8 +452,13 @@ func (s *Service) Workspaces(ctx context.Context, in WorkspacesInput) (Workspace
 
 // ── pull ─────────────────────────────────────────────────────────────────────
 
-// Pull dequeues handoffs: submitted reviews (with every linked comment) and
-// standalone comments. Pulled handoffs never come back, unless peeking.
+// Pull dequeues handoffs: submitted reviews (with their linked comments) and
+// standalone comments. Pulled comments never come back, unless peeking.
+//
+// A pull may take part of a submitted review: Limit counts comments, and a
+// linked comment id names that comment alone. The review stays pending, and
+// shows up again with its remaining comments, until its last pending comment
+// is pulled. Remaining says how much is left.
 func (s *Service) Pull(ctx context.Context, in PullInput) (PullOutput, error) {
 	out := PullOutput{Workspace: in.Workspace, Drained: !in.Peek, Reviews: []Handoff{}, Comments: []Comment{}}
 	if in.Limit < 0 {
@@ -472,40 +477,39 @@ func (s *Service) Pull(ctx context.Context, in PullInput) (PullOutput, error) {
 		if err != nil {
 			return err
 		}
-		reviews := scope.reviews(pendingReviews, scope.comments(pendingComments))
-		grouped := linkedIDs(reviews)
-		var comments []Comment
-		for _, c := range scope.comments(pendingComments) {
-			if !grouped[c.ID] {
-				comments = append(comments, c)
-			}
+		scoped := scope.comments(pendingComments)
+		units := pullUnits(scope.reviews(pendingReviews, scoped), scoped)
+		queued := 0
+		for _, u := range units {
+			queued += u.cost()
 		}
 
 		if len(in.IDs) > 0 {
-			if reviews, comments, err = selectIDs(unique(in.IDs), reviews, comments); err != nil {
+			if units, err = selectIDs(unique(in.IDs), units); err != nil {
 				return err
 			}
 		}
 		if in.Limit > 0 {
-			reviews, comments = oldest(in.Limit, reviews, comments)
+			units = oldest(in.Limit, units)
 		}
 
 		stamp := s.stamp()
-		for _, r := range reviews {
-			h := Handoff{Review: r, Comments: []Comment{}}
-			for _, id := range r.CommentIDs {
-				c, ok, err := tx.Comment(id)
-				if err != nil {
-					return err
+		taken := 0
+		for _, u := range units {
+			taken += u.cost()
+			if u.review == nil {
+				c := *u.comment
+				if !in.Peek {
+					c.Status, c.PulledAt = StatusPulled, &stamp
+					if err := tx.UpdateComment(c); err != nil {
+						return err
+					}
 				}
-				if !ok {
-					continue
-				}
-				// Resolve refuses a comment of an unpulled review, so this
-				// holds; never let a pull overwrite a recorded decision.
-				if c.Status != StatusPending {
-					return conflictf("%s of %s is already %s", c.ID, r.ID, c.Status)
-				}
+				out.Comments = append(out.Comments, c)
+				continue
+			}
+			h := Handoff{Review: *u.review, Comments: []Comment{}}
+			for _, c := range u.linked {
 				if !in.Peek {
 					c.Status, c.PulledAt = StatusPulled, &stamp
 					if err := tx.UpdateComment(c); err != nil {
@@ -514,7 +518,8 @@ func (s *Service) Pull(ctx context.Context, in PullInput) (PullOutput, error) {
 				}
 				h.Comments = append(h.Comments, c)
 			}
-			if !in.Peek {
+			// The review is handed over once nothing of it waits any more.
+			if !in.Peek && len(u.linked) == u.pending {
 				h.Status, h.PulledAt = ReviewPulled, &stamp
 				if err := tx.UpdateReview(h.Review); err != nil {
 					return err
@@ -522,15 +527,7 @@ func (s *Service) Pull(ctx context.Context, in PullInput) (PullOutput, error) {
 			}
 			out.Reviews = append(out.Reviews, h)
 		}
-		for _, c := range comments {
-			if !in.Peek {
-				c.Status, c.PulledAt = StatusPulled, &stamp
-				if err := tx.UpdateComment(c); err != nil {
-					return err
-				}
-			}
-			out.Comments = append(out.Comments, c)
-		}
+		out.Remaining = queued - taken
 
 		if out.Count() == 0 && in.Lane != "" {
 			out.Elsewhere = elsewhere(pendingReviews, pendingComments, in.Lane)
@@ -540,63 +537,108 @@ func (s *Service) Pull(ctx context.Context, in PullInput) (PullOutput, error) {
 	return out, err
 }
 
-// selectIDs narrows the pull to named ids. A linked comment brings its review.
-func selectIDs(ids []string, reviews []Review, comments []Comment) ([]Review, []Comment, error) {
-	owner := map[string]string{} // review or linked comment id → review id
-	for _, r := range reviews {
-		owner[r.ID] = r.ID
-		for _, id := range r.CommentIDs {
-			owner[id] = r.ID
+// pullUnit is one thing a pull can take: a standalone comment, or a submitted
+// review with the linked comments chosen so far.
+type pullUnit struct {
+	created string
+	comment *Comment  // standalone comment, else nil
+	review  *Review   // submitted review, else nil
+	linked  []Comment // the review's pending comments to take, in review order
+	pending int       // how many pending comments the review has in all
+}
+
+// cost is how many comments the unit hands over; a review with no pending
+// comment (a summary-only review) counts as one.
+func (u pullUnit) cost() int { return max(1, len(u.linked)) }
+
+// pullUnits lays out the queue: every review with its pending linked comments,
+// then every standalone comment, oldest first. Ties keep reviews ahead of
+// comments, each in creation order.
+func pullUnits(reviews []Review, comments []Comment) []pullUnit {
+	byID := map[string]Comment{}
+	for _, c := range comments {
+		byID[c.ID] = c
+	}
+	grouped := linkedIDs(reviews)
+	units := make([]pullUnit, 0, len(reviews)+len(comments))
+	for i := range reviews {
+		u := pullUnit{created: reviews[i].CreatedAt, review: &reviews[i]}
+		for _, id := range reviews[i].CommentIDs {
+			if c, ok := byID[id]; ok {
+				u.linked = append(u.linked, c)
+			}
+		}
+		u.pending = len(u.linked)
+		units = append(units, u)
+	}
+	for i := range comments {
+		if !grouped[comments[i].ID] {
+			units = append(units, pullUnit{created: comments[i].CreatedAt, comment: &comments[i]})
 		}
 	}
-	standalone := map[string]Comment{}
-	for _, c := range comments {
-		standalone[c.ID] = c
+	slices.SortStableFunc(units, func(a, b pullUnit) int { return cmp.Compare(a.created, b.created) })
+	return units
+}
+
+// selectIDs narrows the pull to named ids. A review id takes all its pending
+// comments; a linked comment id takes that comment alone.
+func selectIDs(ids []string, units []pullUnit) ([]pullUnit, error) {
+	found := map[string]bool{}
+	var picked []pullUnit
+	for _, u := range units {
+		switch {
+		case u.review == nil:
+			if slices.Contains(ids, u.comment.ID) {
+				found[u.comment.ID] = true
+				picked = append(picked, u)
+			}
+		case slices.Contains(ids, u.review.ID):
+			found[u.review.ID] = true
+			for _, c := range u.linked {
+				found[c.ID] = true
+			}
+			picked = append(picked, u)
+		default:
+			var linked []Comment
+			for _, c := range u.linked {
+				if slices.Contains(ids, c.ID) {
+					found[c.ID] = true
+					linked = append(linked, c)
+				}
+			}
+			if len(linked) > 0 {
+				u.linked = linked
+				picked = append(picked, u)
+			}
+		}
 	}
 	var missing []string
-	wantReview := map[string]bool{}
-	var picked []Comment
 	for _, id := range ids {
-		if rv, ok := owner[id]; ok {
-			wantReview[rv] = true
-		} else if c, ok := standalone[id]; ok {
-			picked = append(picked, c)
-		} else {
+		if !found[id] {
 			missing = append(missing, id)
 		}
 	}
 	if len(missing) > 0 {
-		return nil, nil, notFoundf("not pending in this workspace: %s", strings.Join(missing, ", "))
+		return nil, notFoundf("not pending in this workspace: %s", strings.Join(missing, ", "))
 	}
-	return slices.DeleteFunc(reviews, func(r Review) bool { return !wantReview[r.ID] }), picked, nil
+	return picked, nil
 }
 
-// oldest keeps the first n handoffs by creation time. Ties keep reviews ahead
-// of comments, each in creation order.
-func oldest(n int, reviews []Review, comments []Comment) ([]Review, []Comment) {
-	type unit struct {
-		created string
-		review  *Review
-		comment *Comment
-	}
-	units := make([]unit, 0, len(reviews)+len(comments))
-	for i := range reviews {
-		units = append(units, unit{created: reviews[i].CreatedAt, review: &reviews[i]})
-	}
-	for i := range comments {
-		units = append(units, unit{created: comments[i].CreatedAt, comment: &comments[i]})
-	}
-	slices.SortStableFunc(units, func(a, b unit) int { return cmp.Compare(a.created, b.created) })
-	var keptReviews []Review
-	var keptComments []Comment
-	for _, u := range units[:min(n, len(units))] {
-		if u.review != nil {
-			keptReviews = append(keptReviews, *u.review)
-		} else {
-			keptComments = append(keptComments, *u.comment)
+// oldest keeps the first n comments, oldest unit first. A review that does not
+// fit whole is cut to its first comments in review order.
+func oldest(n int, units []pullUnit) []pullUnit {
+	var kept []pullUnit
+	for _, u := range units {
+		if n <= 0 {
+			break
 		}
+		if u.cost() > n {
+			u.linked = u.linked[:n]
+		}
+		n -= u.cost()
+		kept = append(kept, u)
 	}
-	return keptReviews, keptComments
+	return kept
 }
 
 // elsewhere reports the handoffs pending outside lane, so a pinned pull that
@@ -695,8 +737,8 @@ func resolvable(tx Tx, id string, outcome Outcome) (Comment, error) {
 		if err != nil {
 			return c, err
 		}
-		if ok && r.Status == ReviewPending {
-			return c, conflictf("%s belongs to %s — pull %s first", c.ID, r.ID, r.ID)
+		if ok && r.Status == ReviewPending && c.Status == StatusPending {
+			return c, conflictf("%s belongs to %s — pull %s first", c.ID, r.ID, c.ID)
 		}
 	}
 	if c.Status.Resolved() {

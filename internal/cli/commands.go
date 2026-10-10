@@ -475,15 +475,17 @@ func (a *app) pullCmd() *cobra.Command {
 		Short: "dequeue review handoffs for an agent to act on",
 		Long: `Dequeue this workspace's submitted reviews and standalone comments.
 
-A submitted review and its linked comments move as one handoff. Pulled
-handoffs do not appear again. Use --peek to read without draining.
+A submitted review and its linked comments move as one handoff, unless you
+cut it: --limit N takes the N oldest comments and --id of a linked comment
+takes that one, leaving the rest of its review queued for the next pull.
+Pulled comments do not appear again. Use --peek to read without draining.
 
 Lane scoping is strict: a pull pinned to a lane takes only that lane's
 comments — never an unlaned one, never another lane's — and reports on
 stderr when comments are waiting elsewhere, so nothing starves unseen.`,
 		Example: `  rvw pull                     # everything pending, as markdown
   rvw pull --format json       # same, machine-readable
-  rvw pull --limit 1           # oldest handoff only
+  rvw pull --limit 1           # oldest comment only
   rvw pull --id r3 --id r7     # named comments only
   rvw pull --lane auth         # only that branch's comments
   rvw pull --peek              # read without dequeuing`,
@@ -516,7 +518,7 @@ stderr when comments are waiting elsewhere, so nothing starves unseen.`,
 			switch format.value {
 			case "json":
 				if err := render.JSON(a.rawStdout, render.Envelope{
-					Workspace: out.Workspace, Count: out.Count(), Comments: out.Comments, SubmittedReviews: out.Reviews,
+					Workspace: out.Workspace, Count: out.Count(), Comments: out.Comments, SubmittedReviews: out.Reviews, Remaining: out.Remaining,
 				}); err != nil {
 					return err
 				}
@@ -537,7 +539,7 @@ stderr when comments are waiting elsewhere, so nothing starves unseen.`,
 	}
 	cmd.Flags().StringVar(&file, "file", "", "only handoffs touching this file")
 	cmd.Flags().StringArrayVar(&ids, "id", nil, "pull only this id (repeatable)")
-	cmd.Flags().IntVar(&limit, "limit", 0, "pull at most N handoffs, oldest first")
+	cmd.Flags().IntVar(&limit, "limit", 0, "pull at most N comments, oldest first")
 	cmd.Flags().BoolVar(&peek, "peek", false, "print without dequeuing (leaves the queue intact)")
 	lanes.register(cmd)
 	format.register(cmd, "markdown", "markdown", "json", "text", "ids")
