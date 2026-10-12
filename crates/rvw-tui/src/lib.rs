@@ -4,7 +4,6 @@
 
 pub mod changes;
 pub mod editor;
-pub mod fuzzy;
 pub mod highlight;
 pub mod model;
 pub mod pages;
@@ -13,9 +12,11 @@ mod shell;
 pub mod style;
 #[cfg(test)]
 pub(crate) mod testing;
-pub mod tree;
 pub mod update;
 pub mod view;
+
+/// Moved to `rvw-view`; re-exported so existing paths keep working.
+pub use rvw_view::{fuzzy, tree};
 
 use std::sync::Arc;
 

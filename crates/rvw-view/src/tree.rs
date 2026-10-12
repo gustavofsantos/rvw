@@ -115,7 +115,7 @@ pub fn build_tree<S: AsRef<str>>(files: &[S]) -> Tree {
 }
 
 impl Tree {
-    pub(crate) fn add(&mut self, parent: NodeId, name: &str, path: &str, dir: bool) -> NodeId {
+    pub fn add(&mut self, parent: NodeId, name: &str, path: &str, dir: bool) -> NodeId {
         let id = self.nodes.len();
         self.nodes.push(Node {
             name: name.to_owned(),

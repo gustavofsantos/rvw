@@ -16,6 +16,7 @@ unicode-width = "0.2"
 rvw-core.workspace = true
 rvw-git.workspace = true
 rvw-render.workspace = true
+rvw-view.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/rvw-core", "crates/rvw-git", "crates/rvw-store", "crates/rvw-render", "crates/rvw-cli", "crates/rvw-mcp", "crates/rvw-tui"]
+members = ["crates/rvw-core", "crates/rvw-git", "crates/rvw-store", "crates/rvw-render", "crates/rvw-cli", "crates/rvw-mcp", "crates/rvw-tui", "crates/rvw-view"]
 
 [workspace.package]
 version = "0.0.0"
@@ -21,6 +21,7 @@ rvw-render = { path = "crates/rvw-render" }
 rvw-cli = { path = "crates/rvw-cli" }
 rvw-mcp = { path = "crates/rvw-mcp" }
 rvw-tui = { path = "crates/rvw-tui" }
+rvw-view = { path = "crates/rvw-view" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
