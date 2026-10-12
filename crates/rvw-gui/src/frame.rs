@@ -32,7 +32,6 @@ pub fn window(top: Div, rail: Div, panels: Panels, keys: Div) -> Div {
         .flex()
         .flex_col()
         .size_full()
-        .rounded(theme::WINDOW_RADIUS)
         .overflow_hidden()
         .bg(theme::paper())
         .child(top)
