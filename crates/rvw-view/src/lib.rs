@@ -5,6 +5,7 @@
 pub mod changes;
 pub mod context;
 pub mod diff;
+pub mod editor;
 pub mod files;
 pub mod finder;
 pub mod fuzzy;
