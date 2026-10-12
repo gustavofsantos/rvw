@@ -127,3 +127,14 @@ Still unverified by eye, in priority order for whoever runs it first:
 3. Click targets and focus: selecting lines, opening the composer with C,
    Escape and focus return, the finder with the keyboard.
 4. The key strip tooltips and the J/K scroll-into-view.
+
+## First run by a person (release build, 2026-10-12)
+
+- The first run was a debug build and looked slow, with a thick border and code
+  in a proportional font. Three of those four came from writing a mockup
+  literally: a canvas margin around a "window", fonts named but not installed.
+  The fourth was a debug build of a GPU toolkit.
+- After the release build with virtualised lists, a hard manual session (many
+  clicks, file search, scrolling) felt fast and worked. The direction holds.
+- Still to learn from use: text area feel, syntax highlighting, and what a
+  real review session needs next.
