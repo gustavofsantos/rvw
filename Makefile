@@ -5,14 +5,20 @@ CARGO_AUDIT := target/tools/bin/cargo-audit
 
 .PHONY: build install uninstall test lint fmt audit check hooks clean
 
-build:
-	cargo build --release -p rvw-cli
+# PREFIX is where `make install` puts bin/rvw. Unset, cargo's own install root
+# applies: $CARGO_INSTALL_ROOT, else ~/.cargo, so ~/.cargo/bin/rvw.
+PREFIX ?=
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "(devel)")
 
+build:
+	RVW_VERSION='$(VERSION)' cargo build --release -p rvw-cli
+
+# An optimized build, installed (or upgraded in place) with cargo.
 install:
-	cargo install --path crates/rvw-cli --locked
+	RVW_VERSION='$(VERSION)' cargo install --path crates/rvw-cli --locked --force $(if $(PREFIX),--root '$(PREFIX)')
 
 uninstall:
-	cargo uninstall rvw-cli
+	cargo uninstall rvw-cli $(if $(PREFIX),--root '$(PREFIX)')
 
 test:
 	cargo test --workspace

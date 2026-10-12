@@ -54,8 +54,9 @@ supported. With Rust installed you can also build it yourself:
 cargo install --git https://github.com/gustavofsantos/rvw rvw-cli
 ```
 
-Or, from a checkout, `make install` (`cargo install --path crates/rvw-cli`).
-`make uninstall` removes it.
+Or, from a checkout, `make install`: an optimized build, installed with cargo
+to `~/.cargo/bin/rvw` (or `bin/rvw` under `PREFIX=/some/dir`) and stamped with
+`git describe`. Run it again to upgrade; `make uninstall` removes it.
 
 ## Examples
 
