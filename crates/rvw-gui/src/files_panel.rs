@@ -4,12 +4,14 @@
 //! this file lays them out and reads the one file the centre shows.
 
 use std::fs;
+use std::ops::Range;
 use std::path::Path;
+use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, AnyElement, ClickEvent, Context, Div, FontWeight, Pixels, ScrollHandle, SharedString,
-    Window,
+    div, px, uniform_list, AnyElement, ClickEvent, Context, Div, FontWeight, Pixels,
+    ScrollStrategy, SharedString, UniformListScrollHandle, Window,
 };
 use rvw_view::context::{self, Shown};
 use rvw_view::files::Marks;
@@ -18,7 +20,6 @@ use rvw_view::nav;
 use rvw_view::selection::Selection;
 use rvw_view::tree::{self, build_tree, NodeId, Row, Tree};
 
-use crate::data::Snapshot;
 use crate::review_screen::{self, Selected};
 use crate::shell::Shell;
 use crate::theme;
@@ -28,6 +29,9 @@ pub struct FileList {
     /// Every file, sorted; what the finder searches.
     pub paths: Vec<String>,
     pub tree: Tree,
+    /// The tree's visible rows, kept so a frame does not walk the tree; set
+    /// again whenever a folder opens or closes.
+    pub rows: Vec<Row>,
 }
 
 /// Lists the files of the repository at `workspace`.
@@ -38,7 +42,8 @@ pub struct FileList {
 pub fn load_listing(workspace: &str) -> Result<FileList, String> {
     let paths = tree::list_files(Path::new(workspace)).map_err(|e| e.to_string())?;
     let tree = build_tree(&paths);
-    Ok(FileList { paths, tree })
+    let rows = tree.rows();
+    Ok(FileList { paths, tree, rows })
 }
 
 /// The file at `path` as it is on disk, for a file the change does not touch.
@@ -46,7 +51,7 @@ pub fn load_listing(workspace: &str) -> Result<FileList, String> {
 pub fn load_outside(workspace: &str, path: &str) -> Selected {
     let (diff, cut) = match fs::read(Path::new(workspace).join(path)) {
         Ok(bytes) => match context::shown(&bytes) {
-            Shown::Text { diff, cut } => (Ok(diff), cut),
+            Shown::Text { diff, cut } => (Ok(Rc::new(diff)), cut),
             Shown::Binary => (Err("Binary file, no preview shown.".to_owned()), false),
             Shown::Empty => (Err("Empty file, nothing to show.".to_owned()), false),
         },
@@ -64,43 +69,55 @@ pub fn load_outside(workspace: &str, path: &str) -> Selected {
 /// The left panel on the Files tab: the tree of the whole repository, or why
 /// it cannot be listed.
 pub fn left(
-    snapshot: &Snapshot,
     listing: Option<&Result<FileList, String>>,
-    selected: Option<&str>,
-    scroll: &ScrollHandle,
+    scroll: &UniformListScrollHandle,
     cx: &Context<Shell>,
 ) -> Div {
-    let (summary, rows): (String, Vec<AnyElement>) = match listing {
+    let (summary, body): (String, AnyElement) = match listing {
         Some(Ok(list)) => {
-            let marks = Marks::new(&snapshot.changes, &snapshot.comments);
             let count = list.paths.len();
             let summary = format!(
                 "{count} {} in the repository",
                 crate::queue_screen::noun(count, "file", "files")
             );
-            let rows = list
-                .tree
-                .rows()
-                .into_iter()
-                .map(|row| tree_row(&list.tree, row, &marks, selected, cx))
-                .collect();
-            (summary, rows)
+            // Only the rows in view are built, from the shell's current state.
+            let rows = uniform_list(
+                "file-tree",
+                list.rows.len(),
+                cx.processor(
+                    |this: &mut Shell,
+                     range: Range<usize>,
+                     _: &mut Window,
+                     cx: &mut Context<Shell>| {
+                        let Some(Ok(list)) = this.listing.as_ref() else {
+                            return Vec::new();
+                        };
+                        let marks = Marks::new(&this.snapshot.changes, &this.snapshot.comments);
+                        let selected = this.selected.as_ref().map(|s| s.path.as_str());
+                        list.rows
+                            .get(range)
+                            .unwrap_or_default()
+                            .iter()
+                            .map(|row| tree_row(&list.tree, *row, &marks, selected, cx))
+                            .collect()
+                    },
+                ),
+            )
+            .track_scroll(scroll.clone())
+            .flex_1()
+            .min_h(px(0.));
+            (summary, rows.into_any_element())
         }
         Some(Err(message)) => (
             "Whole repository".to_owned(),
-            vec![review_screen::notice(message).into_any_element()],
+            review_screen::notice(message).into_any_element(),
         ),
         None => (
             "Whole repository".to_owned(),
-            vec![review_screen::notice("Listing the repository...").into_any_element()],
+            review_screen::notice("Listing the repository...").into_any_element(),
         ),
     };
-    review_screen::panel(
-        Screen::Files,
-        &summary,
-        review_screen::list("file-tree", rows, scroll),
-        cx,
-    )
+    review_screen::panel(Screen::Files, &summary, body, cx)
 }
 
 /// One visible row: a folder with its chevron, or a file with its change dot
@@ -216,6 +233,7 @@ impl Shell {
         if let Some(Ok(list)) = self.listing.as_mut() {
             let open = list.tree.node(id).expanded;
             list.tree.set_expanded(id, !open);
+            list.rows = list.tree.rows();
         }
         cx.notify();
     }
@@ -247,7 +265,7 @@ impl Shell {
         } else {
             &self.changes_scroll
         };
-        scroll.scroll_to_item(*row);
+        scroll.scroll_to_item(*row, ScrollStrategy::Center);
     }
 
     /// The files a keyboard step can reach, in display order, each with its
@@ -262,9 +280,8 @@ impl Shell {
                 .map(|(index, file)| (index, file.path.clone()))
                 .collect(),
             (Screen::Files, Some(Ok(list))) => list
-                .tree
-                .rows()
-                .into_iter()
+                .rows
+                .iter()
                 .enumerate()
                 .filter_map(|(index, row)| {
                     let node = list.tree.node(row.node);

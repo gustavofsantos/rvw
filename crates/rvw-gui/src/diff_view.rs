@@ -1,68 +1,23 @@
-//! The diff of the selected file. A line click selects, a Shift click extends.
-//! The file's comments sit under the diff line their range ends on, and the
-//! composer sits under the last selected line.
-
-use std::collections::BTreeMap;
+//! The rows of the diff of the selected file. A line click selects, a Shift
+//! click extends. The file's comments sit under the diff line their range ends
+//! on, and the composer sits under the last selected line. `diff_list` owns
+//! the list; this file draws one row.
 
 use gpui::prelude::*;
-use gpui::{div, px, Context, Div, FontWeight, MouseButton, MouseDownEvent, Pixels, Rgba, Window};
+use gpui::{
+    div, px, AnyElement, App, Div, FontWeight, MouseButton, MouseDownEvent, Pixels, Rgba,
+    WeakEntity, Window,
+};
 use rvw_core::types::{Comment, Status};
-use rvw_view::diff::{FileDiff, Hunk, Line, LineKind};
-use rvw_view::selection::{self, Pos, Selection};
+use rvw_view::diff::{Line, LineKind};
+use rvw_view::diffrows::{DiffRow, TRUNCATED_NOTE};
+use rvw_view::selection::Selection;
 
-use crate::composer::{self, Composer};
-use crate::review_screen::{notice, LINE_HEIGHT};
+use crate::composer;
+use crate::diff_list::Model;
+use crate::review_screen::LINE_HEIGHT;
 use crate::shell::Shell;
 use crate::theme;
-
-/// What the diff shows on top of its lines: the selection, the comments placed
-/// under their lines, the comments with no line in view, and the composer.
-pub struct Overlay<'a> {
-    selection: &'a Selection,
-    under: BTreeMap<Pos, Vec<&'a Comment>>,
-    outside: Vec<&'a Comment>,
-    composer: Option<&'a Composer>,
-    /// The composer's caption, "Line A-B"; empty when nothing is selected.
-    caption: String,
-}
-
-impl<'a> Overlay<'a> {
-    /// `outside_change` marks a file outside the change; its caption says so.
-    pub fn new(
-        diff: &FileDiff,
-        comments: &[&'a Comment],
-        selection: &'a Selection,
-        composer: Option<&'a Composer>,
-        outside_change: bool,
-    ) -> Self {
-        let mut under: BTreeMap<Pos, Vec<&'a Comment>> = BTreeMap::new();
-        let mut outside = Vec::new();
-        for &comment in comments {
-            match selection::anchor(diff, comment.end_line) {
-                Some(pos) => under.entry(pos).or_default().push(comment),
-                None => outside.push(comment),
-            }
-        }
-        let caption = selection
-            .lines(diff)
-            .map(|(lo, hi)| {
-                let context = if outside_change {
-                    " \u{b7} context"
-                } else {
-                    ""
-                };
-                format!("Line {}{context}", range_text(lo, hi))
-            })
-            .unwrap_or_default();
-        Self {
-            selection,
-            under,
-            outside,
-            composer,
-            caption,
-        }
-    }
-}
 
 /// `A` for one line, `A-B` for a range.
 pub fn range_text(lo: u32, hi: u32) -> String {
@@ -73,67 +28,111 @@ pub fn range_text(lo: u32, hi: u32) -> String {
     }
 }
 
-pub fn diff_view(diff: &FileDiff, overlay: &Overlay, cx: &Context<Shell>) -> Div {
-    if diff.binary {
-        return notice("Binary file, no diff shown");
-    }
-    if diff.hunks.is_empty() {
-        return notice("No line changes in this file.");
-    }
-    let hunks = diff
-        .hunks
-        .iter()
-        .enumerate()
-        .map(|(index, hunk)| hunk_view(diff, index, hunk, overlay, cx));
-    let mut body = div().flex().flex_col().py(px(8.)).children(hunks);
-    if !overlay.outside.is_empty() {
-        body = body.child(outside_strip(&overlay.outside));
-    }
-    body
+/// The composer's caption, "Line A-B"; empty when nothing is selected.
+fn caption(model: &Model, selection: &Selection) -> String {
+    selection
+        .lines(&model.diff)
+        .map(|(lo, hi)| {
+            let context = if model.outside_change {
+                " \u{b7} context"
+            } else {
+                ""
+            };
+            format!("Line {}{context}", range_text(lo, hi))
+        })
+        .unwrap_or_default()
 }
 
-fn hunk_view(
-    diff: &FileDiff,
-    hunk_index: usize,
-    hunk: &Hunk,
-    overlay: &Overlay,
-    cx: &Context<Shell>,
-) -> Div {
-    let mut block = div().flex().flex_col();
-    if !hunk.header.is_empty() {
-        block = block.child(
+/// The element of row `index`. Margins are padding here: a list item's height
+/// does not include its own margin.
+pub fn row(
+    model: &Model,
+    index: usize,
+    selection: Selection,
+    shell: &WeakEntity<Shell>,
+) -> AnyElement {
+    let Some(row) = model.rows.get(index) else {
+        return div().into_any_element();
+    };
+    match *row {
+        DiffRow::HunkHeader { hunk } => {
+            let header = model.diff.hunks.get(hunk).map_or("", |h| h.header.as_str());
+            note(header.to_owned(), px(24.)).into_any_element()
+        }
+        DiffRow::Line { pos } => {
+            let Some(line) = model
+                .diff
+                .hunks
+                .get(pos.hunk)
+                .and_then(|hunk| hunk.lines.get(pos.line))
+            else {
+                return div().into_any_element();
+            };
+            let selected = selection.contains(&model.diff, pos);
+            let shell = shell.clone();
+            let on_down = move |event: &MouseDownEvent, _: &mut Window, cx: &mut App| {
+                let shift = event.modifiers.shift;
+                shell
+                    .update(cx, |this, cx| this.select_line(pos, shift, cx))
+                    .ok();
+            };
+            line_view(line, selected, on_down).into_any_element()
+        }
+        DiffRow::Thread { comment_index } => model.comments.get(comment_index).map_or_else(
+            || div().into_any_element(),
+            |comment| padded(thread(comment, px(62.))),
+        ),
+        DiffRow::Composer => {
+            let Some(slot) = model.composer.as_ref() else {
+                return div().into_any_element();
+            };
+            let caption = caption(model, &selection);
             div()
-                .flex()
-                .items_center()
-                .h(LINE_HEIGHT)
-                .px(px(24.))
-                .font_family(theme::code_font())
-                .text_size(px(theme::CODE_FONT_SIZE))
-                .text_color(theme::faint())
-                .whitespace_nowrap()
-                .child(hunk.header.clone()),
-        );
-    }
-    for (line_index, line) in hunk.lines.iter().enumerate() {
-        let pos = Pos {
-            hunk: hunk_index,
-            line: line_index,
-        };
-        let selected = overlay.selection.contains(diff, pos);
-        block = block.child(line_view(pos, line, selected, cx));
-        for comment in overlay.under.get(&pos).into_iter().flatten() {
-            block = block.child(thread(comment, px(62.)));
+                .w_full()
+                .py(px(6.))
+                .child(composer::view(&slot.input, slot.error.as_deref(), &caption))
+                .into_any_element()
         }
-        if let Some(composer) = overlay.composer {
-            if overlay.selection.last() == Some(pos) {
-                block = block.child(composer::view(composer, &overlay.caption));
-            }
-        }
+        DiffRow::OutsideTitle => div()
+            .w_full()
+            .px(px(24.))
+            .pt(px(16.))
+            .pb(px(4.))
+            .text_color(theme::faint())
+            .child("Comments outside the shown hunks")
+            .into_any_element(),
+        DiffRow::OutsideThread { comment_index } => model.comments.get(comment_index).map_or_else(
+            || div().into_any_element(),
+            |comment| padded(thread(comment, px(24.))),
+        ),
+        DiffRow::Truncated => note(TRUNCATED_NOTE.to_owned(), px(24.)).into_any_element(),
     }
-    block
 }
 
-fn line_view(pos: Pos, line: &Line, selected: bool, cx: &Context<Shell>) -> Div {
+fn padded(thread: Div) -> AnyElement {
+    div().w_full().py(px(4.)).child(thread).into_any_element()
+}
+
+/// A dim one-line row: a hunk header, or the note that the diff was cut.
+fn note(text: String, indent: Pixels) -> Div {
+    div()
+        .w_full()
+        .flex()
+        .items_center()
+        .h(LINE_HEIGHT)
+        .px(indent)
+        .font_family(theme::code_font())
+        .text_size(px(theme::CODE_FONT_SIZE))
+        .text_color(theme::faint())
+        .whitespace_nowrap()
+        .child(text)
+}
+
+fn line_view(
+    line: &Line,
+    selected: bool,
+    on_down: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+) -> Div {
     let (tint, marker) = match line.kind {
         LineKind::Added => (Some(theme::added_tint()), Some(theme::done())),
         LineKind::Removed => (Some(theme::removed_tint()), Some(theme::rejected())),
@@ -144,12 +143,8 @@ fn line_view(pos: Pos, line: &Line, selected: bool, cx: &Context<Shell>) -> Div 
     } else {
         tint
     };
-    let on_down = cx.listener(
-        move |this: &mut Shell, event: &MouseDownEvent, _: &mut Window, cx: &mut Context<Shell>| {
-            this.select_line(pos, event.modifiers.shift, cx);
-        },
-    );
     div()
+        .w_full()
         .flex()
         .items_center()
         .h(LINE_HEIGHT)
@@ -183,22 +178,6 @@ fn line_view(pos: Pos, line: &Line, selected: bool, cx: &Context<Shell>) -> Div 
                 .overflow_hidden()
                 .child(line.text.clone()),
         )
-}
-
-/// The comments whose range is in no shown hunk, in one strip at the end.
-fn outside_strip(comments: &[&Comment]) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .child(
-            div()
-                .px(px(24.))
-                .pt(px(16.))
-                .pb(px(4.))
-                .text_color(theme::faint())
-                .child("Comments outside the shown hunks"),
-        )
-        .children(comments.iter().map(|comment| thread(comment, px(24.))))
 }
 
 /// One comment: a rule in its status colour, the author, the id and lines,
@@ -239,7 +218,6 @@ fn thread(comment: &Comment, indent: Pixels) -> Div {
         .gap(px(3.))
         .ml(indent)
         .mr(px(24.))
-        .my(px(4.))
         .pl(px(12.))
         .py(px(4.))
         .border_l_2()

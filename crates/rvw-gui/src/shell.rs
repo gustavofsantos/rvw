@@ -4,7 +4,9 @@
 //! the common frame.
 
 use gpui::prelude::*;
-use gpui::{div, px, Context, Div, FocusHandle, KeyDownEvent, Render, ScrollHandle, Window};
+use gpui::{
+    div, px, Context, Div, FocusHandle, KeyDownEvent, Render, UniformListScrollHandle, Window,
+};
 use rvw_core::Service;
 use rvw_view::keys::Screen;
 use rvw_view::queue::{Filter, Queue, State};
@@ -12,6 +14,7 @@ use rvw_view::selection::Pos;
 
 use crate::composer::Composer;
 use crate::data::{self, Identity, Snapshot};
+use crate::diff_list::DiffList;
 use crate::files_panel::{self, FileList};
 use crate::finder::{self, Finder, OpenFinder};
 use crate::frame::{self, Panels};
@@ -36,17 +39,22 @@ pub struct Shell {
     /// The file the review screen shows, if any.
     pub(crate) selected: Option<Selected>,
     /// The open comment composer, if any.
-    composer: Option<Composer>,
+    pub(crate) composer: Option<Composer>,
     /// The open submit dialog, if any.
     submit: Option<SubmitDialog>,
     /// The repository's files, listed the first time a view needs them.
     pub(crate) listing: Option<Result<FileList, String>>,
     /// The open find-a-file overlay, if any.
     pub(crate) finder: Option<Finder>,
+    /// The virtualised diff of the open file; see `diff_list`.
+    pub(crate) diff_list: Option<DiffList>,
+    /// Bumped whenever the open file or its snapshot is replaced, so the diff
+    /// list knows its rows are stale.
+    pub(crate) diff_generation: u64,
     /// Keeps the Changes list's row in view when the keyboard moves.
-    pub(crate) changes_scroll: ScrollHandle,
+    pub(crate) changes_scroll: UniformListScrollHandle,
     /// Keeps the Files tree's row in view when the keyboard moves.
-    pub(crate) files_scroll: ScrollHandle,
+    pub(crate) files_scroll: UniformListScrollHandle,
     /// Holds the keys (C) when no field has focus.
     focus: FocusHandle,
 }
@@ -82,8 +90,10 @@ impl Shell {
             submit: None,
             listing: None,
             finder: None,
-            changes_scroll: ScrollHandle::new(),
-            files_scroll: ScrollHandle::new(),
+            diff_list: None,
+            diff_generation: 0,
+            changes_scroll: UniformListScrollHandle::new(),
+            files_scroll: UniformListScrollHandle::new(),
             focus: cx.focus_handle(),
         }
     }
@@ -108,6 +118,7 @@ impl Shell {
 
     pub fn select_file(&mut self, path: &str, cx: &mut Context<Self>) {
         self.selected = Some(self.load_selected(path));
+        self.diff_generation = self.diff_generation.wrapping_add(1);
         self.composer = None;
         cx.notify();
     }
@@ -202,6 +213,7 @@ impl Shell {
                 self.queue = snapshot.view(&self.filter);
                 self.snapshot = snapshot;
                 self.selected = path.map(|path| self.load_selected(&path));
+                self.diff_generation = self.diff_generation.wrapping_add(1);
                 self.composer = None;
             }
             Err(message) => {
@@ -360,16 +372,17 @@ impl Render for Shell {
         {
             self.focus.focus(window);
         }
+        self.sync_diff_list(window);
         let panels = match self.screen {
             Screen::Diff | Screen::Files => Panels {
                 left: self.review_left(cx),
                 centre: review_screen::centre(
                     &self.snapshot,
                     self.selected.as_ref(),
-                    self.composer.as_ref(),
+                    self.diff_list.as_ref(),
                     cx,
                 ),
-                right: review_screen::right(&self.snapshot, cx),
+                right: crate::draft_panel::right(&self.snapshot, cx),
             },
             _ => Panels {
                 left: queue_screen::left(&self.snapshot, &self.filter, cx),
@@ -430,16 +443,9 @@ impl Render for Shell {
 impl Shell {
     /// The left panel of the review screen: the changes, or the Files tab.
     fn review_left(&self, cx: &Context<Self>) -> Div {
-        let selected = self.selected.as_ref().map(|s| s.path.as_str());
         match self.screen {
-            Screen::Files => files_panel::left(
-                &self.snapshot,
-                self.listing.as_ref(),
-                selected,
-                &self.files_scroll,
-                cx,
-            ),
-            _ => review_screen::left(&self.snapshot, selected, &self.changes_scroll, cx),
+            Screen::Files => files_panel::left(self.listing.as_ref(), &self.files_scroll, cx),
+            _ => review_screen::left(&self.snapshot, &self.changes_scroll, cx),
         }
     }
 }

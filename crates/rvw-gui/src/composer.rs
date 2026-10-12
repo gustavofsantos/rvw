@@ -27,12 +27,11 @@ impl Composer {
 
 /// The field with its caption on the right, the hint beneath, and the error
 /// in red when the last add failed.
-pub fn view(composer: &Composer, caption: &str) -> Div {
+pub fn view(input: &Entity<TextArea>, error: Option<&str>, caption: &str) -> Div {
     let mut block = div()
         .flex()
         .flex_col()
         .mx(px(24.))
-        .my(px(6.))
         .px(px(14.))
         .py(px(8.))
         .rounded(theme::CONTROL_RADIUS)
@@ -44,7 +43,7 @@ pub fn view(composer: &Composer, caption: &str) -> Div {
                 .flex()
                 .items_start()
                 .gap(px(12.))
-                .child(div().flex_1().min_w(px(0.)).child(composer.input.clone()))
+                .child(div().flex_1().min_w(px(0.)).child(input.clone()))
                 .child(
                     div()
                         .flex_none()
@@ -64,13 +63,13 @@ pub fn view(composer: &Composer, caption: &str) -> Div {
                     theme::submit_chord()
                 )),
         );
-    if let Some(message) = &composer.error {
+    if let Some(message) = error {
         block = block.child(
             div()
                 .pt(px(4.))
                 .truncate()
                 .text_color(theme::rejected())
-                .child(message.clone()),
+                .child(message.to_owned()),
         );
     }
     block

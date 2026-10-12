@@ -4,23 +4,23 @@
 //! file only lays it out.
 
 use gpui::prelude::*;
+use std::ops::Range;
+use std::rc::Rc;
+
 use gpui::{
-    div, px, AnyElement, App, ClickEvent, Context, Div, FontWeight, Pixels, ScrollHandle,
-    SharedString, Stateful, Window,
+    div, px, uniform_list, AnyElement, App, ClickEvent, Context, Div, FontWeight, Pixels,
+    SharedString, Stateful, UniformListScrollHandle, Window,
 };
-use rvw_core::types::Comment;
 use rvw_view::changes::ChangedFile;
 use rvw_view::diff::FileDiff;
 use rvw_view::keys::Screen;
-use rvw_view::queue::Row;
 use rvw_view::selection::Selection;
 
-use crate::composer::Composer;
 use crate::data::{self, Snapshot};
-use crate::diff_view::{diff_view, range_text, Overlay};
+use crate::diff_list::DiffList;
+use crate::diff_view::range_text;
 use crate::queue_screen::noun;
 use crate::shell::Shell;
-use crate::submit_dialog;
 use crate::theme;
 
 /// One diff line's height; the gutter and text share it so empty lines keep
@@ -30,7 +30,7 @@ pub const LINE_HEIGHT: Pixels = px(21.);
 /// The file open in the centre: its path, and its diff or why it is unreadable.
 pub struct Selected {
     pub path: String,
-    pub diff: Result<FileDiff, String>,
+    pub diff: Result<Rc<FileDiff>, String>,
     /// The reviewer's lines in this file; reset when the file changes.
     pub selection: Selection,
     /// The change does not touch the file; it is shown as plain content.
@@ -44,7 +44,7 @@ impl Selected {
     pub fn load(snapshot: &Snapshot, path: &str) -> Self {
         Self {
             path: path.to_owned(),
-            diff: data::load_diff(&snapshot.workspace, &snapshot.base_id, path),
+            diff: data::load_diff(&snapshot.workspace, &snapshot.base_id, path).map(Rc::new),
             selection: Selection::default(),
             outside: false,
             cut: false,
@@ -52,43 +52,48 @@ impl Selected {
     }
 }
 
-pub fn left(
-    snapshot: &Snapshot,
-    selected: Option<&str>,
-    scroll: &ScrollHandle,
-    cx: &Context<Shell>,
-) -> Div {
-    let rows: Vec<AnyElement> = snapshot
-        .changes
-        .iter()
-        .map(|file| {
-            let owned = file.path.clone();
-            let on_click = cx.listener(
-                move |this: &mut Shell, _: &ClickEvent, _: &mut Window, cx: &mut Context<Shell>| {
-                    this.select_file(&owned, cx);
-                },
-            );
-            file_row(file, selected == Some(file.path.as_str()), on_click).into_any_element()
-        })
-        .collect();
-
+pub fn left(snapshot: &Snapshot, scroll: &UniformListScrollHandle, cx: &Context<Shell>) -> Div {
     let count = snapshot.changes.len();
     let summary = format!(
         "{count} {} against {}",
         noun(count, "file", "files"),
         snapshot.base_name
     );
-    panel(
-        Screen::Diff,
-        &summary,
-        list("change-list", rows, scroll),
-        cx,
+    // Only the rows in view are built, from the shell's current state.
+    let rows = uniform_list(
+        "change-list",
+        count,
+        cx.processor(
+            |this: &mut Shell, range: Range<usize>, _: &mut Window, cx: &mut Context<Shell>| {
+                let selected = this.selected.as_ref().map(|s| s.path.as_str());
+                let files = this.snapshot.changes.get(range).unwrap_or_default();
+                files
+                    .iter()
+                    .map(|file| {
+                        let owned = file.path.clone();
+                        let on_click = cx.listener(
+                            move |this: &mut Shell,
+                                  _: &ClickEvent,
+                                  _: &mut Window,
+                                  cx: &mut Context<Shell>| {
+                                this.select_file(&owned, cx);
+                            },
+                        );
+                        file_row(file, selected == Some(file.path.as_str()), on_click)
+                    })
+                    .collect::<Vec<_>>()
+            },
+        ),
     )
+    .track_scroll(scroll.clone())
+    .flex_1()
+    .min_h(px(0.));
+    panel(Screen::Diff, &summary, rows.into_any_element(), cx)
 }
 
 /// The frame of the left panel, shared by both tabs: the Changes | Files
 /// control, the find box, a summary line, and the tab's list.
-pub fn panel(active: Screen, summary: &str, list: Stateful<Div>, cx: &Context<Shell>) -> Div {
+pub fn panel(active: Screen, summary: &str, list: AnyElement, cx: &Context<Shell>) -> Div {
     div()
         .flex()
         .flex_col()
@@ -104,19 +109,6 @@ pub fn panel(active: Screen, summary: &str, list: Stateful<Div>, cx: &Context<Sh
                 .child(summary.to_owned()),
         )
         .child(list)
-}
-
-/// A scrolling list of rows. `scroll` lets the keyboard bring a row into view.
-pub fn list(id: &'static str, rows: Vec<AnyElement>, scroll: &ScrollHandle) -> Stateful<Div> {
-    div()
-        .id(id)
-        .flex()
-        .flex_col()
-        .flex_1()
-        .min_h(px(0.))
-        .overflow_y_scroll()
-        .track_scroll(scroll)
-        .children(rows)
 }
 
 /// The "Changes | Files" control. Each segment shows its tab.
@@ -253,7 +245,7 @@ fn split_path(path: &str) -> (&str, &str) {
 pub fn centre(
     snapshot: &Snapshot,
     selected: Option<&Selected>,
-    composer: Option<&Composer>,
+    diff_list: Option<&DiffList>,
     cx: &Context<Shell>,
 ) -> Stateful<Div> {
     div()
@@ -265,7 +257,7 @@ pub fn centre(
         .bg(theme::paper())
         .child(file_header(selected, cx))
         .children(selected.filter(|s| s.outside).map(context_banner))
-        .child(diff_body(snapshot, selected, composer, cx))
+        .child(diff_body(snapshot, selected, diff_list, cx))
 }
 
 /// The file's path, its added and removed line counts when it has a diff, and
@@ -378,40 +370,26 @@ fn comment_button(cx: &Context<Shell>) -> Stateful<Div> {
 fn diff_body(
     snapshot: &Snapshot,
     selected: Option<&Selected>,
-    composer: Option<&Composer>,
+    diff_list: Option<&DiffList>,
     cx: &Context<Shell>,
-) -> Stateful<Div> {
-    let content = match (selected, snapshot.changes_note.as_deref()) {
-        (_, Some(note)) => notice(note),
-        (None, None) if snapshot.changes.is_empty() => {
-            notice(&format!("No changes against {}.", snapshot.base_name))
-        }
-        (None, None) => notice("Select a file to see its diff."),
-        (Some(selected), None) => match &selected.diff {
-            Ok(diff) => {
-                let comments: Vec<&Comment> = snapshot
-                    .comments
-                    .iter()
-                    .filter(|comment| comment.file == selected.path)
-                    .collect();
-                let overlay = Overlay::new(
-                    diff,
-                    &comments,
-                    &selected.selection,
-                    composer,
-                    selected.outside,
-                );
-                diff_view(diff, &overlay, cx)
-            }
-            Err(message) => notice(message),
+) -> Div {
+    let body = div().flex_1().min_h(px(0.));
+    match (selected, snapshot.changes_note.as_deref()) {
+        (_, Some(note)) => body.child(notice(note)),
+        (None, None) if snapshot.changes.is_empty() => body.child(notice(&format!(
+            "No changes against {}.",
+            snapshot.base_name
+        ))),
+        (None, None) => body.child(notice("Select a file to see its diff.")),
+        (Some(selected), None) => match (&selected.diff, diff_list) {
+            (Ok(_), Some(list)) => body
+                .py(px(8.))
+                .child(list.element(cx.weak_entity()).size_full()),
+            (Ok(diff), None) if diff.binary => body.child(notice("Binary file, no diff shown")),
+            (Ok(_), None) => body.child(notice("No line changes in this file.")),
+            (Err(message), _) => body.child(notice(message)),
         },
-    };
-    div()
-        .id("diff-body")
-        .flex_1()
-        .min_h(px(0.))
-        .overflow_y_scroll()
-        .child(content)
+    }
 }
 
 pub fn notice(text: &str) -> Div {
@@ -420,110 +398,4 @@ pub fn notice(text: &str) -> Div {
         .py(px(16.))
         .text_color(theme::muted())
         .child(text.to_owned())
-}
-
-pub fn right(snapshot: &Snapshot, cx: &Context<Shell>) -> Div {
-    let rows = submit_dialog::draft_rows(snapshot);
-    let drafts = rows.len();
-    let list = if rows.is_empty() {
-        div()
-            .text_color(theme::muted())
-            .child("No comments in your draft yet.")
-    } else {
-        div().flex().flex_col().children(rows.iter().map(draft_row))
-    };
-
-    div()
-        .flex()
-        .flex_col()
-        .h_full()
-        .p(theme::PANEL_PADDING)
-        .gap(px(18.))
-        .child(
-            div()
-                .text_size(px(22.))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(theme::ink())
-                .child("Your review"),
-        )
-        .child(list)
-        .child(div().flex_1())
-        .child(submit_button(drafts, cx))
-}
-
-fn draft_row(row: &Row) -> Div {
-    div()
-        .flex()
-        .items_start()
-        .gap(px(10.))
-        .py(px(10.))
-        .border_b_1()
-        .border_color(theme::hairline())
-        .child(
-            div()
-                .w(px(14.))
-                .flex_none()
-                .text_center()
-                .text_color(theme::pending())
-                .child(row.state.glyph()),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.))
-                .flex()
-                .flex_col()
-                .gap(px(2.))
-                .child(
-                    div()
-                        .truncate()
-                        .text_color(theme::ink())
-                        .child(row.title.clone()),
-                )
-                .child(
-                    div()
-                        .font_family(theme::code_font())
-                        .text_size(px(theme::CODE_FONT_SIZE))
-                        .text_color(theme::faint())
-                        .child(row.location.clone()),
-                ),
-        )
-}
-
-/// Opens the submit dialog. Enabled only with at least one draft comment; the
-/// key hint shows the shortcut that does the same.
-fn submit_button(drafts: usize, cx: &Context<Shell>) -> Stateful<Div> {
-    let ready = drafts > 0;
-    let mut button = div()
-        .id("submit-review-button")
-        .flex()
-        .items_center()
-        .justify_center()
-        .gap(px(8.))
-        .h(px(36.))
-        .rounded(theme::CONTROL_RADIUS)
-        .child("Submit review")
-        .child(
-            div()
-                .font_family(theme::code_font())
-                .text_size(px(theme::KEY_FONT_SIZE))
-                .text_color(theme::faint())
-                .child("⇧⌘R"),
-        );
-    if ready {
-        button = button
-            .bg(theme::ink())
-            .text_color(theme::paper())
-            .font_weight(FontWeight::MEDIUM)
-            .on_click(cx.listener(
-                |this: &mut Shell, _: &ClickEvent, window: &mut Window, cx: &mut Context<Shell>| {
-                    this.open_submit(window, cx);
-                },
-            ));
-    } else {
-        button = button
-            .bg(theme::selected_panel())
-            .text_color(theme::faint());
-    }
-    button
 }

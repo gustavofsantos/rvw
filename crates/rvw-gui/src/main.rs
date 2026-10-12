@@ -3,7 +3,9 @@
 mod assets;
 mod composer;
 mod data;
+mod diff_list;
 mod diff_view;
+mod draft_panel;
 mod files_panel;
 mod finder;
 mod frame;
