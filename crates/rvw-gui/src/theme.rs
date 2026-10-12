@@ -87,3 +87,12 @@ pub fn added_tint() -> Rgba {
 pub fn removed_tint() -> Rgba {
     rgba(0xba3e_4b17)
 }
+
+/// The chord that submits a multi-line field, as the key hints spell it.
+pub fn submit_chord() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "\u{2318}\u{21b5}"
+    } else {
+        "Ctrl+Enter"
+    }
+}

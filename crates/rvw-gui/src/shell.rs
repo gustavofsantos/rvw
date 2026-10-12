@@ -19,7 +19,7 @@ use crate::key_strip::key_strip;
 use crate::queue_screen;
 use crate::review_screen::{self, Selected};
 use crate::submit_dialog::{self, OpenSubmit, SubmitDialog};
-use crate::text_input::{TextInput, TextInputEvent};
+use crate::text_area::{TextArea, TextAreaEvent};
 use crate::theme;
 use crate::verdict::Verdict;
 
@@ -132,22 +132,22 @@ impl Shell {
         if self.composer.is_some() || nothing_selected {
             return;
         }
-        let input = cx.new(|cx| TextInput::new("Write a comment", cx));
+        let input = cx.new(|cx| TextArea::new("Write a comment", cx).with_lines(2, 8));
         let events = cx.subscribe(
             &input,
-            |this: &mut Self, _, event: &TextInputEvent, cx: &mut Context<Self>| {
+            |this: &mut Self, _, event: &TextAreaEvent, cx: &mut Context<Self>| {
                 this.on_composer_event(*event, cx);
             },
         );
-        input.read(cx).focus(window);
+        input.update(cx, |area, cx| area.focus(window, cx));
         self.composer = Some(Composer::new(input, events));
         cx.notify();
     }
 
-    fn on_composer_event(&mut self, event: TextInputEvent, cx: &mut Context<Self>) {
+    fn on_composer_event(&mut self, event: TextAreaEvent, cx: &mut Context<Self>) {
         match event {
-            TextInputEvent::Cancel => self.composer = None,
-            TextInputEvent::Submit => self.submit_comment(cx),
+            TextAreaEvent::Cancel => self.composer = None,
+            TextAreaEvent::Submit => self.submit_comment(cx),
         }
         cx.notify();
     }
@@ -158,7 +158,7 @@ impl Shell {
         let Some(text) = self
             .composer
             .as_ref()
-            .map(|composer| composer.input.read(cx).text().trim().to_owned())
+            .map(|composer| composer.input.read(cx).text().trim_end().to_owned())
         else {
             return;
         };
@@ -201,7 +201,7 @@ impl Shell {
             Err(message) => {
                 if let Some(composer) = self.composer.as_mut() {
                     composer.error = Some(format!("Saved, but the view did not reload: {message}"));
-                    composer.input.update(cx, TextInput::clear);
+                    composer.input.update(cx, TextArea::clear);
                 }
             }
         }
@@ -267,16 +267,16 @@ impl Shell {
             return;
         }
         let drafts = submit_dialog::draft_rows(&self.snapshot).len();
-        let summary = cx.new(|cx| TextInput::new("Summary for the agent", cx));
+        let summary = cx.new(|cx| TextArea::new("Summary for the agent", cx).with_lines(2, 6));
         let events = cx.subscribe(
             &summary,
-            |this: &mut Self, _, event: &TextInputEvent, cx: &mut Context<Self>| {
-                if *event == TextInputEvent::Cancel {
+            |this: &mut Self, _, event: &TextAreaEvent, cx: &mut Context<Self>| {
+                if *event == TextAreaEvent::Cancel {
                     this.close_submit(cx);
                 }
             },
         );
-        summary.read(cx).focus(window);
+        summary.update(cx, |area, cx| area.focus(window, cx));
         self.submit = Some(SubmitDialog::new(
             Verdict::for_drafts(drafts),
             summary,

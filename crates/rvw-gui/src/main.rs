@@ -11,6 +11,9 @@ mod queue_screen;
 mod review_screen;
 mod shell;
 mod submit_dialog;
+mod text_area;
+mod text_area_element;
+mod text_area_math;
 mod text_input;
 mod theme;
 mod verdict;
@@ -90,6 +93,7 @@ fn flag_value(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<Str
 fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identity) {
     Application::new().run(move |cx: &mut App| {
         text_input::bind_keys(cx);
+        text_area::bind_keys(cx);
         submit_dialog::bind_keys(cx);
         finder::bind_keys(cx);
         let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);

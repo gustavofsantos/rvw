@@ -1,22 +1,22 @@
-//! The comment composer: a one-line field that opens under the last selected
+//! The comment composer: a multi-line field that opens under the last selected
 //! diff line. The shell owns it; this file lays it out.
 
 use gpui::prelude::*;
 use gpui::{div, px, Div, Entity, Subscription};
 
-use crate::text_input::TextInput;
+use crate::text_area::TextArea;
 use crate::theme;
 
 /// An open composer: its field, the error of the last failed add, and the
 /// subscription that turns the field's Submit and Cancel into shell calls.
 pub struct Composer {
-    pub input: Entity<TextInput>,
+    pub input: Entity<TextArea>,
     pub error: Option<String>,
     _events: Subscription,
 }
 
 impl Composer {
-    pub fn new(input: Entity<TextInput>, events: Subscription) -> Self {
+    pub fn new(input: Entity<TextArea>, events: Subscription) -> Self {
         Self {
             input,
             error: None,
@@ -42,7 +42,7 @@ pub fn view(composer: &Composer, caption: &str) -> Div {
         .child(
             div()
                 .flex()
-                .items_center()
+                .items_start()
                 .gap(px(12.))
                 .child(div().flex_1().min_w(px(0.)).child(composer.input.clone()))
                 .child(
@@ -59,7 +59,10 @@ pub fn view(composer: &Composer, caption: &str) -> Div {
                 .pt(px(4.))
                 .text_size(px(theme::KEY_FONT_SIZE + 0.5))
                 .text_color(theme::faint())
-                .child("Enter adds it to your review, Esc cancels"),
+                .child(format!(
+                    "{} adds it to your review  \u{b7}  Esc cancels  \u{b7}  Return for a new line",
+                    theme::submit_chord()
+                )),
         );
     if let Some(message) = &composer.error {
         block = block.child(

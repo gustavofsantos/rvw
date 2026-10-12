@@ -13,7 +13,7 @@ use rvw_view::queue::{Filter, Row, State};
 use crate::data::Snapshot;
 use crate::queue_screen::noun;
 use crate::shell::Shell;
-use crate::text_input::TextInput;
+use crate::text_area::TextArea;
 use crate::theme;
 use crate::verdict::Verdict;
 
@@ -30,13 +30,13 @@ pub fn bind_keys(cx: &mut App) {
 /// close.
 pub struct SubmitDialog {
     pub verdict: Verdict,
-    pub summary: Entity<TextInput>,
+    pub summary: Entity<TextArea>,
     pub error: Option<String>,
     _events: Subscription,
 }
 
 impl SubmitDialog {
-    pub fn new(verdict: Verdict, summary: Entity<TextInput>, events: Subscription) -> Self {
+    pub fn new(verdict: Verdict, summary: Entity<TextArea>, events: Subscription) -> Self {
         Self {
             verdict,
             summary,
