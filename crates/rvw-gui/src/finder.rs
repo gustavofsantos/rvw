@@ -184,7 +184,7 @@ fn hit_row(index: usize, hit: &Hit, highlighted: bool, cx: &Context<Shell>) -> S
     let name =
         div()
             .flex()
-            .font_family(theme::CODE_FONT)
+            .font_family(theme::code_font())
             .text_size(px(theme::CODE_FONT_SIZE))
             .text_color(theme::text())
             .children(picker::runs(&hit.name, &hit.name_matches).into_iter().map(
@@ -207,7 +207,7 @@ fn hit_row(index: usize, hit: &Hit, highlighted: bool, cx: &Context<Shell>) -> S
         label = label.child(
             div()
                 .truncate()
-                .font_family(theme::CODE_FONT)
+                .font_family(theme::code_font())
                 .text_size(px(theme::KEY_FONT_SIZE))
                 .text_color(theme::faint())
                 .child(hit.dir.clone()),
@@ -250,7 +250,7 @@ fn footer() -> Div {
         .px(px(20.))
         .border_t_1()
         .border_color(theme::hairline())
-        .font_family(theme::CODE_FONT)
+        .font_family(theme::code_font())
         .text_size(px(theme::KEY_FONT_SIZE))
         .text_color(theme::faint())
         .child("↑↓ move")

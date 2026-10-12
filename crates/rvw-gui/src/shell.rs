@@ -399,7 +399,7 @@ impl Render for Shell {
         div()
             .size_full()
             .bg(theme::paper())
-            .font_family(theme::UI_FONT)
+            .font_family(theme::ui_font())
             .text_size(px(theme::BASE_FONT_SIZE))
             .text_color(theme::text())
             .track_focus(&self.focus)

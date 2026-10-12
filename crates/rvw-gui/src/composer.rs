@@ -48,7 +48,7 @@ pub fn view(composer: &Composer, caption: &str) -> Div {
                 .child(
                     div()
                         .flex_none()
-                        .font_family(theme::CODE_FONT)
+                        .font_family(theme::code_font())
                         .text_size(px(theme::CODE_FONT_SIZE))
                         .text_color(theme::faint())
                         .child(caption.to_owned()),

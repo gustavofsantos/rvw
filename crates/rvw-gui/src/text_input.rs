@@ -660,7 +660,7 @@ impl Render for TextInput {
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle)
             .cursor(CursorStyle::IBeam)
-            .font_family(theme::UI_FONT)
+            .font_family(theme::ui_font())
             .text_size(px(theme::BASE_FONT_SIZE))
             .line_height(px(20.))
             .text_color(theme::ink())

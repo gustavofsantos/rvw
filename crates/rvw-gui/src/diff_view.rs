@@ -107,7 +107,7 @@ fn hunk_view(
                 .items_center()
                 .h(LINE_HEIGHT)
                 .px(px(24.))
-                .font_family(theme::CODE_FONT)
+                .font_family(theme::code_font())
                 .text_size(px(theme::CODE_FONT_SIZE))
                 .text_color(theme::faint())
                 .whitespace_nowrap()
@@ -153,7 +153,7 @@ fn line_view(pos: Pos, line: &Line, selected: bool, cx: &Context<Shell>) -> Div 
         .flex()
         .items_center()
         .h(LINE_HEIGHT)
-        .font_family(theme::CODE_FONT)
+        .font_family(theme::code_font())
         .text_size(px(theme::CODE_FONT_SIZE))
         .text_color(theme::text())
         .when_some(background, gpui::Styled::bg)
@@ -223,7 +223,7 @@ fn thread(comment: &Comment, indent: Pixels) -> Div {
         )
         .child(
             div()
-                .font_family(theme::CODE_FONT)
+                .font_family(theme::code_font())
                 .text_size(px(theme::CODE_FONT_SIZE))
                 .text_color(theme::faint())
                 .child(format!("{} {lines}", comment.id)),

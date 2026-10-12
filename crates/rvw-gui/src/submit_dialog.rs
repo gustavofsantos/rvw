@@ -252,7 +252,7 @@ fn review_row(row: &Row) -> Div {
             div()
                 .w(px(40.))
                 .flex_none()
-                .font_family(theme::CODE_FONT)
+                .font_family(theme::code_font())
                 .text_size(px(12.))
                 .text_color(theme::muted())
                 .child(row.id.clone()),
@@ -268,7 +268,7 @@ fn review_row(row: &Row) -> Div {
         .child(
             div()
                 .flex_none()
-                .font_family(theme::CODE_FONT)
+                .font_family(theme::code_font())
                 .text_size(px(12.))
                 .text_color(theme::faint())
                 .child(row.location.clone()),
@@ -345,7 +345,7 @@ fn label(text: &str) -> Div {
 
 fn key_hint(text: &str) -> Div {
     div()
-        .font_family(theme::CODE_FONT)
+        .font_family(theme::code_font())
         .text_size(px(theme::KEY_FONT_SIZE))
         .text_color(theme::faint())
         .child(text.to_owned())

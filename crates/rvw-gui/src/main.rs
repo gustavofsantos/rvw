@@ -1,5 +1,6 @@
 //! rvw-gui: the native review window: the queue and the review screens.
 
+mod assets;
 mod composer;
 mod data;
 mod diff_view;
@@ -91,27 +92,31 @@ fn flag_value(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<Str
 /// Starts the application and opens the one window. Errors here happen after
 /// the database is open, so they are reported from inside the app callback.
 fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identity) {
-    Application::new().run(move |cx: &mut App| {
-        text_input::bind_keys(cx);
-        text_area::bind_keys(cx);
-        submit_dialog::bind_keys(cx);
-        finder::bind_keys(cx);
-        let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
-        let options = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(bounds)),
-            titlebar: Some(TitlebarOptions {
-                title: Some("rvw".into()),
-                ..TitlebarOptions::default()
-            }),
-            ..WindowOptions::default()
-        };
-        let opened = cx.open_window(options, move |_window, cx| {
-            cx.new(|cx| Shell::new(snapshot, service, identity, cx))
+    Application::new()
+        .with_assets(assets::Assets)
+        .run(move |cx: &mut App| {
+            let installed = cx.text_system().all_font_names();
+            theme::choose_fonts(&installed);
+            text_input::bind_keys(cx);
+            text_area::bind_keys(cx);
+            submit_dialog::bind_keys(cx);
+            finder::bind_keys(cx);
+            let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
+            let options = WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                titlebar: Some(TitlebarOptions {
+                    title: Some("rvw".into()),
+                    ..TitlebarOptions::default()
+                }),
+                ..WindowOptions::default()
+            };
+            let opened = cx.open_window(options, move |_window, cx| {
+                cx.new(|cx| Shell::new(snapshot, service, identity, cx))
+            });
+            if let Err(error) = opened {
+                eprintln!("rvw-gui: {error}");
+                std::process::exit(1);
+            }
+            cx.activate(true);
         });
-        if let Err(error) = opened {
-            eprintln!("rvw-gui: {error}");
-            std::process::exit(1);
-        }
-        cx.activate(true);
-    });
 }

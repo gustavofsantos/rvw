@@ -179,7 +179,7 @@ fn search_box(cx: &Context<Shell>) -> Stateful<Div> {
         .child(div().flex_1().child("Find a file"))
         .child(
             div()
-                .font_family(theme::CODE_FONT)
+                .font_family(theme::code_font())
                 .text_size(px(theme::KEY_FONT_SIZE))
                 .text_color(theme::faint())
                 .child("⌘P"),
@@ -212,7 +212,7 @@ fn file_row(
             div()
                 .w(px(12.))
                 .flex_none()
-                .font_family(theme::CODE_FONT)
+                .font_family(theme::code_font())
                 .text_size(px(12.))
                 .text_color(theme::faint())
                 .child(file.status.to_string()),
@@ -220,7 +220,7 @@ fn file_row(
         .child(
             div()
                 .flex_none()
-                .font_family(theme::CODE_FONT)
+                .font_family(theme::code_font())
                 .text_size(px(12.))
                 .child(name.to_owned()),
         )
@@ -229,7 +229,7 @@ fn file_row(
                 .flex_1()
                 .min_w(px(0.))
                 .truncate()
-                .font_family(theme::CODE_FONT)
+                .font_family(theme::code_font())
                 .text_size(px(12.))
                 .text_color(theme::faint())
                 .child(dir.to_owned()),
@@ -280,7 +280,7 @@ fn file_header(selected: Option<&Selected>, cx: &Context<Shell>) -> Div {
         .px(px(24.))
         .border_b_1()
         .border_color(theme::hairline())
-        .font_family(theme::CODE_FONT)
+        .font_family(theme::code_font())
         .text_size(px(theme::CODE_FONT_SIZE))
         .text_color(theme::ink())
         .child(div().flex_1().min_w(px(0.)).truncate().child(path));
@@ -335,7 +335,7 @@ fn context_banner(selected: &Selected) -> Div {
     if selected.cut {
         banner = banner.child(
             div()
-                .font_family(theme::CODE_FONT)
+                .font_family(theme::code_font())
                 .text_size(px(theme::KEY_FONT_SIZE))
                 .text_color(theme::faint())
                 .child(format!(
@@ -358,7 +358,7 @@ fn comment_button(cx: &Context<Shell>) -> Stateful<Div> {
         .px(px(10.))
         .rounded(theme::CONTROL_RADIUS)
         .bg(theme::hairline())
-        .font_family(theme::UI_FONT)
+        .font_family(theme::ui_font())
         .text_color(theme::ink())
         .on_click(cx.listener(
             |this: &mut Shell, _: &ClickEvent, window: &mut Window, cx: &mut Context<Shell>| {
@@ -368,7 +368,7 @@ fn comment_button(cx: &Context<Shell>) -> Stateful<Div> {
         .child("Comment")
         .child(
             div()
-                .font_family(theme::CODE_FONT)
+                .font_family(theme::code_font())
                 .text_size(px(theme::KEY_FONT_SIZE))
                 .text_color(theme::faint())
                 .child("C"),
@@ -482,7 +482,7 @@ fn draft_row(row: &Row) -> Div {
                 )
                 .child(
                     div()
-                        .font_family(theme::CODE_FONT)
+                        .font_family(theme::code_font())
                         .text_size(px(theme::CODE_FONT_SIZE))
                         .text_color(theme::faint())
                         .child(row.location.clone()),
@@ -505,7 +505,7 @@ fn submit_button(drafts: usize, cx: &Context<Shell>) -> Stateful<Div> {
         .child("Submit review")
         .child(
             div()
-                .font_family(theme::CODE_FONT)
+                .font_family(theme::code_font())
                 .text_size(px(theme::KEY_FONT_SIZE))
                 .text_color(theme::faint())
                 .child("⇧⌘R"),

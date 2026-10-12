@@ -3,7 +3,7 @@
 //! supplies everything around them.
 
 use gpui::prelude::*;
-use gpui::{div, px, ClickEvent, Context, Div, FontWeight, Pixels, Rgba, Stateful, Window};
+use gpui::{div, px, svg, ClickEvent, Context, Div, FontWeight, Pixels, Rgba, Stateful, Window};
 use rvw_view::keys::Screen;
 
 use crate::data::Snapshot;
@@ -57,7 +57,7 @@ pub fn top_bar(snapshot: &Snapshot) -> Div {
         )
         .child(
             div()
-                .font_family(theme::CODE_FONT)
+                .font_family(theme::code_font())
                 .text_size(px(theme::CODE_FONT_SIZE))
                 .text_color(theme::muted())
                 .child(snapshot.workspace.clone()),
@@ -98,14 +98,14 @@ fn counter(label: String, color: Rgba) -> Div {
     div().text_color(color).child(label)
 }
 
-/// The rail's four icons. Q and R open the queue and the review screens; H and
-/// B are drawn but not wired yet.
+/// The rail's four icons. Queue and Review open their screens; History and
+/// Branches are drawn but not wired yet. The ids are the old letters.
 pub fn rail(screen: Screen, cx: &mut Context<Shell>) -> Div {
     let items = [
-        ("Q", Some(Screen::Queue)),
-        ("R", Some(Screen::Diff)),
-        ("H", None),
-        ("B", None),
+        ("Q", "icons/queue.svg", Some(Screen::Queue)),
+        ("R", "icons/review.svg", Some(Screen::Diff)),
+        ("H", "icons/history.svg", None),
+        ("B", "icons/branches.svg", None),
     ];
     div()
         .flex()
@@ -118,22 +118,21 @@ pub fn rail(screen: Screen, cx: &mut Context<Shell>) -> Div {
         .bg(theme::panel())
         .border_r_1()
         .border_color(theme::hairline())
-        .children(items.map(|(glyph, target)| {
+        .children(items.map(|(id, icon, target)| {
+            let active = target == Some(screen);
             let mut item = div()
-                .id(glyph)
+                .id(id)
                 .flex()
                 .items_center()
                 .justify_center()
                 .size(px(36.))
                 .rounded(theme::CONTROL_RADIUS)
-                .font_family(theme::CODE_FONT)
-                .text_color(if target == Some(screen) {
+                .when(active, |d| d.bg(theme::selected_panel()))
+                .child(svg().path(icon).size(px(18.)).text_color(if active {
                     theme::ink()
                 } else {
                     theme::faint()
-                })
-                .when(target == Some(screen), |d| d.bg(theme::selected_panel()))
-                .child(glyph);
+                }));
             if let Some(target) = target {
                 item = item.on_click(cx.listener(
                     move |this: &mut Shell,

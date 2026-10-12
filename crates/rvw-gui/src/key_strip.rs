@@ -57,7 +57,7 @@ fn key_cell(key: Key, light: Light, hint: Option<&'static str>) -> Stateful<Div>
         .child(div().size(px(6.)).rounded_full().bg(led))
         .child(
             div()
-                .font_family(theme::CODE_FONT)
+                .font_family(theme::code_font())
                 .text_size(px(theme::KEY_FONT_SIZE))
                 .child(key.glyph()),
         )

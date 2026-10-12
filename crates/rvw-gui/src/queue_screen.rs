@@ -159,7 +159,7 @@ fn filter_row(
         )
         .child(
             div()
-                .font_family(theme::CODE_FONT)
+                .font_family(theme::code_font())
                 .text_color(theme::muted())
                 .child(count.map_or(String::new(), |n| n.to_string())),
         )
@@ -248,7 +248,7 @@ fn group_header(review: Option<&Review>) -> Div {
             header
                 .child(
                     div()
-                        .font_family(theme::CODE_FONT)
+                        .font_family(theme::code_font())
                         .text_size(px(theme::CODE_FONT_SIZE))
                         .text_color(theme::muted())
                         .child(review.id.clone()),
@@ -306,7 +306,7 @@ fn row_view(row: &Row, by_id: &HashMap<&str, &Comment>) -> Div {
             div()
                 .w(px(30.))
                 .flex_none()
-                .font_family(theme::CODE_FONT)
+                .font_family(theme::code_font())
                 .text_size(px(12.))
                 .text_color(theme::muted())
                 .child(row.id.clone()),
@@ -322,7 +322,7 @@ fn row_view(row: &Row, by_id: &HashMap<&str, &Comment>) -> Div {
         .child(
             div()
                 .flex_none()
-                .font_family(theme::CODE_FONT)
+                .font_family(theme::code_font())
                 .text_size(px(theme::CODE_FONT_SIZE))
                 .text_color(theme::muted())
                 .child(row.location.clone()),

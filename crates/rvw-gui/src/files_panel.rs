@@ -145,7 +145,7 @@ fn tree_row(
                     .flex_1()
                     .min_w(px(0.))
                     .truncate()
-                    .font_family(theme::CODE_FONT)
+                    .font_family(theme::code_font())
                     .text_size(px(12.))
                     .child(node.name.clone()),
             )
@@ -188,7 +188,7 @@ fn tree_row(
                 .flex_1()
                 .min_w(px(0.))
                 .truncate()
-                .font_family(theme::CODE_FONT)
+                .font_family(theme::code_font())
                 .text_size(px(12.))
                 .child(node.name.clone()),
         )

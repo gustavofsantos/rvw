@@ -4,7 +4,9 @@
 //! The palette is complete before every screen uses it, hence the allow.
 #![allow(dead_code)]
 
-use gpui::{px, rgb, rgba, Pixels, Rgba};
+use std::sync::OnceLock;
+
+use gpui::{px, rgb, rgba, Pixels, Rgba, SharedString};
 
 pub const WINDOW_RADIUS: Pixels = px(14.);
 pub const CONTROL_RADIUS: Pixels = px(8.);
@@ -21,8 +23,71 @@ pub const BASE_FONT_SIZE: f32 = 13.5;
 pub const CODE_FONT_SIZE: f32 = 12.5;
 pub const KEY_FONT_SIZE: f32 = 11.;
 
-pub const UI_FONT: &str = "Hanken Grotesk";
-pub const CODE_FONT: &str = "JetBrains Mono";
+const UI_PREFERENCES: &[&str] = &[
+    "Hanken Grotesk",
+    "Inter",
+    "SF Pro Text",
+    "Noto Sans",
+    "Ubuntu",
+    "DejaVu Sans",
+    "Liberation Sans",
+];
+const UI_FALLBACK: &str = "Noto Sans";
+const CODE_PREFERENCES: &[&str] = &[
+    "JetBrains Mono",
+    "SF Mono",
+    "Menlo",
+    "Cascadia Mono",
+    "Fira Code",
+    "Noto Sans Mono",
+    "DejaVu Sans Mono",
+    "Liberation Mono",
+    "Ubuntu Mono",
+    "Consolas",
+    "Courier New",
+];
+const CODE_FALLBACK: &str = "Noto Sans Mono";
+
+/// The families chosen at startup. Unset means the fallbacks are used.
+static UI_FAMILY: OnceLock<String> = OnceLock::new();
+static CODE_FAMILY: OnceLock<String> = OnceLock::new();
+
+/// Returns the first preference that is installed (an exact name, compared
+/// case-insensitively), or the fallback when none is.
+pub fn pick<'a>(installed: &[String], preferences: &[&'a str], fallback: &'a str) -> &'a str {
+    preferences
+        .iter()
+        .copied()
+        .find(|wanted| {
+            installed
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case(wanted))
+        })
+        .unwrap_or(fallback)
+}
+
+/// Chooses the UI and code families from the installed ones. Called once at
+/// startup; a second call keeps the first choice.
+pub fn choose_fonts(installed: &[String]) {
+    let _ = UI_FAMILY.set(pick(installed, UI_PREFERENCES, UI_FALLBACK).to_owned());
+    let _ = CODE_FAMILY.set(pick(installed, CODE_PREFERENCES, CODE_FALLBACK).to_owned());
+}
+
+pub fn ui_font() -> SharedString {
+    UI_FAMILY
+        .get()
+        .map_or(UI_FALLBACK, String::as_str)
+        .to_owned()
+        .into()
+}
+
+pub fn code_font() -> SharedString {
+    CODE_FAMILY
+        .get()
+        .map_or(CODE_FALLBACK, String::as_str)
+        .to_owned()
+        .into()
+}
 
 pub fn canvas() -> Rgba {
     rgb(0x00e6_e5df)
@@ -92,5 +157,69 @@ pub fn submit_chord() -> &'static str {
         "\u{2318}\u{21b5}"
     } else {
         "Ctrl+Enter"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn installed(names: &[&str]) -> Vec<String> {
+        names.iter().map(|name| (*name).to_owned()).collect()
+    }
+
+    #[test]
+    fn exact_match_is_picked() {
+        let names = installed(&["Ubuntu", "JetBrains Mono"]);
+        assert_eq!(
+            pick(&names, CODE_PREFERENCES, CODE_FALLBACK),
+            "JetBrains Mono"
+        );
+    }
+
+    #[test]
+    fn match_ignores_case() {
+        let names = installed(&["noto sans mono"]);
+        assert_eq!(
+            pick(&names, CODE_PREFERENCES, CODE_FALLBACK),
+            "Noto Sans Mono"
+        );
+    }
+
+    #[test]
+    fn earlier_preference_wins_over_installed_order() {
+        let names = installed(&["DejaVu Sans Mono", "Fira Code", "Menlo"]);
+        assert_eq!(pick(&names, CODE_PREFERENCES, CODE_FALLBACK), "Menlo");
+    }
+
+    #[test]
+    fn partial_name_does_not_match() {
+        let names = installed(&["JetBrains Mono Light"]);
+        assert_eq!(
+            pick(&names, CODE_PREFERENCES, CODE_FALLBACK),
+            "Noto Sans Mono"
+        );
+    }
+
+    #[test]
+    fn nothing_installed_gives_the_fallback() {
+        assert_eq!(pick(&[], UI_PREFERENCES, UI_FALLBACK), "Noto Sans");
+        assert_eq!(pick(&[], CODE_PREFERENCES, CODE_FALLBACK), "Noto Sans Mono");
+    }
+
+    #[test]
+    fn unrelated_fonts_give_the_fallback() {
+        let names = installed(&["Wingdings", "Symbol"]);
+        assert_eq!(pick(&names, UI_PREFERENCES, "Fallback"), "Fallback");
+    }
+
+    #[test]
+    fn the_real_preference_lists_are_nonempty_and_unique() {
+        for list in [UI_PREFERENCES, CODE_PREFERENCES] {
+            let mut sorted = list.to_vec();
+            sorted.sort_unstable();
+            sorted.dedup();
+            assert_eq!(sorted.len(), list.len());
+        }
     }
 }
