@@ -116,6 +116,7 @@ impl Key {
 
 /// The facts the lights are decided from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)] // independent facts, one per light rule
 pub struct Context {
     pub screen: Screen,
     /// A comment composer is open.
@@ -128,6 +129,18 @@ pub struct Context {
     pub staged_count: usize,
     /// There is an action to undo.
     pub can_undo: bool,
+    /// The screen has a list the user can move through with J and K.
+    pub can_move: bool,
+    /// The app can open the file in the user's editor.
+    pub can_open_file: bool,
+}
+
+/// The screens that show a file the user can open in an editor.
+fn shows_file(screen: Screen) -> bool {
+    matches!(
+        screen,
+        Screen::Diff | Screen::Outcome | Screen::Files | Screen::Changes
+    )
 }
 
 /// The lights of all thirteen keys, indexed like [`Key::ALL`].
@@ -140,16 +153,26 @@ pub fn light(ctx: &Context, key: Key) -> Light {
     let on_diff_or_files = matches!(ctx.screen, Screen::Diff | Screen::Files);
     let outcome_done = ctx.screen == Screen::Outcome && ctx.comment_done;
     match key {
-        Key::Move | Key::FindFile | Key::Actions => Light::Available,
+        Key::FindFile | Key::Actions => Light::Available,
+        Key::Move => {
+            if ctx.can_move && ctx.screen != Screen::Queue {
+                Light::Available
+            } else {
+                Light::Off
+            }
+        }
         Key::Open => match ctx.screen {
             Screen::Search => Light::Needed,
             Screen::Queue | Screen::Files | Screen::History => Light::Available,
             _ => Light::Off,
         },
-        Key::OpenFile => match ctx.screen {
-            Screen::Diff | Screen::Outcome | Screen::Files | Screen::Changes => Light::Available,
-            _ => Light::Off,
-        },
+        Key::OpenFile => {
+            if ctx.can_open_file && shows_file(ctx.screen) {
+                Light::Available
+            } else {
+                Light::Off
+            }
+        }
         Key::Comment => {
             if on_diff_or_files {
                 Light::Available
@@ -216,8 +239,13 @@ pub fn hint(ctx: &Context, key: Key) -> Option<&'static str> {
         return None;
     }
     match key {
+        Key::Move => Some("Nothing to move through here"),
         Key::Open => Some("Select an item first"),
-        Key::OpenFile => Some("Open a file in the diff or the tree"),
+        Key::OpenFile => Some(if shows_file(ctx.screen) {
+            "Opening a file in your editor is not available yet"
+        } else {
+            "Open a file in the diff or the tree"
+        }),
         Key::Comment => Some("Comments are written on a diff or a file"),
         Key::Add => Some("Start a comment first"),
         Key::Submit => Some("Add a comment to your review first"),
@@ -225,7 +253,7 @@ pub fn hint(ctx: &Context, key: Key) -> Option<&'static str> {
         Key::Stage => Some("Stage changes on the Changes screen"),
         Key::Commit => Some("Stage something to commit"),
         Key::Undo => Some("Nothing to undo"),
-        Key::Move | Key::FindFile | Key::Actions => None,
+        Key::FindFile | Key::Actions => None,
     }
 }
 
@@ -243,6 +271,7 @@ mod tests {
         Screen::History,
     ];
 
+    /// A context on `screen` where every capability is on and nothing else is.
     fn ctx(screen: Screen) -> Context {
         Context {
             screen,
@@ -251,6 +280,8 @@ mod tests {
             comment_done: false,
             staged_count: 0,
             can_undo: false,
+            can_move: true,
+            can_open_file: true,
         }
     }
 
@@ -263,14 +294,20 @@ mod tests {
                     for can_undo in [false, true] {
                         for draft_count in [0, 1] {
                             for staged_count in [0, 1] {
-                                out.push(Context {
-                                    screen,
-                                    composing,
-                                    draft_count,
-                                    comment_done,
-                                    staged_count,
-                                    can_undo,
-                                });
+                                for can_move in [false, true] {
+                                    for can_open_file in [false, true] {
+                                        out.push(Context {
+                                            screen,
+                                            composing,
+                                            draft_count,
+                                            comment_done,
+                                            staged_count,
+                                            can_undo,
+                                            can_move,
+                                            can_open_file,
+                                        });
+                                    }
+                                }
                             }
                         }
                     }
@@ -281,14 +318,64 @@ mod tests {
     }
 
     #[test]
-    fn move_is_available_on_every_screen() {
+    fn move_is_available_on_every_screen_but_queue() {
         for screen in SCREENS {
-            assert_eq!(
-                light(&ctx(screen), Key::Move),
-                Light::Available,
-                "{screen:?}"
-            );
+            let expected = if screen == Screen::Queue {
+                Light::Off
+            } else {
+                Light::Available
+            };
+            assert_eq!(light(&ctx(screen), Key::Move), expected, "{screen:?}");
         }
+    }
+
+    #[test]
+    fn move_is_off_when_the_screen_cannot_move() {
+        let c = Context {
+            can_move: false,
+            ..ctx(Screen::Diff)
+        };
+        assert_eq!(light(&c, Key::Move), Light::Off);
+    }
+
+    #[test]
+    fn move_hint_explains_the_queue_has_nothing_to_move_through() {
+        assert_eq!(
+            hint(&ctx(Screen::Queue), Key::Move),
+            Some("Nothing to move through here")
+        );
+        assert_eq!(hint(&ctx(Screen::Diff), Key::Move), None);
+    }
+
+    #[test]
+    fn open_file_needs_the_app_to_be_able_to_open_files() {
+        for screen in SCREENS {
+            let c = Context {
+                can_open_file: false,
+                ..ctx(screen)
+            };
+            assert_eq!(light(&c, Key::OpenFile), Light::Off, "{screen:?}");
+        }
+    }
+
+    #[test]
+    fn open_file_hint_says_opening_is_not_available_yet_on_file_screens() {
+        let c = Context {
+            can_open_file: false,
+            ..ctx(Screen::Diff)
+        };
+        assert_eq!(
+            hint(&c, Key::OpenFile),
+            Some("Opening a file in your editor is not available yet")
+        );
+        let queue = Context {
+            can_open_file: false,
+            ..ctx(Screen::Queue)
+        };
+        assert_eq!(
+            hint(&queue, Key::OpenFile),
+            Some("Open a file in the diff or the tree")
+        );
     }
 
     #[test]
@@ -536,6 +623,7 @@ mod tests {
     #[test]
     fn hint_is_some_exactly_for_off_keys_with_a_hint_text() {
         let hinted = [
+            Key::Move,
             Key::Open,
             Key::OpenFile,
             Key::Comment,
