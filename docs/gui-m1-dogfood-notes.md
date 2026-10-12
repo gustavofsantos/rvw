@@ -56,3 +56,44 @@ What did not:
 3. Linking `rvw-gui` needs `libxcb`, `libxkbcommon` and `libxkbcommon-x11`
    development packages. Only the runtime libraries are installed. This
    blocks `cargo build -p rvw-gui` on this machine until they are installed.
+
+## Later in the milestone
+
+Orchestrating:
+
+- Two agents editing the same files in one working tree (the submit dialog and
+  the file finder both touched `shell.rs`) worked because each was told to
+  re-read right before editing and to keep hunks small. The cost: the two
+  features could only be committed together.
+- An agent that finishes with background work still running can re-send its
+  report many times. The harness reported non-delivery each time; nothing was
+  lost, but the orchestrator saw the same report eleven times.
+- Agents were denied deleting their own scratch build directories under
+  `/tmp`. The per-user quota there filled up and tests that create temporary
+  repositories failed with `Disk quota exceeded`, which looked like a code
+  failure. Tell agents to build outside `/tmp` from the start.
+- Each agent's report named what it could not verify, always the same item:
+  nothing has been seen in a window. The binary starts and stays up for ten
+  seconds against a scratch queue, but layout, click and focus behaviour are
+  unchecked.
+
+Product:
+
+- Single-line comment field. `TextInput` is a port of gpui's single-line
+  example. Review comments are often several lines; a multi-line editor is the
+  first thing to build before M1 is called done.
+- "Waiting on you" never clears: a done comment stays waiting until the verdict
+  exists (M4). The queue model already takes an acknowledged set for this.
+- Rejected is shown by looking the comment up by id because `Row` carries no
+  glyph; fold that into `Row`.
+- `review_screen.rs`, `shell.rs` and `diff.rs` are over 350 lines and want
+  splitting.
+
+How to build and run on Linux today:
+
+1. Install the development packages `libxcb1-dev`, `libxkbcommon-dev` and
+   `libxkbcommon-x11-dev`, or give the linker a directory with the unversioned
+   `libxcb.so`, `libxkbcommon.so` and `libxkbcommon-x11.so` symlinks:
+   `RUSTFLAGS="-L <dir>" cargo build -p rvw-gui`.
+2. `rvw-gui --workspace <repo> --db <scratch.db>`. Use a scratch database
+   while the GUI writes comments.
