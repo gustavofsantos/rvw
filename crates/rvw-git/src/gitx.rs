@@ -302,6 +302,83 @@ pub fn changes(dir: &Path, path: &str, base: &str) -> Result<(Vec<Hunk>, bool), 
     Ok((parse_hunks(&out), false))
 }
 
+/// The unified diff of `path` against commit `base`, with `context` lines of
+/// context. A file git does not track yet is shown as entirely added.
+pub fn unified_diff(
+    dir: &Path,
+    path: &str,
+    base: &str,
+    context: usize,
+) -> Result<String, GitError> {
+    let others = run(
+        dir,
+        &[],
+        &[
+            "--literal-pathspecs",
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "--",
+            path,
+        ],
+    )?;
+    if !others.trim().is_empty() {
+        return added_file_diff(dir, path);
+    }
+    let context_arg = format!("-U{context}");
+    run(
+        dir,
+        &[],
+        &[
+            "--literal-pathspecs",
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+            context_arg.as_str(),
+            base,
+            "--",
+            path,
+        ],
+    )
+}
+
+/// The diff git would print for an untracked file: every line added. A binary
+/// file (a NUL in its first 8000 bytes, as git tests) gets git's own notice.
+fn added_file_diff(dir: &Path, path: &str) -> Result<String, GitError> {
+    let bytes = std::fs::read(dir.join(path)).map_err(|e| GitError {
+        args: owned_args(&["diff", "--", path]),
+        stderr: os_error_text(&e),
+    })?;
+    if bytes.is_empty() {
+        return Ok(String::new());
+    }
+    if bytes[..bytes.len().min(8000)].contains(&0) {
+        return Ok(format!("Binary files /dev/null and b/{path} differ\n"));
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    let ends_with_newline = text.ends_with('\n');
+    let body = if ends_with_newline {
+        &text[..text.len() - 1]
+    } else {
+        &text[..]
+    };
+    let lines: Vec<&str> = body.split('\n').collect();
+    let mut out = format!(
+        "--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{} @@\n",
+        lines.len()
+    );
+    for line in lines {
+        out.push('+');
+        out.push_str(line);
+        out.push('\n');
+    }
+    if !ends_with_newline {
+        out.push_str("\\ No newline at end of file\n");
+    }
+    Ok(out)
+}
+
 /// Reads the "@@ -a,b +c,d @@" headers of a unified diff; a count left out
 /// is 1.
 fn parse_hunks(diff: &str) -> Vec<Hunk> {
@@ -644,6 +721,74 @@ mod tests {
             changes(r.path(), "u.txt", "HEAD").unwrap(),
             (Vec::new(), true)
         );
+    }
+
+    #[test]
+    fn unified_diff_shows_modified_lines_with_context() {
+        let r = repo();
+        write(r.path(), "h.txt", "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n");
+        commit_all(r.path(), "init");
+        write(r.path(), "h.txt", "1\n2\n3\n4\nFIVE\n6\n7\n8\n9\n10\n");
+
+        let text = unified_diff(r.path(), "h.txt", "HEAD", 3).unwrap();
+        let (header, body) = text.split_once("@@ -2,7 +2,7 @@\n").expect("hunk header");
+        assert!(header.starts_with("diff --git a/h.txt b/h.txt\n"));
+        assert_eq!(body, " 2\n 3\n 4\n-5\n+FIVE\n 6\n 7\n 8\n");
+    }
+
+    #[test]
+    fn unified_diff_shows_a_deleted_line_without_context() {
+        let r = repo();
+        write(r.path(), "d.txt", "a\nb\nc\n");
+        commit_all(r.path(), "init");
+        write(r.path(), "d.txt", "a\nc\n");
+
+        let text = unified_diff(r.path(), "d.txt", "HEAD", 0).unwrap();
+        // Git may append the enclosing line as context after the header.
+        assert!(text.contains("@@ -2 +1,0 @@"), "{text:?}");
+        assert!(text.ends_with("-b\n"), "{text:?}");
+    }
+
+    #[test]
+    fn unified_diff_shows_an_untracked_file_as_added() {
+        let r = repo();
+        write(r.path(), "a.txt", "a\n");
+        commit_all(r.path(), "init");
+        write(r.path(), "new.txt", "x\ny\n");
+        write(r.path(), "no_eol.txt", "p\nq");
+
+        assert_eq!(
+            unified_diff(r.path(), "new.txt", "HEAD", 3).unwrap(),
+            "--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,2 @@\n+x\n+y\n"
+        );
+        assert_eq!(
+            unified_diff(r.path(), "no_eol.txt", "HEAD", 3).unwrap(),
+            "--- /dev/null\n+++ b/no_eol.txt\n@@ -0,0 +1,2 @@\n+p\n+q\n\\ No newline at end of file\n"
+        );
+    }
+
+    #[test]
+    fn unified_diff_of_empty_or_binary_untracked_file() {
+        let r = repo();
+        write(r.path(), "a.txt", "a\n");
+        commit_all(r.path(), "init");
+        write(r.path(), "empty.txt", "");
+        write(r.path(), "bin.dat", "a\0b");
+
+        assert_eq!(unified_diff(r.path(), "empty.txt", "HEAD", 3).unwrap(), "");
+        assert_eq!(
+            unified_diff(r.path(), "bin.dat", "HEAD", 3).unwrap(),
+            "Binary files /dev/null and b/bin.dat differ\n"
+        );
+    }
+
+    #[test]
+    fn unified_diff_is_empty_when_nothing_changed() {
+        let r = repo();
+        write(r.path(), "a.txt", "a\n");
+        commit_all(r.path(), "init");
+
+        assert_eq!(unified_diff(r.path(), "a.txt", "HEAD", 3).unwrap(), "");
     }
 
     #[test]
