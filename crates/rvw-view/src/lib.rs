@@ -10,6 +10,7 @@ pub mod editor;
 pub mod files;
 pub mod finder;
 pub mod fuzzy;
+pub mod highlight;
 pub mod keys;
 pub mod nav;
 pub mod queue;
