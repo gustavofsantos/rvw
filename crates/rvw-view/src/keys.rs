@@ -283,7 +283,11 @@ mod tests {
     #[test]
     fn move_is_available_on_every_screen() {
         for screen in SCREENS {
-            assert_eq!(light(&ctx(screen), Key::Move), Light::Available, "{screen:?}");
+            assert_eq!(
+                light(&ctx(screen), Key::Move),
+                Light::Available,
+                "{screen:?}"
+            );
         }
     }
 
@@ -291,7 +295,11 @@ mod tests {
     fn open_is_needed_on_search_available_on_queue_files_history_off_elsewhere() {
         assert_eq!(light(&ctx(Screen::Search), Key::Open), Light::Needed);
         for screen in [Screen::Queue, Screen::Files, Screen::History] {
-            assert_eq!(light(&ctx(screen), Key::Open), Light::Available, "{screen:?}");
+            assert_eq!(
+                light(&ctx(screen), Key::Open),
+                Light::Available,
+                "{screen:?}"
+            );
         }
         for screen in [Screen::Diff, Screen::Outcome, Screen::Changes] {
             assert_eq!(light(&ctx(screen), Key::Open), Light::Off, "{screen:?}");
@@ -300,8 +308,17 @@ mod tests {
 
     #[test]
     fn open_file_is_available_on_diff_outcome_files_changes_off_elsewhere() {
-        for screen in [Screen::Diff, Screen::Outcome, Screen::Files, Screen::Changes] {
-            assert_eq!(light(&ctx(screen), Key::OpenFile), Light::Available, "{screen:?}");
+        for screen in [
+            Screen::Diff,
+            Screen::Outcome,
+            Screen::Files,
+            Screen::Changes,
+        ] {
+            assert_eq!(
+                light(&ctx(screen), Key::OpenFile),
+                Light::Available,
+                "{screen:?}"
+            );
         }
         for screen in [Screen::Queue, Screen::Search, Screen::History] {
             assert_eq!(light(&ctx(screen), Key::OpenFile), Light::Off, "{screen:?}");
@@ -324,13 +341,20 @@ mod tests {
     fn add_is_needed_only_when_composing_on_diff_or_files() {
         for screen in SCREENS {
             for composing in [false, true] {
-                let c = Context { composing, ..ctx(screen) };
+                let c = Context {
+                    composing,
+                    ..ctx(screen)
+                };
                 let expected = if composing && matches!(screen, Screen::Diff | Screen::Files) {
                     Light::Needed
                 } else {
                     Light::Off
                 };
-                assert_eq!(light(&c, Key::Add), expected, "{screen:?} composing={composing}");
+                assert_eq!(
+                    light(&c, Key::Add),
+                    expected,
+                    "{screen:?} composing={composing}"
+                );
             }
         }
     }
@@ -339,14 +363,21 @@ mod tests {
     fn submit_is_available_with_drafts_on_diff_or_files_off_elsewhere() {
         for screen in SCREENS {
             for draft_count in [0, 1] {
-                let c = Context { draft_count, ..ctx(screen) };
+                let c = Context {
+                    draft_count,
+                    ..ctx(screen)
+                };
                 let expected = if draft_count > 0 && matches!(screen, Screen::Diff | Screen::Files)
                 {
                     Light::Available
                 } else {
                     Light::Off
                 };
-                assert_eq!(light(&c, Key::Submit), expected, "{screen:?} drafts={draft_count}");
+                assert_eq!(
+                    light(&c, Key::Submit),
+                    expected,
+                    "{screen:?} drafts={draft_count}"
+                );
             }
         }
     }
@@ -355,13 +386,20 @@ mod tests {
     fn accept_is_needed_on_outcome_when_comment_done() {
         for screen in SCREENS {
             for comment_done in [false, true] {
-                let c = Context { comment_done, ..ctx(screen) };
+                let c = Context {
+                    comment_done,
+                    ..ctx(screen)
+                };
                 let expected = if screen == Screen::Outcome && comment_done {
                     Light::Needed
                 } else {
                     Light::Off
                 };
-                assert_eq!(light(&c, Key::Accept), expected, "{screen:?} done={comment_done}");
+                assert_eq!(
+                    light(&c, Key::Accept),
+                    expected,
+                    "{screen:?} done={comment_done}"
+                );
             }
         }
     }
@@ -370,13 +408,20 @@ mod tests {
     fn reopen_is_available_on_outcome_when_comment_done() {
         for screen in SCREENS {
             for comment_done in [false, true] {
-                let c = Context { comment_done, ..ctx(screen) };
+                let c = Context {
+                    comment_done,
+                    ..ctx(screen)
+                };
                 let expected = if screen == Screen::Outcome && comment_done {
                     Light::Available
                 } else {
                     Light::Off
                 };
-                assert_eq!(light(&c, Key::Reopen), expected, "{screen:?} done={comment_done}");
+                assert_eq!(
+                    light(&c, Key::Reopen),
+                    expected,
+                    "{screen:?} done={comment_done}"
+                );
             }
         }
     }
@@ -397,13 +442,20 @@ mod tests {
     fn commit_is_needed_on_changes_when_something_is_staged() {
         for screen in SCREENS {
             for staged_count in [0, 1] {
-                let c = Context { staged_count, ..ctx(screen) };
+                let c = Context {
+                    staged_count,
+                    ..ctx(screen)
+                };
                 let expected = if screen == Screen::Changes && staged_count > 0 {
                     Light::Needed
                 } else {
                     Light::Off
                 };
-                assert_eq!(light(&c, Key::Commit), expected, "{screen:?} staged={staged_count}");
+                assert_eq!(
+                    light(&c, Key::Commit),
+                    expected,
+                    "{screen:?} staged={staged_count}"
+                );
             }
         }
     }
@@ -412,8 +464,15 @@ mod tests {
     fn undo_is_available_when_there_is_something_to_undo() {
         for screen in SCREENS {
             for can_undo in [false, true] {
-                let c = Context { can_undo, ..ctx(screen) };
-                let expected = if can_undo { Light::Available } else { Light::Off };
+                let c = Context {
+                    can_undo,
+                    ..ctx(screen)
+                };
+                let expected = if can_undo {
+                    Light::Available
+                } else {
+                    Light::Off
+                };
                 assert_eq!(light(&c, Key::Undo), expected, "{screen:?} undo={can_undo}");
             }
         }
@@ -422,8 +481,16 @@ mod tests {
     #[test]
     fn find_file_and_actions_are_available_on_every_screen() {
         for screen in SCREENS {
-            assert_eq!(light(&ctx(screen), Key::FindFile), Light::Available, "{screen:?}");
-            assert_eq!(light(&ctx(screen), Key::Actions), Light::Available, "{screen:?}");
+            assert_eq!(
+                light(&ctx(screen), Key::FindFile),
+                Light::Available,
+                "{screen:?}"
+            );
+            assert_eq!(
+                light(&ctx(screen), Key::Actions),
+                Light::Available,
+                "{screen:?}"
+            );
         }
     }
 
@@ -460,7 +527,10 @@ mod tests {
             Group::Find => 3,
         };
         let ranks: Vec<u8> = Key::ALL.iter().map(|k| rank(k.group())).collect();
-        assert!(ranks.windows(2).all(|w| w[0] <= w[1]), "groups interleave: {ranks:?}");
+        assert!(
+            ranks.windows(2).all(|w| w[0] <= w[1]),
+            "groups interleave: {ranks:?}"
+        );
     }
 
     #[test]
@@ -488,21 +558,51 @@ mod tests {
     #[test]
     fn hint_texts_are_exact() {
         let c = ctx(Screen::Queue);
-        assert_eq!(hint(&c, Key::OpenFile), Some("Open a file in the diff or the tree"));
-        assert_eq!(hint(&c, Key::Comment), Some("Comments are written on a diff or a file"));
-        assert_eq!(hint(&c, Key::Stage), Some("Stage changes on the Changes screen"));
-        assert_eq!(hint(&ctx(Screen::Diff), Key::Open), Some("Select an item first"));
-        assert_eq!(hint(&ctx(Screen::Diff), Key::Add), Some("Start a comment first"));
-        assert_eq!(hint(&ctx(Screen::Diff), Key::Submit), Some("Add a comment to your review first"));
-        assert_eq!(hint(&ctx(Screen::Diff), Key::Accept), Some("Select a comment the agent has done"));
-        assert_eq!(hint(&ctx(Screen::Diff), Key::Reopen), Some("Select a comment the agent has done"));
-        assert_eq!(hint(&ctx(Screen::Diff), Key::Commit), Some("Stage something to commit"));
+        assert_eq!(
+            hint(&c, Key::OpenFile),
+            Some("Open a file in the diff or the tree")
+        );
+        assert_eq!(
+            hint(&c, Key::Comment),
+            Some("Comments are written on a diff or a file")
+        );
+        assert_eq!(
+            hint(&c, Key::Stage),
+            Some("Stage changes on the Changes screen")
+        );
+        assert_eq!(
+            hint(&ctx(Screen::Diff), Key::Open),
+            Some("Select an item first")
+        );
+        assert_eq!(
+            hint(&ctx(Screen::Diff), Key::Add),
+            Some("Start a comment first")
+        );
+        assert_eq!(
+            hint(&ctx(Screen::Diff), Key::Submit),
+            Some("Add a comment to your review first")
+        );
+        assert_eq!(
+            hint(&ctx(Screen::Diff), Key::Accept),
+            Some("Select a comment the agent has done")
+        );
+        assert_eq!(
+            hint(&ctx(Screen::Diff), Key::Reopen),
+            Some("Select a comment the agent has done")
+        );
+        assert_eq!(
+            hint(&ctx(Screen::Diff), Key::Commit),
+            Some("Stage something to commit")
+        );
         assert_eq!(hint(&ctx(Screen::Diff), Key::Undo), Some("Nothing to undo"));
     }
 
     #[test]
     fn hint_is_none_when_the_key_is_not_off() {
-        let c = Context { can_undo: true, ..ctx(Screen::Diff) };
+        let c = Context {
+            can_undo: true,
+            ..ctx(Screen::Diff)
+        };
         assert_eq!(hint(&c, Key::Undo), None);
         assert_eq!(hint(&ctx(Screen::Search), Key::Open), None);
     }
