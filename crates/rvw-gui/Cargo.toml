@@ -18,3 +18,6 @@ rvw-core.workspace = true
 rvw-git.workspace = true
 rvw-store.workspace = true
 rvw-view.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

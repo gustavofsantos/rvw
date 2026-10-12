@@ -4,7 +4,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use rvw_core::operations::{PullInput, QueryInput, ReviewSheet, SheetsInput};
+use rvw_core::operations::{AddInput, PullInput, QueryInput, ReviewSheet, SheetsInput};
 use rvw_core::types::Comment;
 use rvw_core::Service;
 use rvw_git::gitx;
@@ -141,6 +141,43 @@ fn read_changes(
     }
 }
 
+/// Who the window writes as: the workspace, the author and the lane the
+/// `--author` and `--lane` flags give. Empty author or lane means none.
+#[derive(Debug, Clone, Default)]
+pub struct Identity {
+    pub workspace: String,
+    pub author: String,
+    pub lane: String,
+}
+
+/// Enqueues one comment on the lines `start..=end` of `file`, which is a path
+/// relative to the workspace, as the changed files list it.
+///
+/// # Errors
+///
+/// Fails with the service's message when the comment is refused.
+pub fn add_comment(
+    service: &Service,
+    identity: &Identity,
+    file: &str,
+    lines: (i64, i64),
+    text: &str,
+) -> Result<(), String> {
+    service
+        .add(AddInput {
+            workspace: identity.workspace.clone(),
+            file: file.to_owned(),
+            start_line: lines.0,
+            end_line: lines.1,
+            comment: text.to_owned(),
+            author: identity.author.clone(),
+            lane: identity.lane.clone(),
+            ..AddInput::default()
+        })
+        .map(|_| ())
+        .map_err(|e| e.message)
+}
+
 /// The diff of one file against the base commit `base_id`.
 ///
 /// # Errors
@@ -149,4 +186,70 @@ fn read_changes(
 pub fn load_diff(workspace: &str, base_id: &str, path: &str) -> Result<FileDiff, String> {
     let text = gitx::unified_diff(Path::new(workspace), path, base_id, 3).map_err(|e| e.stderr)?;
     Ok(diff::parse(&text))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::process::Command;
+
+    use super::*;
+
+    #[test]
+    fn add_comment_enqueues_on_the_range_for_the_author_and_lane() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join("proj");
+        fs::create_dir(&root).expect("mkdir");
+        fs::write(root.join("app.py"), "one\ntwo\nthree\n").expect("write");
+        assert!(Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["init", "-q"])
+            .status()
+            .expect("git init")
+            .success());
+        let workspace = fs::canonicalize(&root)
+            .expect("canonicalize")
+            .to_string_lossy()
+            .into_owned();
+
+        let store = rvw_store::Store::open(&dir.path().join("q.db")).expect("open store");
+        let service = Service::new(Box::new(store));
+        let identity = Identity {
+            workspace: workspace.clone(),
+            author: "gus".into(),
+            lane: "feat".into(),
+        };
+        add_comment(&service, &identity, "app.py", (1, 2), "name this better")
+            .expect("add comment");
+
+        let list = service
+            .list(QueryInput {
+                workspace,
+                status: "all".into(),
+                ..QueryInput::default()
+            })
+            .expect("list");
+        assert_eq!(list.comments.len(), 1);
+        let comment = &list.comments[0];
+        assert_eq!(comment.file, "app.py");
+        assert_eq!((comment.start_line, comment.end_line), (1, 2));
+        assert_eq!(comment.comment, "name this better");
+        assert_eq!(comment.author.as_deref(), Some("gus"));
+        assert_eq!(comment.lane.as_deref(), Some("feat"));
+    }
+
+    #[test]
+    fn add_comment_reports_the_service_message() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = rvw_store::Store::open(&dir.path().join("q.db")).expect("open store");
+        let service = Service::new(Box::new(store));
+        let identity = Identity {
+            workspace: dir.path().to_string_lossy().into_owned(),
+            ..Identity::default()
+        };
+        let error =
+            add_comment(&service, &identity, "missing.py", (1, 1), "hi").expect_err("no such file");
+        assert!(!error.is_empty());
+    }
 }

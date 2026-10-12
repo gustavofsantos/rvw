@@ -1,6 +1,8 @@
 //! rvw-gui: the native review window: the queue and the review screens.
 
+mod composer;
 mod data;
+mod diff_view;
 mod frame;
 mod key_strip;
 mod queue_screen;
@@ -15,7 +17,7 @@ use gpui::{
     px, size, App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions,
 };
 
-use crate::data::Snapshot;
+use crate::data::{Identity, Snapshot};
 use crate::shell::Shell;
 
 #[derive(Default)]
@@ -23,6 +25,7 @@ struct Args {
     workspace: Option<PathBuf>,
     db: Option<PathBuf>,
     lane: String,
+    author: String,
 }
 
 fn main() {
@@ -51,7 +54,12 @@ fn run() -> Result<(), String> {
     let service = rvw_core::Service::new(Box::new(store));
 
     let snapshot = data::load(&service, &workspace, &args.lane)?;
-    show_window(snapshot);
+    let identity = Identity {
+        workspace,
+        author: args.author,
+        lane: args.lane,
+    };
+    show_window(snapshot, service, identity);
     Ok(())
 }
 
@@ -62,10 +70,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
             "--workspace" => parsed.workspace = Some(PathBuf::from(flag_value(&mut args, &flag)?)),
             "--db" => parsed.db = Some(PathBuf::from(flag_value(&mut args, &flag)?)),
             "--lane" => parsed.lane = flag_value(&mut args, &flag)?,
-            // accepted now; the author is not used by any screen yet
-            "--author" => {
-                flag_value(&mut args, &flag)?;
-            }
+            "--author" => parsed.author = flag_value(&mut args, &flag)?,
             other => return Err(format!("unknown argument {other}")),
         }
     }
@@ -78,8 +83,9 @@ fn flag_value(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<Str
 
 /// Starts the application and opens the one window. Errors here happen after
 /// the database is open, so they are reported from inside the app callback.
-fn show_window(snapshot: Snapshot) {
+fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identity) {
     Application::new().run(move |cx: &mut App| {
+        text_input::bind_keys(cx);
         let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -89,8 +95,10 @@ fn show_window(snapshot: Snapshot) {
             }),
             ..WindowOptions::default()
         };
-        if let Err(error) = cx.open_window(options, |_window, cx| cx.new(|_| Shell::new(snapshot)))
-        {
+        let opened = cx.open_window(options, move |_window, cx| {
+            cx.new(|cx| Shell::new(snapshot, service, identity, cx))
+        });
+        if let Err(error) = opened {
             eprintln!("rvw-gui: {error}");
             std::process::exit(1);
         }

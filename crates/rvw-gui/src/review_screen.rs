@@ -7,23 +7,29 @@ use gpui::prelude::*;
 use gpui::{
     div, px, App, ClickEvent, Context, Div, FontWeight, Pixels, SharedString, Stateful, Window,
 };
+use rvw_core::types::Comment;
 use rvw_view::changes::ChangedFile;
-use rvw_view::diff::{FileDiff, Hunk, Line, LineKind};
+use rvw_view::diff::FileDiff;
 use rvw_view::queue::{Filter, Row, State};
+use rvw_view::selection::Selection;
 
+use crate::composer::Composer;
 use crate::data::{self, Snapshot};
+use crate::diff_view::{diff_view, range_text, Overlay};
 use crate::queue_screen::noun;
 use crate::shell::Shell;
 use crate::theme;
 
 /// One diff line's height; the gutter and text share it so empty lines keep
 /// their height.
-const LINE_HEIGHT: Pixels = px(21.);
+pub const LINE_HEIGHT: Pixels = px(21.);
 
 /// The file open in the centre: its path, and its diff or why it is unreadable.
 pub struct Selected {
     pub path: String,
     pub diff: Result<FileDiff, String>,
+    /// The reviewer's lines in this file; reset when the file changes.
+    pub selection: Selection,
 }
 
 impl Selected {
@@ -32,6 +38,7 @@ impl Selected {
         Self {
             path: path.to_owned(),
             diff: data::load_diff(&snapshot.workspace, &snapshot.base_id, path),
+            selection: Selection::default(),
         }
     }
 }
@@ -198,7 +205,12 @@ fn split_path(path: &str) -> (&str, &str) {
     path.rsplit_once('/').unwrap_or(("", path))
 }
 
-pub fn centre(snapshot: &Snapshot, selected: Option<&Selected>) -> Stateful<Div> {
+pub fn centre(
+    snapshot: &Snapshot,
+    selected: Option<&Selected>,
+    composer: Option<&Composer>,
+    cx: &Context<Shell>,
+) -> Stateful<Div> {
     div()
         .id("review-centre")
         .flex()
@@ -206,12 +218,13 @@ pub fn centre(snapshot: &Snapshot, selected: Option<&Selected>) -> Stateful<Div>
         .flex_1()
         .min_w(px(0.))
         .bg(theme::paper())
-        .child(file_header(selected))
-        .child(diff_body(snapshot, selected))
+        .child(file_header(selected, cx))
+        .child(diff_body(snapshot, selected, composer, cx))
 }
 
-/// The file's path, and its added and removed line counts when it has a diff.
-fn file_header(selected: Option<&Selected>) -> Div {
+/// The file's path, its added and removed line counts when it has a diff, and
+/// the selection's range with the Comment affordance.
+fn file_header(selected: Option<&Selected>, cx: &Context<Shell>) -> Div {
     let path = selected.map_or("", |s| s.path.as_str()).to_owned();
     let mut header = div()
         .flex()
@@ -225,7 +238,10 @@ fn file_header(selected: Option<&Selected>) -> Div {
         .text_size(px(theme::CODE_FONT_SIZE))
         .text_color(theme::ink())
         .child(div().flex_1().min_w(px(0.)).truncate().child(path));
-    if let Some(Ok(diff)) = selected.map(|s| &s.diff) {
+    let Some(selected) = selected else {
+        return header;
+    };
+    if let Ok(diff) = &selected.diff {
         header = header
             .child(
                 div()
@@ -237,11 +253,54 @@ fn file_header(selected: Option<&Selected>) -> Div {
                     .text_color(theme::rejected())
                     .child(format!("\u{2212}{}", diff.removed)),
             );
+        if let Some((lo, hi)) = selected.selection.lines(diff) {
+            let noun = if lo == hi { "Line" } else { "Lines" };
+            header = header
+                .child(
+                    div()
+                        .text_color(theme::faint())
+                        .child(format!("{noun} {}", range_text(lo, hi))),
+                )
+                .child(comment_button(cx));
+        }
     }
     header
 }
 
-fn diff_body(snapshot: &Snapshot, selected: Option<&Selected>) -> Stateful<Div> {
+/// Opens the composer for the selection; the same as pressing C.
+fn comment_button(cx: &Context<Shell>) -> Stateful<Div> {
+    div()
+        .id("comment-button")
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .h(px(26.))
+        .px(px(10.))
+        .rounded(theme::CONTROL_RADIUS)
+        .bg(theme::hairline())
+        .font_family(theme::UI_FONT)
+        .text_color(theme::ink())
+        .on_click(cx.listener(
+            |this: &mut Shell, _: &ClickEvent, window: &mut Window, cx: &mut Context<Shell>| {
+                this.open_composer(window, cx);
+            },
+        ))
+        .child("Comment")
+        .child(
+            div()
+                .font_family(theme::CODE_FONT)
+                .text_size(px(theme::KEY_FONT_SIZE))
+                .text_color(theme::faint())
+                .child("C"),
+        )
+}
+
+fn diff_body(
+    snapshot: &Snapshot,
+    selected: Option<&Selected>,
+    composer: Option<&Composer>,
+    cx: &Context<Shell>,
+) -> Stateful<Div> {
     let content = match (selected, snapshot.changes_note.as_deref()) {
         (_, Some(note)) => notice(note),
         (None, None) if snapshot.changes.is_empty() => {
@@ -249,7 +308,15 @@ fn diff_body(snapshot: &Snapshot, selected: Option<&Selected>) -> Stateful<Div> 
         }
         (None, None) => notice("Select a file to see its diff."),
         (Some(selected), None) => match &selected.diff {
-            Ok(diff) => diff_view(diff),
+            Ok(diff) => {
+                let comments: Vec<&Comment> = snapshot
+                    .comments
+                    .iter()
+                    .filter(|comment| comment.file == selected.path)
+                    .collect();
+                let overlay = Overlay::new(diff, &comments, &selected.selection, composer);
+                diff_view(diff, &overlay, cx)
+            }
             Err(message) => notice(message),
         },
     };
@@ -261,86 +328,12 @@ fn diff_body(snapshot: &Snapshot, selected: Option<&Selected>) -> Stateful<Div> 
         .child(content)
 }
 
-fn notice(text: &str) -> Div {
+pub fn notice(text: &str) -> Div {
     div()
         .px(px(24.))
         .py(px(16.))
         .text_color(theme::muted())
         .child(text.to_owned())
-}
-
-fn diff_view(diff: &FileDiff) -> Div {
-    if diff.binary {
-        return notice("Binary file, no diff shown");
-    }
-    if diff.hunks.is_empty() {
-        return notice("No line changes in this file.");
-    }
-    div()
-        .flex()
-        .flex_col()
-        .py(px(8.))
-        .children(diff.hunks.iter().map(hunk_view))
-}
-
-fn hunk_view(hunk: &Hunk) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .h(LINE_HEIGHT)
-                .px(px(24.))
-                .font_family(theme::CODE_FONT)
-                .text_size(px(theme::CODE_FONT_SIZE))
-                .text_color(theme::faint())
-                .whitespace_nowrap()
-                .child(hunk.header.clone()),
-        )
-        .children(hunk.lines.iter().map(line_view))
-}
-
-fn line_view(line: &Line) -> Div {
-    let (tint, marker) = match line.kind {
-        LineKind::Added => (Some(theme::added_tint()), Some(theme::done())),
-        LineKind::Removed => (Some(theme::removed_tint()), Some(theme::rejected())),
-        LineKind::Context => (None, None),
-    };
-    div()
-        .flex()
-        .items_center()
-        .h(LINE_HEIGHT)
-        .font_family(theme::CODE_FONT)
-        .text_size(px(theme::CODE_FONT_SIZE))
-        .text_color(theme::text())
-        .when_some(tint, gpui::Styled::bg)
-        .child(
-            div()
-                .w(px(46.))
-                .flex_none()
-                .pr(px(14.))
-                .text_right()
-                .text_color(theme::faint())
-                .child(line.gutter_no().map_or(String::new(), |n| n.to_string())),
-        )
-        .child(
-            div()
-                .w(px(2.))
-                .flex_none()
-                .h_full()
-                .when_some(marker, gpui::Styled::bg),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.))
-                .pl(px(14.))
-                .whitespace_nowrap()
-                .overflow_hidden()
-                .child(line.text.clone()),
-        )
 }
 
 pub fn right(snapshot: &Snapshot) -> Div {
