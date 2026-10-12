@@ -1,0 +1,19 @@
+[package]
+name = "rvw-gui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "rvw-gui"
+path = "src/main.rs"
+
+[dependencies]
+gpui = "0.2"
+rvw-core.workspace = true
+rvw-git.workspace = true
+rvw-view.workspace = true
