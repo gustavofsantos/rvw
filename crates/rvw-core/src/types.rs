@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::{Error, Result};
 
 /// Where a comment stands: pending → pulled → done | rejected.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
     Pending,
@@ -95,34 +95,62 @@ pub const OUTCOME_DONE: &str = "done";
 pub const OUTCOME_REJECTED: &str = "rejected";
 
 /// One note on a line range of one file.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Comment {
+    /// stable id, e.g. r3; never reused within a workspace
     pub id: String,
+    #[schemars(with = "String")]
+    /// pending, pulled, done or rejected
     pub status: Status,
+    /// absolute path of the workspace the comment belongs to
     pub workspace: String,
+    #[schemars(required, schema_with = "nullable_string")]
+    /// branch or lane the comment belongs to, null when unscoped
     pub lane: Option<String>,
+    #[schemars(required, schema_with = "nullable_string")]
+    /// who raised the comment
     pub author: Option<String>,
+    /// path relative to the workspace (absolute only on comments recorded outside it by older versions)
     pub file: String,
+    /// absolute path of the file
     pub path: String,
+    /// first line of the range, 1-indexed
     pub start_line: i64,
+    /// last line of the range, inclusive
     pub end_line: i64,
+    /// language of the code snapshot, for fencing
     pub filetype: String,
+    /// the reviewed lines as they stood when the comment was written
     pub code: String,
+    /// the reviewer's note
     pub comment: String,
+    /// RFC 3339 UTC timestamp
     pub created_at: String,
 
+    #[schemars(required, schema_with = "nullable_string")]
+    /// when the comment was handed over
     pub pulled_at: Option<String>,
+    #[schemars(required, schema_with = "nullable_string")]
+    /// when a decision was recorded
     pub resolved_at: Option<String>,
+    #[schemars(required, schema_with = "nullable_string")]
+    /// who recorded the decision
     pub resolved_by: Option<String>,
+    #[schemars(required, schema_with = "nullable_string")]
+    /// what was done, or why not
     pub resolution_note: Option<String>,
 
     #[serde(default, skip_serializing_if = "String::is_empty")]
+    /// git blob of the whole file as reviewed
     pub file_version: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
+    /// git blob of the whole file when resolved
     pub resolved_file_version: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
+    /// submitted review this comment is linked to
     pub review_id: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
+    /// when the note was last edited
     pub edited_at: String,
 }
 
@@ -138,7 +166,7 @@ impl Comment {
 }
 
 /// Where a submitted review stands; its comments carry their own resolution.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ReviewStatus {
     Pending,
@@ -155,26 +183,47 @@ impl ReviewStatus {
 }
 
 /// Groups zero or more comments under one decision and summary.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Review {
+    /// stable id, e.g. rv2
     pub id: String,
+    #[schemars(with = "String")]
+    /// pending or pulled
     pub status: ReviewStatus,
+    /// absolute path of the workspace
     pub workspace: String,
+    #[schemars(required, schema_with = "nullable_string")]
+    /// lane the review belongs to
     pub lane: Option<String>,
+    #[schemars(required, schema_with = "nullable_string")]
+    /// who submitted the review
     pub author: Option<String>,
+    /// comment, approve or request-changes
     pub decision: String,
+    /// the reviewer's overall assessment
     pub summary: String,
+    /// linked comment ids, in review order
     pub comment_ids: Vec<String>,
+    /// RFC 3339 UTC timestamp
     pub created_at: String,
+    #[schemars(required, schema_with = "nullable_string")]
+    /// when the review was handed over
     pub pulled_at: Option<String>,
 }
 
 /// A review as it is pulled: the review plus its linked comments that still exist.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Handoff {
     #[serde(flatten)]
     pub review: Review,
+    /// the linked comments that still exist, in review order
     pub comments: Vec<Comment>,
+}
+
+/// The schema of a nullable string the Go contract always lists as required:
+/// present, and `null` when unset.
+fn nullable_string(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({ "type": ["string", "null"] })
 }
 
 // ── ids ──────────────────────────────────────────────────────────────────────
@@ -205,7 +254,7 @@ pub fn parse_seq(id: &str, prefix: &str) -> Option<i64> {
 // ── line ranges ──────────────────────────────────────────────────────────────
 
 /// A 1-indexed inclusive range.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct LineRange {
     pub start_line: i64,
     pub end_line: i64,

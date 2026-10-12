@@ -15,6 +15,8 @@ two-face = { version = "0.5", default-features = false, features = ["syntect-fan
 unicode-width = "0.2"
 rvw-core.workspace = true
 rvw-git.workspace = true
+rvw-render.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
+rvw-store.workspace = true

@@ -1,0 +1,30 @@
+┌─ reviews ───────────────┬─ r1 · src/api/parse.py:5-8 ────────────────────────────────────────────┐
+│ ▾ rv2 approve         ✓ │ r1 · src/api/parse.py:5-8 · @reviewer · in rv1                         │
+│ ▾ rv1 request-changes ✓ │ ✓ done by @claude on YYYY-MM-DD                                        │
+│   r1 parse.py:5-8     ✓ │ o opens src/api/parse.py at line 5 · esc goes back                     │
+│   r2 util.py:2        ✗ │                                                                        │
+│ ▾ comments              │ Comment                                                                │
+│   r4 util.py:1        ○ │   extract this branch into parse_x()                                   │
+│   r3 README.md:1      ◐ │                                                                        │
+│                         │ Code as reviewed                                                       │
+│                         │   5      if req.kind == "x":                                           │
+│                         │   6          body = req.body                                           │
+│                         │   7          return parse(body)                                        │
+│                         │   8      return default(req)                                           │
+│                         │                                                                        │
+│                         │ Resolution                                                             │
+│                         │   extracted parse_x()                                                  │
+│                         │                                                                        │
+│                         │ Changes while resolving                                                │
+│                         │   --- a/src/api/parse.py                                               │
+│                         │   +++ b/src/api/parse.py                                               │
+│                         │   @@ -3,8 +3,7 @@                                                      │
+│                         │                                                                        │
+│                         │    def handle(req):                                                    │
+│                         │        if req.kind == "x":                                             │
+│                         │   -        body = req.body                                             │
+│                         │   -        return parse(body)                                          │
+│                         │   +        return parse_x(req)                                         │
+├─────────────────────────┴────────────────────────────────────────────────────────────────────────┤
+│ ⎇ main · uncommitted +1 -2                                                                ? help │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘

@@ -11,7 +11,7 @@ use rvw_core::{Error as CoreError, Service};
 use rvw_render::Terminal;
 use rvw_store::Store;
 
-use crate::{commands, PROG};
+use crate::{commands, help, PROG};
 
 /// Every failure is the text after `rvw: `.
 pub type CliResult<T> = Result<T, String>;
@@ -139,11 +139,17 @@ pub fn one_of(flag: &str, value: &str, allowed: &[&str]) -> CliResult<()> {
 /// Parses `args`, runs the command, and returns what failed.
 pub fn dispatch(args: &[String], out: &mut Out) -> CliResult<()> {
     let root = commands::root();
+    // `-h`/`--help` print help before anything is parsed, so a missing
+    // required flag or argument does not get in the way.
+    let (path, asks_help) = help::walk(&root, args);
+    if asks_help {
+        return write_help(out, &path);
+    }
     let matches = match root
         .try_get_matches_from(std::iter::once(PROG.to_owned()).chain(args.iter().cloned()))
     {
         Ok(m) => m,
-        Err(e) => return Err(map_clap_error(&e, out)),
+        Err(e) => return Err(map_clap_error(&e, args, &path)),
     };
     let app = App {
         workspace_flag: matches
@@ -156,44 +162,73 @@ pub fn dispatch(args: &[String], out: &mut Out) -> CliResult<()> {
     commands::run(&app, &matches, out)
 }
 
-/// Maps clap's own errors to cobra's one-line wording. Help and version are
-/// printed and are not failures; they surface here as an empty error handled
-/// by the caller via `Ok`.
-fn map_clap_error(e: &clap::Error, out: &mut Out) -> String {
+fn write_help(out: &mut Out, path: &[String]) -> CliResult<()> {
+    write!(out, "{}", help::text(path)).map_err(|e| e.to_string())
+}
+
+/// Maps clap's errors to the wording cobra and pflag use. `args` and `path`
+/// are the raw command line and the command it names, as `help::walk` reads
+/// them.
+fn map_clap_error(e: &clap::Error, args: &[String], path: &[String]) -> String {
+    let full_path = std::iter::once(PROG.to_owned())
+        .chain(path.iter().cloned())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let context = |kind| e.get(kind).map(ToString::to_string).unwrap_or_default();
     match e.kind() {
-        ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => {
-            let _ = write!(out, "{}", e.render());
-            let _ = out.finish();
-            let _ = std::io::stdout().flush();
-            std::process::exit(0);
-        }
         ErrorKind::InvalidSubcommand => {
-            let name = e
-                .get(ContextKind::InvalidSubcommand)
-                .map(ToString::to_string)
-                .unwrap_or_default();
-            format!("unknown command \"{name}\" for \"{PROG}\"")
+            let name = context(ContextKind::InvalidSubcommand);
+            format!("unknown command \"{name}\" for \"{full_path}\"")
         }
         ErrorKind::UnknownArgument => {
-            let arg = e
-                .get(ContextKind::InvalidArg)
-                .map(ToString::to_string)
-                .unwrap_or_default();
-            format!("unknown flag: {}", arg.split_whitespace().next().unwrap_or(""))
+            let raw = context(ContextKind::InvalidArg);
+            let raw = raw.split_whitespace().next().unwrap_or("");
+            if let Some(long) = raw.strip_prefix("--") {
+                let name = long.split('=').next().unwrap_or(long);
+                format!("unknown flag: --{name}")
+            } else if let Some(short) = raw.strip_prefix('-') {
+                // clap reports the first letter of a cluster; cobra names the
+                // word the user typed.
+                let word = args
+                    .iter()
+                    .find(|a| a.starts_with(raw) && !a.starts_with("--"))
+                    .map_or(raw, String::as_str);
+                let letter = short.chars().next().unwrap_or(' ');
+                format!("unknown shorthand flag: '{letter}' in {word}")
+            } else {
+                format!("unknown command \"{raw}\" for \"{full_path}\"")
+            }
+        }
+        ErrorKind::InvalidValue | ErrorKind::ValueValidation => {
+            let arg = context(ContextKind::InvalidArg);
+            let flag = arg.split_whitespace().next().unwrap_or("");
+            let value = context(ContextKind::InvalidValue);
+            if value.is_empty() {
+                return format!("flag needs an argument: {flag}");
+            }
+            let digits = value.trim_start_matches(['+', '-']);
+            let reason = if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) {
+                "value out of range"
+            } else {
+                "invalid syntax"
+            };
+            format!(
+                "invalid argument \"{value}\" for \"{flag}\" flag: strconv.ParseInt: parsing \"{value}\": {reason}"
+            )
         }
         ErrorKind::MissingRequiredArgument => {
-            let raw = e
-                .get(ContextKind::InvalidArg)
-                .map(ToString::to_string)
-                .unwrap_or_default();
-            if raw.starts_with('<') {
+            let raw = context(ContextKind::InvalidArg);
+            // A positional (`<ID>`, `[ID]...`) has no `--` in clap's wording.
+            if !raw.contains("--") {
                 return "accepts 1 arg(s), received 0".to_owned();
             }
-            let names: Vec<String> = raw
+            let mut names: Vec<String> = raw
                 .split("--")
                 .filter_map(|p| p.split_whitespace().next())
-                .map(|n| format!("\"{n}\""))
+                .map(str::to_owned)
                 .collect();
+            names.sort();
+            let names: Vec<String> = names.iter().map(|n| format!("\"{n}\"")).collect();
             format!("required flag(s) {} not set", names.join(", "))
         }
         ErrorKind::ArgumentConflict => {

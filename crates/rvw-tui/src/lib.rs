@@ -6,10 +6,16 @@ pub mod changes;
 pub mod editor;
 pub mod fuzzy;
 pub mod highlight;
+pub mod model;
 pub mod pages;
 pub mod rail;
+mod shell;
 pub mod style;
+#[cfg(test)]
+pub(crate) mod testing;
 pub mod tree;
+pub mod update;
+pub mod view;
 
 use std::sync::Arc;
 
@@ -31,6 +37,6 @@ pub struct Options {
 }
 
 /// Shows the UI on the terminal until the user quits.
-pub fn run(_opts: Options) -> Result<(), String> {
-    Err("tui is not available in this build yet".to_owned())
+pub fn run(opts: Options) -> Result<(), String> {
+    shell::run(opts)
 }

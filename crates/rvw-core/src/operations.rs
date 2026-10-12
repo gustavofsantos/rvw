@@ -19,7 +19,7 @@ fn is_zero(n: &i64) -> bool {
 }
 
 /// Enqueues one comment on a line range of one file.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AddInput {
     /// absolute workspace path
     pub workspace: String,
@@ -27,7 +27,8 @@ pub struct AddInput {
     pub file: String,
     /// first line of the range, 1-indexed
     pub start_line: i64,
-    /// last line of the range, inclusive; defaults to `start_line`
+    /// last line of the range, inclusive; defaults to start_line
+    #[allow(clippy::doc_markdown)] // the description is the Go contract text, verbatim
     #[serde(default, skip_serializing_if = "is_zero")]
     pub end_line: i64,
     /// the review note, markdown allowed
@@ -47,7 +48,7 @@ pub struct AddInput {
 }
 
 /// Groups pending comments under one review.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SubmitInput {
     /// absolute workspace path
     pub workspace: String,
@@ -70,7 +71,7 @@ pub struct SubmitInput {
 }
 
 /// Scopes a read of the queue.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct QueryInput {
     /// absolute workspace path
     pub workspace: String,
@@ -86,7 +87,7 @@ pub struct QueryInput {
 }
 
 /// The comments matching a [`QueryInput`], oldest first.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ListOutput {
     /// absolute workspace path
     pub workspace: String,
@@ -96,7 +97,7 @@ pub struct ListOutput {
 
 /// Counts pending handoffs: a submitted review counts once, with its linked
 /// comments; for any other status it counts comments.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct CountOutput {
     /// absolute workspace path
     pub workspace: String,
@@ -105,7 +106,7 @@ pub struct CountOutput {
 }
 
 /// Dequeues handoffs for an agent to act on.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PullInput {
     /// absolute workspace path
     pub workspace: String,
@@ -127,7 +128,7 @@ pub struct PullInput {
 }
 
 /// What was handed over.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PullOutput {
     /// absolute workspace path
     pub workspace: String,
@@ -150,7 +151,7 @@ impl PullOutput {
 }
 
 /// Counts handoffs pending outside the pinned lane.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Elsewhere {
     /// handoffs pending in other lanes
     pub count: i64,
@@ -159,7 +160,7 @@ pub struct Elsewhere {
 }
 
 /// Records what became of a comment.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ResolveInput {
     /// absolute workspace path
     pub workspace: String,
@@ -176,7 +177,7 @@ pub struct ResolveInput {
 }
 
 /// Names one comment or review.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct GetInput {
     /// absolute workspace path
     pub workspace: String,
@@ -185,7 +186,7 @@ pub struct GetInput {
 }
 
 /// A comment with what changed while resolving it.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Evidence {
     pub comment: Comment,
     /// unified diff lines between the reviewed and resolved file versions
@@ -195,7 +196,7 @@ pub struct Evidence {
 }
 
 /// pending, pulled, or complete once every linked comment is decided.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum SheetState {
     Pending,
@@ -214,9 +215,11 @@ impl SheetState {
 }
 
 /// A submitted review with the comments it links.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ReviewSheet {
     pub review: Review,
+    /// pending, pulled, or complete once every linked comment is decided
+    #[schemars(with = "String")]
     pub state: SheetState,
     /// linked comments that still exist, in review order
     pub comments: Vec<Comment>,
@@ -226,7 +229,7 @@ pub struct ReviewSheet {
 pub const SHEET_FILTERS: [&str; 5] = ["pending", "pulled", "complete", "open", "all"];
 
 /// Scopes a read of submitted reviews.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SheetsInput {
     /// absolute workspace path
     pub workspace: String,
@@ -242,7 +245,7 @@ pub struct SheetsInput {
 }
 
 /// The review sheets matching a [`SheetsInput`], oldest first.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SheetsOutput {
     /// absolute workspace path
     pub workspace: String,
@@ -253,7 +256,7 @@ pub struct SheetsOutput {
 }
 
 /// Replaces a comment's text.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct EditInput {
     /// absolute workspace path
     pub workspace: String,
@@ -264,7 +267,7 @@ pub struct EditInput {
 }
 
 /// Lists workspaces in the store.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WorkspacesInput {
     /// include workspaces with nothing pending
     #[serde(default, skip_serializing_if = "is_false")]
@@ -272,13 +275,13 @@ pub struct WorkspacesInput {
 }
 
 /// Every workspace holding handoffs.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WorkspacesOutput {
     pub workspaces: Vec<WorkspaceSummary>,
 }
 
 /// One workspace's queue at a glance.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WorkspaceSummary {
     /// absolute workspace path
     pub workspace: String,

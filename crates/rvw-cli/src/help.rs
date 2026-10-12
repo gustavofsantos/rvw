@@ -1,4 +1,12 @@
-//! Help texts, kept word for word from the Go command line.
+//! Help texts, kept word for word from the Go command line, and the renderer
+//! that lays them out the way cobra does.
+
+use std::fmt::Write as _;
+
+use clap::builder::ValueParser;
+use clap::{value_parser, Arg, ArgAction, Command};
+
+use crate::PROG;
 
 pub const ABOUT: &str =
     "rvw — a per-workspace queue of code review feedback, written in an editor or
@@ -212,3 +220,201 @@ Keys (? shows them in the UI); <leader> is space unless --leader says:
           V select lines · c comment · e edit
           on a review or comment page: j/k scroll · o open the file · esc back
           r reload";
+
+// ── cobra-style help ─────────────────────────────────────────────────────────
+
+/// Walks a command line the way cobra does before parsing it: the command path
+/// it names, and whether it asks for help (`-h` or `--help`, before any `--`).
+/// A flag that takes a value consumes the next token even when that token
+/// starts with `-`, as pflag does.
+pub fn walk(root: &Command, args: &[String]) -> (Vec<String>, bool) {
+    let mut cur = root;
+    let mut path = Vec::new();
+    let mut help = false;
+    let mut i = 0;
+    while i < args.len() {
+        let a = args[i].as_str();
+        i += 1;
+        if a == "--" {
+            break;
+        }
+        if a == "--help" || a == "-h" {
+            help = true;
+        } else if let Some(name) = a.strip_prefix("--") {
+            if !name.contains('=') && takes_value(root, cur, name) {
+                i += 1;
+            }
+        } else if a.starts_with('-') && a.len() > 1 {
+            // A short cluster. None of rvw's short flags takes a value.
+        } else if let Some(sub) = cur.find_subcommand(a) {
+            cur = sub;
+            path.push(a.to_owned());
+        }
+    }
+    (path, help)
+}
+
+fn takes_value(root: &Command, cur: &Command, long: &str) -> bool {
+    cur.get_arguments()
+        .chain(root.get_arguments().filter(|a| a.is_global_set()))
+        .find(|a| a.get_long() == Some(long))
+        .is_some_and(|a| a.get_action().takes_values())
+}
+
+/// The help text of the command at `path` (empty: the root command). A name
+/// that is not a command ends the walk, as cobra's help topics do.
+pub fn text(path: &[String]) -> String {
+    let root = crate::commands::root();
+    let mut cmd = &root;
+    let mut found = vec![PROG.to_owned()];
+    for name in path {
+        match cmd.find_subcommand(name) {
+            Some(sub) => {
+                cmd = sub;
+                found.push(name.clone());
+            }
+            None => break,
+        }
+    }
+    render(&root, cmd, &found.join(" "))
+}
+
+/// A flag row: its sort key (the long name), the flag column, and its help.
+type FlagRow = (String, String, String);
+
+/// Cobra's layout: description, Usage, Examples, Available Commands, Flags,
+/// Global Flags, and the pointer to `--help` for a command with subcommands.
+fn render(root: &Command, cmd: &Command, path: &str) -> String {
+    let is_root = path == PROG;
+    let mut blocks = Vec::new();
+    let long = cmd
+        .get_long_about()
+        .or_else(|| cmd.get_about())
+        .map(ToString::to_string)
+        .unwrap_or_default();
+    if !long.trim().is_empty() {
+        blocks.push(long.trim_end().to_owned());
+    }
+
+    let subs: Vec<&Command> = cmd.get_subcommands().filter(|c| !c.is_hide_set()).collect();
+    let base = cmd
+        .get_overridden_usage()
+        .map_or_else(|| path.to_owned(), ToString::to_string);
+    let mut usage = format!("Usage:\n  {base} [flags]");
+    if !subs.is_empty() {
+        let _ = write!(usage, "\n  {path} [command]");
+    }
+    blocks.push(usage);
+
+    if let Some(examples) = cmd.get_after_help() {
+        blocks.push(format!("Examples:\n{}", examples.to_string().trim_end()));
+    }
+    if !subs.is_empty() {
+        blocks.push(commands_block(&subs));
+    }
+
+    let name = path.rsplit(' ').next().unwrap_or(PROG);
+    let mut rows: Vec<FlagRow> = cmd
+        .get_arguments()
+        .filter(|a| a.get_long().is_some() || a.get_short().is_some())
+        .filter(|a| is_root || !a.is_global_set())
+        .map(flag_row)
+        .collect();
+    rows.push(help_row(name));
+    blocks.push(flags_block("Flags", rows));
+
+    if !is_root {
+        let globals: Vec<FlagRow> = root
+            .get_arguments()
+            .filter(|a| a.is_global_set())
+            .map(flag_row)
+            .collect();
+        if !globals.is_empty() {
+            blocks.push(flags_block("Global Flags", globals));
+        }
+    }
+
+    if !subs.is_empty() {
+        blocks.push(format!(
+            "Use \"{path} [command] --help\" for more information about a command."
+        ));
+    }
+    let mut out = blocks.join("\n\n");
+    out.push('\n');
+    out
+}
+
+fn commands_block(subs: &[&Command]) -> String {
+    let mut rows: Vec<(String, String)> = subs
+        .iter()
+        .map(|c| {
+            (
+                c.get_name().to_owned(),
+                c.get_about().map_or_else(String::new, ToString::to_string),
+            )
+        })
+        .collect();
+    rows.sort();
+    let pad = rows.iter().map(|r| r.0.len()).max().unwrap_or(0).max(11);
+    let mut out = "Available Commands:".to_owned();
+    for (name, about) in rows {
+        let _ = write!(out, "\n  {name:<pad$} {about}");
+    }
+    out
+}
+
+fn flag_row(a: &Arg) -> FlagRow {
+    let long = a.get_long().unwrap_or_default();
+    let takes = a.get_action().takes_values();
+    let mut column = match a.get_short() {
+        Some(c) => format!("  -{c}, "),
+        None => "      ".to_owned(),
+    };
+    let _ = write!(column, "--{long}");
+    let mut help = a.get_help().map(ToString::to_string).unwrap_or_default();
+    if takes {
+        let kind = if matches!(a.get_action(), ArgAction::Append) {
+            "stringArray"
+        } else if a.get_value_parser().type_id() == ValueParser::from(value_parser!(i64)).type_id()
+        {
+            "int"
+        } else {
+            "string"
+        };
+        let _ = write!(column, " {kind}");
+        let default = a
+            .get_default_values()
+            .first()
+            .map(|d| d.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if !default.is_empty() {
+            let _ = write!(help, " (default {default:?})");
+        }
+    }
+    (long.to_owned(), column, help)
+}
+
+fn help_row(name: &str) -> FlagRow {
+    (
+        "help".to_owned(),
+        "  -h, --help".to_owned(),
+        format!("help for {name}"),
+    )
+}
+
+/// One flags section, aligned like pflag: help text starts three columns past
+/// the longest flag column.
+fn flags_block(title: &str, mut rows: Vec<FlagRow>) -> String {
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+    let width = rows.iter().map(|r| r.1.len()).max().unwrap_or(0);
+    let mut out = format!("{title}:");
+    for (_, column, help) in rows {
+        out.push('\n');
+        out.push_str(&column);
+        if !help.is_empty() {
+            out.push_str(&" ".repeat(width - column.len() + 3));
+            out.push_str(&help);
+        }
+    }
+    out
+}

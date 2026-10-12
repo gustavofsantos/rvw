@@ -1774,6 +1774,7 @@ name = "rvw-core"
 version = "0.0.0"
 dependencies = [
  "rvw-git",
+ "schemars",
  "serde",
  "serde_json",
  "similar",
@@ -1796,11 +1797,13 @@ dependencies = [
  "rmcp",
  "rvw-core",
  "rvw-git",
+ "rvw-store",
  "schemars",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -1828,6 +1831,8 @@ dependencies = [
  "ratatui",
  "rvw-core",
  "rvw-git",
+ "rvw-render",
+ "rvw-store",
  "syntect",
  "tempfile",
  "two-face",

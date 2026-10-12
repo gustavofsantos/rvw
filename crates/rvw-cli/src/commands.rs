@@ -20,27 +20,24 @@ use crate::help;
 use crate::mcp::{self, ServerFlags};
 use crate::PROG;
 
-const ROOT_TEMPLATE: &str = "{about-with-newline}
-Usage:  {usage}
-
-Examples:
-{after-help}
-
-Available Commands:
-{subcommands}
-
-Flags:
-{options}";
-
 fn version() -> &'static str {
     option_env!("RVW_VERSION").unwrap_or("(devel)")
 }
 
+/// A value-taking option. Like pflag, it takes the next word as its value even
+/// when that word starts with `-`.
 fn flag(name: &'static str, help: &'static str) -> Arg {
     Arg::new(name)
         .long(name)
         .help(help)
         .value_name(name.to_uppercase())
+        .allow_hyphen_values(true)
+}
+
+/// The one positional ID. It takes any number of words so that a surplus one
+/// is reported the way cobra reports it, by `one_id`.
+fn id_arg() -> Arg {
+    Arg::new("id").value_name("ID").required(true).num_args(0..)
 }
 
 fn bool_flag(name: &'static str, help: &'static str) -> Arg {
@@ -77,6 +74,7 @@ fn sub(name: &'static str, short: &'static str, long: &'static str) -> Command {
         .about(short)
         .long_about(long)
         .disable_version_flag(true)
+        .disable_help_flag(true)
 }
 
 #[allow(clippy::too_many_lines)] // one declarative table of every command
@@ -87,7 +85,7 @@ pub fn root() -> Command {
         help::ADD_LONG,
     )
     .override_usage("rvw add --file PATH --lines N|N-M [--comment TEXT]")
-    .after_help(format!("Examples:\n{}", help::ADD_EXAMPLE))
+    .after_help(help::ADD_EXAMPLE)
     .arg(flag("file", "file the comment is about").required(true))
     .arg(flag("lines", "1-indexed, inclusive line range: N or N-M").required(true))
     .arg(flag("comment", "the comment text (may be multi-line)"))
@@ -143,7 +141,7 @@ pub fn root() -> Command {
             "show queued review comments or submitted reviews without dequeuing them",
             help::LIST_LONG,
         )
-        .after_help(format!("Examples:\n{}", help::LIST_EXAMPLE))
+        .after_help(help::LIST_EXAMPLE)
         .arg(flag("file", "only comments on this file"))
         .arg(bool_flag(
             "reviews",
@@ -172,7 +170,7 @@ pub fn root() -> Command {
             "dequeue review handoffs for an agent to act on",
             help::PULL_LONG,
         )
-        .after_help(format!("Examples:\n{}", help::PULL_EXAMPLE))
+        .after_help(help::PULL_EXAMPLE)
         .arg(flag("file", "only handoffs touching this file"))
         .arg(flag("id", "pull only this id (repeatable)").action(ArgAction::Append))
         .arg(
@@ -194,8 +192,8 @@ pub fn root() -> Command {
         help::SHOW_LONG,
     )
     .override_usage("rvw show ID")
-    .after_help(format!("Examples:\n{}", help::SHOW_EXAMPLE))
-    .arg(Arg::new("id").value_name("ID").required(true))
+    .after_help(help::SHOW_EXAMPLE)
+    .arg(id_arg())
     .arg(format_flag("text", &["text", "json", "markdown"]));
 
     let edit = sub(
@@ -204,8 +202,8 @@ pub fn root() -> Command {
         help::EDIT_LONG,
     )
     .override_usage("rvw edit ID [--comment TEXT]")
-    .after_help(format!("Examples:\n{}", help::EDIT_EXAMPLE))
-    .arg(Arg::new("id").value_name("ID").required(true))
+    .after_help(help::EDIT_EXAMPLE)
+    .arg(id_arg())
     .arg(flag("comment", "new text (default: read stdin)"))
     .arg(format_flag("text", &["text", "json"]));
 
@@ -215,8 +213,8 @@ pub fn root() -> Command {
         help::RESOLVE_LONG,
     )
     .override_usage("rvw resolve ID")
-    .after_help(format!("Examples:\n{}", help::RESOLVE_EXAMPLE))
-    .arg(Arg::new("id").value_name("ID").required(true))
+    .after_help(help::RESOLVE_EXAMPLE)
+    .arg(id_arg())
     .arg(flag("note", "what you did"))
     .arg(flag("author", "who decided (default: $USER)"));
     let reject = sub(
@@ -225,8 +223,8 @@ pub fn root() -> Command {
         help::REJECT_LONG,
     )
     .override_usage("rvw reject ID --note TEXT")
-    .after_help(format!("Examples:\n{}", help::REJECT_EXAMPLE))
-    .arg(Arg::new("id").value_name("ID").required(true))
+    .after_help(help::REJECT_EXAMPLE)
+    .arg(id_arg())
     .arg(flag("note", "why not (required)"))
     .arg(flag("author", "who decided (default: $USER)"));
 
@@ -262,7 +260,7 @@ pub fn root() -> Command {
             help::MCP_SERVE_LONG,
         )
         .override_usage("rvw mcp serve [--http ADDR]")
-        .after_help(format!("Examples:\n{}", help::MCP_SERVE_EXAMPLE)),
+        .after_help(help::MCP_SERVE_EXAMPLE),
     );
     let mcp_config = server_flags(
         sub(
@@ -270,7 +268,7 @@ pub fn root() -> Command {
             "print how to add the MCP server to Claude Code",
             help::MCP_CONFIG_LONG,
         )
-        .after_help(format!("Examples:\n{}", help::MCP_CONFIG_EXAMPLE))
+        .after_help(help::MCP_CONFIG_EXAMPLE)
         .arg(flag("scope", "claude mcp add scope: local, project, user").default_value("user"))
         .arg(flag("name", "server name in Claude Code").default_value("rvw"))
         .arg(format_flag("text", &["text", "json"])),
@@ -280,7 +278,6 @@ pub fn root() -> Command {
         "serve the queue as MCP tools, and print how to connect Claude Code",
         help::MCP_LONG,
     )
-    .override_usage("rvw mcp [command]")
     .subcommand(mcp_serve)
     .subcommand(mcp_config);
 
@@ -289,7 +286,7 @@ pub fn root() -> Command {
         "browse the workspace and leave review comments in a terminal UI",
         help::TUI_LONG,
     )
-    .after_help("Examples:\n  rvw tui\n  rvw tui --lane refactor-auth --editor \"code --wait\"\n  rvw tui --leader ,\n  rvw --workspace ~/src/project tui")
+    .after_help("  rvw tui\n  rvw tui --lane refactor-auth --editor \"code --wait\"\n  rvw tui --leader ,\n  rvw --workspace ~/src/project tui")
     .arg(flag("lane", "lane the comments and reviews you write land in"))
     .arg(flag("author", "who is reviewing (default: $USER)"))
     .arg(flag(
@@ -304,13 +301,20 @@ pub fn root() -> Command {
         .default_value("space"),
     );
 
+    let help_cmd = sub(
+        "help",
+        "Help about any command",
+        "Help about any command: `rvw help COMMAND` prints that command's help.",
+    )
+    .arg(Arg::new("topic").value_name("COMMAND").num_args(0..));
+
     Command::new(PROG)
         .about(help::ABOUT)
         .override_usage("rvw COMMAND")
         .after_help(help::EXAMPLES)
-        .help_template(ROOT_TEMPLATE)
         .disable_help_subcommand(true)
         .disable_version_flag(true)
+        .disable_help_flag(true)
         .arg(
             flag(
                 "workspace",
@@ -334,7 +338,7 @@ pub fn root() -> Command {
         )
         .subcommands([
             add, submit, list, pull, show, edit, resolve, reject, count, workspaces, path, mcp,
-            tui,
+            tui, help_cmd,
         ])
 }
 
@@ -357,11 +361,11 @@ pub fn run(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
         Some(("path", s)) => path(app, s, out),
         Some(("mcp", s)) => mcp_cmd(app, s, out),
         Some(("tui", s)) => tui(app, s),
-        _ => {
-            let mut root = root();
-            let _ = write!(out, "{}", root.render_long_help());
-            Ok(())
+        Some(("help", s)) => {
+            let topic: Vec<String> = many(s, "topic");
+            w(write!(out, "{}", help::text(&topic)))
         }
+        _ => w(write!(out, "{}", help::text(&[]))),
     }
 }
 
@@ -703,6 +707,15 @@ fn pull(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
     Ok(())
 }
 
+/// The single ID argument; cobra's `ExactArgs(1)` wording for any other count.
+fn one_id(m: &ArgMatches) -> CliResult<String> {
+    let mut ids = many(m, "id");
+    if ids.len() != 1 {
+        return Err(format!("accepts 1 arg(s), received {}", ids.len()));
+    }
+    Ok(ids.remove(0))
+}
+
 fn get_input(app: &App, id: String) -> CliResult<GetInput> {
     Ok(GetInput {
         workspace: app.workspace()?,
@@ -711,9 +724,10 @@ fn get_input(app: &App, id: String) -> CliResult<GetInput> {
 }
 
 fn show(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
+    let id = one_id(m)?;
     let format = s(m, "format");
     one_of("--format", &format, &["text", "json", "markdown"])?;
-    let input = get_input(app, s(m, "id"))?;
+    let input = get_input(app, id)?;
     let svc = app.svc()?;
     if is_review_id(&input.id) {
         let ws = input.workspace.clone();
@@ -790,11 +804,12 @@ fn path(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
 // ── decisions and edits ──────────────────────────────────────────────────────
 
 fn decide(app: &App, m: &ArgMatches, outcome: &str, out: &mut Out) -> CliResult<()> {
+    let id = one_id(m)?;
     let note = s(m, "note");
     if outcome == OUTCOME_REJECTED && note.trim().is_empty() {
         return Err("rejecting a comment needs a reason: pass --note TEXT".to_owned());
     }
-    let input = get_input(app, s(m, "id"))?;
+    let input = get_input(app, id)?;
     let svc = app.svc()?;
     let c = svc
         .resolve(ResolveInput {
@@ -816,6 +831,7 @@ fn decide(app: &App, m: &ArgMatches, outcome: &str, out: &mut Out) -> CliResult<
 }
 
 fn edit(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
+    let id = one_id(m)?;
     let format = s(m, "format");
     one_of("--format", &format, &["text", "json"])?;
     let comment = if m.contains_id("comment") {
@@ -826,7 +842,7 @@ fn edit(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
             None => return Err("pass the new text with --comment TEXT, or pipe it in".to_owned()),
         }
     };
-    let input = get_input(app, s(m, "id"))?;
+    let input = get_input(app, id)?;
     let svc = app.svc()?;
     let c = svc
         .edit(EditInput {
@@ -885,13 +901,7 @@ fn mcp_cmd(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
                 out,
             )
         }
-        _ => {
-            let mut root = root();
-            let cmd = root
-                .find_subcommand_mut("mcp")
-                .expect("mcp is part of the command tree");
-            w(write!(out, "{}", cmd.render_long_help()))
-        }
+        _ => w(write!(out, "{}", help::text(&["mcp".to_owned()]))),
     }
 }
 
