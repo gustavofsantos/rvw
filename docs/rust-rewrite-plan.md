@@ -37,3 +37,34 @@ rewrite merges.
 `crates/rvw-core` (types, operations, errors, `Repository`, `Service`),
 `rvw-git` (gitx + workspace), `rvw-store` (rusqlite), `rvw-render`, then
 `rvw-cli` (binary `rvw`), `rvw-mcp`, `rvw-tui`.
+
+## Status
+
+Slices 0 to 5 are done on the `rust-rewrite` branch: no Go code remains, all 117
+bats tests pass, the seven Go golden screens match byte for byte, and `--help`
+of every command and the MCP tool list match the Go reference.
+
+## Database compatibility
+
+A database written only by the Go binary (comments on tracked files, a
+`--code-file` snapshot, two lanes, submitted reviews, a pulled-then-resolved
+comment with an evidence diff, rejected and retracted comments) was read by both
+binaries. `list`, `list --reviews`, `count`, `workspaces`, `show` (text, JSON and
+markdown) and `pull --peek` / `pull` give identical output. A database written
+by the Rust binary reads back correctly in Go. The one difference found, the
+evidence diff on repetitive input, is fixed by porting go-difflib's matcher.
+
+## Known differences from Go
+
+- File and git data are decoded with a lossy UTF-8 conversion (git blobs, file
+  lists, file reads, the editor's temp file): non-UTF-8 content is altered where
+  Go kept the bytes.
+- MCP: no `logging` capability is advertised; success results carry
+  `isError:false`; type errors use serde's wording rather than the Go SDK's.
+  Slices are not marked nullable in the schemas, because no tool emits null.
+- `rvw --version` prints `(devel)` for builds made with `cargo install`; release
+  builds set `RVW_VERSION`.
+- TUI: review pages wrap words simply (runs of spaces collapse to one);
+  syntax-highlight colors are an approximation of chroma's token categories; the
+  terminal background is not queried, so the dark theme is always used.
+- The release workflow has not run yet: the first `v*` tag is its first run.

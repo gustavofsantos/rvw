@@ -13,7 +13,6 @@ serde.workspace = true
 serde_json.workspace = true
 schemars = "1"
 time.workspace = true
-similar.workspace = true
 rvw-git.workspace = true
 
 [dev-dependencies]

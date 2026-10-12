@@ -1,3 +1,8 @@
+# Pinned here and in .github/workflows/ci.yml. Installed under target/, so it
+# never touches ~/.cargo/bin.
+CARGO_AUDIT_VERSION := 0.22.2
+CARGO_AUDIT := target/tools/bin/cargo-audit
+
 .PHONY: build install uninstall test lint fmt audit check hooks clean
 
 build:
@@ -20,9 +25,11 @@ lint:
 fmt:
 	cargo fmt --all
 
-# Needs cargo-audit: cargo install cargo-audit --locked
-audit:
-	cargo audit
+$(CARGO_AUDIT):
+	cargo install cargo-audit --locked --version $(CARGO_AUDIT_VERSION) --root target/tools
+
+audit: $(CARGO_AUDIT)
+	$(CARGO_AUDIT) audit
 
 check: lint audit test
 
