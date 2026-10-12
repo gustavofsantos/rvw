@@ -4,4 +4,5 @@
 
 pub mod fuzzy;
 pub mod keys;
+pub mod queue;
 pub mod tree;
