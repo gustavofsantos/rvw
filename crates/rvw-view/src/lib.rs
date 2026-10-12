@@ -3,7 +3,10 @@
 //! testable without a screen.
 
 pub mod changes;
+pub mod context;
 pub mod diff;
+pub mod files;
+pub mod finder;
 pub mod fuzzy;
 pub mod keys;
 pub mod queue;

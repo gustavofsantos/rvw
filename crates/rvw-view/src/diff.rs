@@ -163,9 +163,84 @@ fn span(s: &str) -> Option<(u32, u32)> {
     }
 }
 
+/// Shows a file's text as one hunk of context lines numbered from 1, so the
+/// text can be selected and commented on like a diff. The hunk has no header.
+/// Empty text has no hunks.
+#[must_use]
+pub fn from_text(text: &str) -> FileDiff {
+    let lines: Vec<Line> = text
+        .lines()
+        .enumerate()
+        .map(|(index, text)| {
+            let no = u32::try_from(index + 1).unwrap_or(u32::MAX);
+            Line {
+                kind: LineKind::Context,
+                old_no: Some(no),
+                new_no: Some(no),
+                text: text.to_owned(),
+            }
+        })
+        .collect();
+    let hunks = if lines.is_empty() {
+        Vec::new()
+    } else {
+        vec![Hunk {
+            header: String::new(),
+            lines,
+        }]
+    };
+    FileDiff {
+        hunks,
+        binary: false,
+        added: 0,
+        removed: 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn from_text_numbers_each_line_as_context_in_one_headerless_hunk() {
+        let diff = from_text("alpha\n\nbeta\n");
+        assert_eq!(diff.hunks.len(), 1);
+        assert_eq!(diff.hunks[0].header, "");
+        let lines = &diff.hunks[0].lines;
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0].kind, LineKind::Context);
+        assert_eq!(lines[0].text, "alpha");
+        assert_eq!((lines[0].old_no, lines[0].new_no), (Some(1), Some(1)));
+        assert_eq!(lines[1].text, "");
+        assert_eq!(lines[2].gutter_no(), Some(3));
+        assert_eq!((diff.added, diff.removed, diff.binary), (0, 0, false));
+    }
+
+    #[test]
+    fn from_text_of_empty_text_has_no_hunks() {
+        assert!(from_text("").hunks.is_empty());
+    }
+
+    #[test]
+    fn from_text_ignores_a_trailing_newline_and_crlf() {
+        let diff = from_text("one\r\ntwo\n");
+        let texts: Vec<&str> = diff.hunks[0]
+            .lines
+            .iter()
+            .map(|l| l.text.as_str())
+            .collect();
+        assert_eq!(texts, ["one", "two"]);
+    }
+
+    #[test]
+    fn selection_of_a_from_text_file_anchors_by_line_number() {
+        let diff = from_text("a\nb\nc\n");
+        assert_eq!(
+            crate::selection::anchor(&diff, 2),
+            Some(crate::selection::Pos { hunk: 0, line: 1 })
+        );
+        assert_eq!(crate::selection::anchor(&diff, 9), None);
+    }
 
     fn line(kind: LineKind, old_no: Option<u32>, new_no: Option<u32>, text: &str) -> Line {
         Line {
