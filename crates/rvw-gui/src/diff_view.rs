@@ -27,11 +27,13 @@ pub struct Overlay<'a> {
 }
 
 impl<'a> Overlay<'a> {
+    /// `outside_change` marks a file outside the change; its caption says so.
     pub fn new(
         diff: &FileDiff,
         comments: &[&'a Comment],
         selection: &'a Selection,
         composer: Option<&'a Composer>,
+        outside_change: bool,
     ) -> Self {
         let mut under: BTreeMap<Pos, Vec<&'a Comment>> = BTreeMap::new();
         let mut outside = Vec::new();
@@ -43,7 +45,14 @@ impl<'a> Overlay<'a> {
         }
         let caption = selection
             .lines(diff)
-            .map(|(lo, hi)| format!("Line {}", range_text(lo, hi)))
+            .map(|(lo, hi)| {
+                let context = if outside_change {
+                    " \u{b7} context"
+                } else {
+                    ""
+                };
+                format!("Line {}{context}", range_text(lo, hi))
+            })
             .unwrap_or_default();
         Self {
             selection,
@@ -90,18 +99,21 @@ fn hunk_view(
     overlay: &Overlay,
     cx: &Context<Shell>,
 ) -> Div {
-    let mut block = div().flex().flex_col().child(
-        div()
-            .flex()
-            .items_center()
-            .h(LINE_HEIGHT)
-            .px(px(24.))
-            .font_family(theme::CODE_FONT)
-            .text_size(px(theme::CODE_FONT_SIZE))
-            .text_color(theme::faint())
-            .whitespace_nowrap()
-            .child(hunk.header.clone()),
-    );
+    let mut block = div().flex().flex_col();
+    if !hunk.header.is_empty() {
+        block = block.child(
+            div()
+                .flex()
+                .items_center()
+                .h(LINE_HEIGHT)
+                .px(px(24.))
+                .font_family(theme::CODE_FONT)
+                .text_size(px(theme::CODE_FONT_SIZE))
+                .text_color(theme::faint())
+                .whitespace_nowrap()
+                .child(hunk.header.clone()),
+        );
+    }
     for (line_index, line) in hunk.lines.iter().enumerate() {
         let pos = Pos {
             hunk: hunk_index,

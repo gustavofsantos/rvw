@@ -4,7 +4,9 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use rvw_core::operations::{AddInput, PullInput, QueryInput, ReviewSheet, SheetsInput};
+use rvw_core::operations::{
+    AddInput, PullInput, QueryInput, ReviewSheet, SheetsInput, SubmitInput,
+};
 use rvw_core::types::Comment;
 use rvw_core::Service;
 use rvw_git::gitx;
@@ -178,6 +180,40 @@ pub fn add_comment(
         .map_err(|e| e.message)
 }
 
+/// Submits `comment_ids` as one review with `decision` and `summary`, and
+/// returns the new review's id. An empty `comment_ids` makes a summary-only
+/// review, so the service never takes the author's other pending comments.
+///
+/// # Errors
+///
+/// Fails with "Nothing to submit." when there are no comments and no summary,
+/// and otherwise with the service's message.
+pub fn submit_review(
+    service: &Service,
+    identity: &Identity,
+    decision: &str,
+    summary: &str,
+    comment_ids: Vec<String>,
+) -> Result<String, String> {
+    let summary = summary.trim();
+    if comment_ids.is_empty() && summary.is_empty() {
+        return Err("Nothing to submit.".into());
+    }
+    let no_comments = comment_ids.is_empty();
+    service
+        .submit(SubmitInput {
+            workspace: identity.workspace.clone(),
+            decision: decision.to_owned(),
+            summary: summary.to_owned(),
+            comment_ids,
+            no_comments,
+            lane: identity.lane.clone(),
+            author: identity.author.clone(),
+        })
+        .map(|review| review.id)
+        .map_err(|e| e.message)
+}
+
 /// The diff of one file against the base commit `base_id`.
 ///
 /// # Errors
@@ -250,6 +286,94 @@ mod tests {
         };
         let error =
             add_comment(&service, &identity, "missing.py", (1, 1), "hi").expect_err("no such file");
+        assert!(!error.is_empty());
+    }
+
+    /// A workspace with `app.py` and a store; returns the tempdir (kept alive),
+    /// the service and the identity.
+    fn workspace_with_store() -> (tempfile::TempDir, Service, Identity) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join("proj");
+        fs::create_dir(&root).expect("mkdir");
+        fs::write(root.join("app.py"), "one\ntwo\nthree\n").expect("write");
+        assert!(Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["init", "-q"])
+            .status()
+            .expect("git init")
+            .success());
+        let workspace = fs::canonicalize(&root)
+            .expect("canonicalize")
+            .to_string_lossy()
+            .into_owned();
+        let store = rvw_store::Store::open(&dir.path().join("q.db")).expect("open store");
+        let service = Service::new(Box::new(store));
+        let identity = Identity {
+            workspace,
+            author: "gus".into(),
+            lane: "feat".into(),
+        };
+        (dir, service, identity)
+    }
+
+    #[test]
+    fn submit_review_links_two_draft_comments_as_request_changes() {
+        let (_dir, service, identity) = workspace_with_store();
+        add_comment(&service, &identity, "app.py", (1, 1), "first").expect("add");
+        add_comment(&service, &identity, "app.py", (2, 2), "second").expect("add");
+        let ids: Vec<String> = service
+            .list(QueryInput {
+                workspace: identity.workspace.clone(),
+                status: "all".into(),
+                ..QueryInput::default()
+            })
+            .expect("list")
+            .comments
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        assert_eq!(ids.len(), 2);
+
+        let review = submit_review(
+            &service,
+            &identity,
+            "request-changes",
+            "  Fix both.  ",
+            ids.clone(),
+        )
+        .expect("submit");
+
+        let sheets = service
+            .sheets(SheetsInput {
+                workspace: identity.workspace.clone(),
+                status: "all".into(),
+                ..SheetsInput::default()
+            })
+            .expect("sheets")
+            .sheets;
+        assert_eq!(sheets.len(), 1);
+        let sheet = &sheets[0];
+        assert_eq!(sheet.review.id, review);
+        assert_eq!(sheet.review.decision, "request-changes");
+        assert_eq!(sheet.review.summary, "Fix both.");
+        let linked: Vec<&str> = sheet.comments.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(linked, ids.iter().map(String::as_str).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn submit_review_with_no_comments_needs_a_summary() {
+        let (_dir, service, identity) = workspace_with_store();
+        let error = submit_review(&service, &identity, "comment", "  ", Vec::new())
+            .expect_err("nothing to submit");
+        assert_eq!(error, "Nothing to submit.");
+    }
+
+    #[test]
+    fn submit_review_reports_a_refused_decision() {
+        let (_dir, service, identity) = workspace_with_store();
+        let error = submit_review(&service, &identity, "maybe", "ok", Vec::new())
+            .expect_err("bad decision");
         assert!(!error.is_empty());
     }
 }

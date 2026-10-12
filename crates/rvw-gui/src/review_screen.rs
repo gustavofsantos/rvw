@@ -5,12 +5,14 @@
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, App, ClickEvent, Context, Div, FontWeight, Pixels, SharedString, Stateful, Window,
+    div, px, AnyElement, App, ClickEvent, Context, Div, FontWeight, Pixels, SharedString, Stateful,
+    Window,
 };
 use rvw_core::types::Comment;
 use rvw_view::changes::ChangedFile;
 use rvw_view::diff::FileDiff;
-use rvw_view::queue::{Filter, Row, State};
+use rvw_view::keys::Screen;
+use rvw_view::queue::Row;
 use rvw_view::selection::Selection;
 
 use crate::composer::Composer;
@@ -18,6 +20,7 @@ use crate::data::{self, Snapshot};
 use crate::diff_view::{diff_view, range_text, Overlay};
 use crate::queue_screen::noun;
 use crate::shell::Shell;
+use crate::submit_dialog;
 use crate::theme;
 
 /// One diff line's height; the gutter and text share it so empty lines keep
@@ -30,6 +33,10 @@ pub struct Selected {
     pub diff: Result<FileDiff, String>,
     /// The reviewer's lines in this file; reset when the file changes.
     pub selection: Selection,
+    /// The change does not touch the file; it is shown as plain content.
+    pub outside: bool,
+    /// The file is longer than the lines shown.
+    pub cut: bool,
 }
 
 impl Selected {
@@ -39,12 +46,14 @@ impl Selected {
             path: path.to_owned(),
             diff: data::load_diff(&snapshot.workspace, &snapshot.base_id, path),
             selection: Selection::default(),
+            outside: false,
+            cut: false,
         }
     }
 }
 
-pub fn left(snapshot: &Snapshot, selected: Option<&str>, cx: &mut Context<Shell>) -> Div {
-    let rows: Vec<_> = snapshot
+pub fn left(snapshot: &Snapshot, selected: Option<&str>, cx: &Context<Shell>) -> Div {
+    let rows: Vec<AnyElement> = snapshot
         .changes
         .iter()
         .map(|file| {
@@ -64,35 +73,43 @@ pub fn left(snapshot: &Snapshot, selected: Option<&str>, cx: &mut Context<Shell>
         noun(count, "file", "files"),
         snapshot.base_name
     );
+    panel(Screen::Diff, &summary, list("change-list", rows), cx)
+}
 
+/// The frame of the left panel, shared by both tabs: the Changes | Files
+/// control, the find box, a summary line, and the tab's list.
+pub fn panel(active: Screen, summary: &str, list: Stateful<Div>, cx: &Context<Shell>) -> Div {
     div()
         .flex()
         .flex_col()
         .h_full()
         .py(px(16.))
-        .child(segmented())
-        .child(search_box())
+        .child(tabs(active, cx))
+        .child(search_box(cx))
         .child(
             div()
                 .px(px(24.))
                 .pb(px(8.))
                 .text_color(theme::muted())
-                .child(summary),
+                .child(summary.to_owned()),
         )
-        .child(
-            div()
-                .id("change-list")
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_h(px(0.))
-                .overflow_y_scroll()
-                .children(rows),
-        )
+        .child(list)
 }
 
-/// The "Changes | Files" control. Only Changes works; Files comes later.
-fn segmented() -> Div {
+/// A scrolling list of rows.
+pub fn list(id: &'static str, rows: Vec<AnyElement>) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h(px(0.))
+        .overflow_y_scroll()
+        .children(rows)
+}
+
+/// The "Changes | Files" control. Each segment shows its tab.
+fn tabs(active: Screen, cx: &Context<Shell>) -> Div {
     div()
         .flex()
         .mx(px(16.))
@@ -100,12 +117,18 @@ fn segmented() -> Div {
         .p(px(3.))
         .rounded(px(9.))
         .bg(theme::hairline())
-        .child(segment("Changes", true))
-        .child(segment("Files", false))
+        .child(segment("Changes", active == Screen::Diff, Screen::Diff, cx))
+        .child(segment("Files", active == Screen::Files, Screen::Files, cx))
 }
 
-fn segment(label: &'static str, active: bool) -> Div {
+fn segment(
+    label: &'static str,
+    active: bool,
+    screen: Screen,
+    cx: &Context<Shell>,
+) -> Stateful<Div> {
     div()
+        .id(label)
         .flex_1()
         .py(px(5.))
         .rounded(px(7.))
@@ -116,12 +139,18 @@ fn segment(label: &'static str, active: bool) -> Div {
                 .font_weight(FontWeight::MEDIUM)
         })
         .when(!active, |d| d.text_color(theme::muted()))
+        .on_click(cx.listener(
+            move |this: &mut Shell, _: &ClickEvent, _: &mut Window, cx: &mut Context<Shell>| {
+                this.show(screen, cx);
+            },
+        ))
         .child(label)
 }
 
-/// The search box is drawn but not wired; find-a-file comes later.
-fn search_box() -> Div {
+/// The find box: a click opens the finder, as ⌘P does.
+fn search_box(cx: &Context<Shell>) -> Stateful<Div> {
     div()
+        .id("find-file")
         .flex()
         .items_center()
         .mx(px(16.))
@@ -131,6 +160,11 @@ fn search_box() -> Div {
         .rounded(theme::CONTROL_RADIUS)
         .bg(theme::hairline())
         .text_color(theme::muted())
+        .on_click(cx.listener(
+            |this: &mut Shell, _: &ClickEvent, window: &mut Window, cx: &mut Context<Shell>| {
+                this.open_finder(window, cx);
+            },
+        ))
         .child(div().flex_1().child("Find a file"))
         .child(
             div()
@@ -219,6 +253,7 @@ pub fn centre(
         .min_w(px(0.))
         .bg(theme::paper())
         .child(file_header(selected, cx))
+        .children(selected.filter(|s| s.outside).map(context_banner))
         .child(diff_body(snapshot, selected, composer, cx))
 }
 
@@ -242,17 +277,19 @@ fn file_header(selected: Option<&Selected>, cx: &Context<Shell>) -> Div {
         return header;
     };
     if let Ok(diff) = &selected.diff {
-        header = header
-            .child(
-                div()
-                    .text_color(theme::done())
-                    .child(format!("+{}", diff.added)),
-            )
-            .child(
-                div()
-                    .text_color(theme::rejected())
-                    .child(format!("\u{2212}{}", diff.removed)),
-            );
+        if !selected.outside {
+            header = header
+                .child(
+                    div()
+                        .text_color(theme::done())
+                        .child(format!("+{}", diff.added)),
+                )
+                .child(
+                    div()
+                        .text_color(theme::rejected())
+                        .child(format!("\u{2212}{}", diff.removed)),
+                );
+        }
         if let Some((lo, hi)) = selected.selection.lines(diff) {
             let noun = if lo == hi { "Line" } else { "Lines" };
             header = header
@@ -265,6 +302,38 @@ fn file_header(selected: Option<&Selected>, cx: &Context<Shell>) -> Div {
         }
     }
     header
+}
+
+/// The notice above a file outside the change: a comment there travels with
+/// the review as context. Says so when the file is cut short.
+fn context_banner(selected: &Selected) -> Div {
+    let mut banner = div()
+        .flex()
+        .flex_col()
+        .gap(px(4.))
+        .mx(px(24.))
+        .mt(px(16.))
+        .px(px(14.))
+        .py(px(10.))
+        .rounded(theme::CONTROL_RADIUS)
+        .bg(theme::panel())
+        .text_color(theme::muted())
+        .child(
+            "This file is outside your change. A comment here travels with your review as context.",
+        );
+    if selected.cut {
+        banner = banner.child(
+            div()
+                .font_family(theme::CODE_FONT)
+                .text_size(px(theme::KEY_FONT_SIZE))
+                .text_color(theme::faint())
+                .child(format!(
+                    "Showing the first {} lines",
+                    rvw_view::context::MAX_LINES
+                )),
+        );
+    }
+    banner
 }
 
 /// Opens the composer for the selection; the same as pressing C.
@@ -314,7 +383,13 @@ fn diff_body(
                     .iter()
                     .filter(|comment| comment.file == selected.path)
                     .collect();
-                let overlay = Overlay::new(diff, &comments, &selected.selection, composer);
+                let overlay = Overlay::new(
+                    diff,
+                    &comments,
+                    &selected.selection,
+                    composer,
+                    selected.outside,
+                );
                 diff_view(diff, &overlay, cx)
             }
             Err(message) => notice(message),
@@ -336,25 +411,15 @@ pub fn notice(text: &str) -> Div {
         .child(text.to_owned())
 }
 
-pub fn right(snapshot: &Snapshot) -> Div {
-    let drafts = snapshot.view(&Filter {
-        state: Some(State::Draft),
-        ..Filter::default()
-    });
-    let rows: Vec<&Row> = drafts
-        .groups
-        .iter()
-        .flat_map(|group| group.rows.iter())
-        .collect();
+pub fn right(snapshot: &Snapshot, cx: &Context<Shell>) -> Div {
+    let rows = submit_dialog::draft_rows(snapshot);
+    let drafts = rows.len();
     let list = if rows.is_empty() {
         div()
             .text_color(theme::muted())
             .child("No comments in your draft yet.")
     } else {
-        div()
-            .flex()
-            .flex_col()
-            .children(rows.into_iter().map(draft_row))
+        div().flex().flex_col().children(rows.iter().map(draft_row))
     };
 
     div()
@@ -372,7 +437,7 @@ pub fn right(snapshot: &Snapshot) -> Div {
         )
         .child(list)
         .child(div().flex_1())
-        .child(submit_button())
+        .child(submit_button(drafts, cx))
 }
 
 fn draft_row(row: &Row) -> Div {
@@ -414,15 +479,40 @@ fn draft_row(row: &Row) -> Div {
         )
 }
 
-/// Drawn but not wired: submitting a review comes in a later slice.
-fn submit_button() -> Div {
-    div()
+/// Opens the submit dialog. Enabled only with at least one draft comment; the
+/// key hint shows the shortcut that does the same.
+fn submit_button(drafts: usize, cx: &Context<Shell>) -> Stateful<Div> {
+    let ready = drafts > 0;
+    let mut button = div()
+        .id("submit-review-button")
         .flex()
         .items_center()
         .justify_center()
+        .gap(px(8.))
         .h(px(36.))
         .rounded(theme::CONTROL_RADIUS)
-        .bg(theme::selected_panel())
-        .text_color(theme::faint())
         .child("Submit review")
+        .child(
+            div()
+                .font_family(theme::CODE_FONT)
+                .text_size(px(theme::KEY_FONT_SIZE))
+                .text_color(theme::faint())
+                .child("⇧⌘R"),
+        );
+    if ready {
+        button = button
+            .bg(theme::ink())
+            .text_color(theme::paper())
+            .font_weight(FontWeight::MEDIUM)
+            .on_click(cx.listener(
+                |this: &mut Shell, _: &ClickEvent, window: &mut Window, cx: &mut Context<Shell>| {
+                    this.open_submit(window, cx);
+                },
+            ));
+    } else {
+        button = button
+            .bg(theme::selected_panel())
+            .text_color(theme::faint());
+    }
+    button
 }

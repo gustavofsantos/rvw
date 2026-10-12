@@ -3,13 +3,17 @@
 mod composer;
 mod data;
 mod diff_view;
+mod files_panel;
+mod finder;
 mod frame;
 mod key_strip;
 mod queue_screen;
 mod review_screen;
 mod shell;
+mod submit_dialog;
 mod text_input;
 mod theme;
+mod verdict;
 
 use std::path::PathBuf;
 
@@ -86,6 +90,8 @@ fn flag_value(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<Str
 fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identity) {
     Application::new().run(move |cx: &mut App| {
         text_input::bind_keys(cx);
+        submit_dialog::bind_keys(cx);
+        finder::bind_keys(cx);
         let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),

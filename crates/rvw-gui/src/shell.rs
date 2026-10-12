@@ -4,7 +4,7 @@
 //! the common frame.
 
 use gpui::prelude::*;
-use gpui::{div, px, Context, FocusHandle, KeyDownEvent, Render, Window};
+use gpui::{div, px, Context, Div, FocusHandle, KeyDownEvent, Render, Window};
 use rvw_core::Service;
 use rvw_view::keys::Screen;
 use rvw_view::queue::{Filter, Queue, State};
@@ -12,15 +12,19 @@ use rvw_view::selection::Pos;
 
 use crate::composer::Composer;
 use crate::data::{self, Identity, Snapshot};
+use crate::files_panel::{self, FileList};
+use crate::finder::{self, Finder, OpenFinder};
 use crate::frame::{self, Panels};
 use crate::key_strip::key_strip;
 use crate::queue_screen;
 use crate::review_screen::{self, Selected};
+use crate::submit_dialog::{self, OpenSubmit, SubmitDialog};
 use crate::text_input::{TextInput, TextInputEvent};
 use crate::theme;
+use crate::verdict::Verdict;
 
 pub struct Shell {
-    snapshot: Snapshot,
+    pub(crate) snapshot: Snapshot,
     service: Service,
     /// The workspace, author and lane new comments are written with.
     identity: Identity,
@@ -33,6 +37,12 @@ pub struct Shell {
     selected: Option<Selected>,
     /// The open comment composer, if any.
     composer: Option<Composer>,
+    /// The open submit dialog, if any.
+    submit: Option<SubmitDialog>,
+    /// The repository's files, listed the first time a view needs them.
+    pub(crate) listing: Option<Result<FileList, String>>,
+    /// The open find-a-file overlay, if any.
+    pub(crate) finder: Option<Finder>,
     /// Holds the keys (C) when no field has focus.
     focus: FocusHandle,
 }
@@ -65,17 +75,33 @@ impl Shell {
             queue,
             selected,
             composer: None,
+            submit: None,
+            listing: None,
+            finder: None,
             focus: cx.focus_handle(),
         }
     }
 
+    /// The file a click or the finder opens: a change's diff, or, for a file
+    /// the change does not touch, its content on disk.
+    fn load_selected(&self, path: &str) -> Selected {
+        if self.snapshot.changes.iter().any(|file| file.path == path) {
+            Selected::load(&self.snapshot, path)
+        } else {
+            files_panel::load_outside(&self.snapshot.workspace, path)
+        }
+    }
+
     pub fn show(&mut self, screen: Screen, cx: &mut Context<Self>) {
+        if screen == Screen::Files {
+            self.ensure_listing();
+        }
         self.screen = screen;
         cx.notify();
     }
 
     pub fn select_file(&mut self, path: &str, cx: &mut Context<Self>) {
-        self.selected = Some(Selected::load(&self.snapshot, path));
+        self.selected = Some(self.load_selected(path));
         self.composer = None;
         cx.notify();
     }
@@ -169,7 +195,7 @@ impl Shell {
             Ok(snapshot) => {
                 self.queue = snapshot.view(&self.filter);
                 self.snapshot = snapshot;
-                self.selected = path.map(|path| Selected::load(&self.snapshot, &path));
+                self.selected = path.map(|path| self.load_selected(&path));
                 self.composer = None;
             }
             Err(message) => {
@@ -184,7 +210,22 @@ impl Shell {
 
     /// C opens the composer on the review screen, unless it is open already.
     fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        let on_review = matches!(self.screen, Screen::Diff);
+        // The open dialog takes every key: Esc closes it from wherever focus is.
+        if self.submit.is_some() {
+            if event.keystroke.key == "escape" {
+                self.close_submit(cx);
+            }
+            return;
+        }
+        if self.finder.is_some() {
+            match event.keystroke.key.as_str() {
+                "down" => self.move_highlight(true, cx),
+                "up" => self.move_highlight(false, cx),
+                _ => {}
+            }
+            return;
+        }
+        let on_review = matches!(self.screen, Screen::Diff | Screen::Files);
         if on_review
             && event.keystroke.key == "c"
             && event.keystroke.modifiers.number_of_modifiers() == 0
@@ -218,6 +259,70 @@ impl Shell {
         self.apply(filter, cx);
     }
 
+    /// Opens the submit dialog with the verdict the drafts suggest: request
+    /// changes with drafts, comment without. Does nothing while the dialog or
+    /// the finder is open.
+    pub fn open_submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.submit.is_some() || self.finder.is_some() {
+            return;
+        }
+        let drafts = submit_dialog::draft_rows(&self.snapshot).len();
+        let summary = cx.new(|cx| TextInput::new("Summary for the agent", cx));
+        let events = cx.subscribe(
+            &summary,
+            |this: &mut Self, _, event: &TextInputEvent, cx: &mut Context<Self>| {
+                if *event == TextInputEvent::Cancel {
+                    this.close_submit(cx);
+                }
+            },
+        );
+        summary.read(cx).focus(window);
+        self.submit = Some(SubmitDialog::new(
+            Verdict::for_drafts(drafts),
+            summary,
+            events,
+        ));
+        cx.notify();
+    }
+
+    pub fn close_submit(&mut self, cx: &mut Context<Self>) {
+        self.submit = None;
+        cx.notify();
+    }
+
+    pub fn pick_verdict(&mut self, verdict: Verdict, cx: &mut Context<Self>) {
+        if let Some(dialog) = self.submit.as_mut() {
+            dialog.verdict = verdict;
+        }
+        cx.notify();
+    }
+
+    /// Submits the drafts as one review. On success the dialog closes and the
+    /// snapshot reloads; a refused submit shows its message in the dialog.
+    pub fn send_submit(&mut self, cx: &mut Context<Self>) {
+        let Some(dialog) = self.submit.as_ref() else {
+            return;
+        };
+        let summary = dialog.summary.read(cx).text().to_owned();
+        let decision = dialog.verdict.decision();
+        let ids = submit_dialog::draft_rows(&self.snapshot)
+            .into_iter()
+            .map(|row| row.id)
+            .collect();
+        match data::submit_review(&self.service, &self.identity, decision, &summary, ids) {
+            Ok(_) => {
+                self.submit = None;
+                self.reload(cx);
+            }
+            Err(message) => {
+                if let Some(dialog) = self.submit.as_mut() {
+                    dialog.error = Some(message);
+                }
+                cx.notify();
+            }
+        }
+    }
+
     fn apply(&mut self, filter: Filter, cx: &mut Context<Self>) {
         self.queue = self.snapshot.view(&filter);
         self.filter = filter;
@@ -237,23 +342,23 @@ fn toggled<T: PartialEq>(current: Option<&T>, value: T) -> Option<T> {
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // With no field open, the shell holds the focus so that C reaches it.
-        if self.composer.is_none() && !self.focus.is_focused(window) {
+        if self.composer.is_none()
+            && self.submit.is_none()
+            && self.finder.is_none()
+            && !self.focus.is_focused(window)
+        {
             self.focus.focus(window);
         }
         let panels = match self.screen {
-            Screen::Diff => Panels {
-                left: review_screen::left(
-                    &self.snapshot,
-                    self.selected.as_ref().map(|s| s.path.as_str()),
-                    cx,
-                ),
+            Screen::Diff | Screen::Files => Panels {
+                left: self.review_left(cx),
                 centre: review_screen::centre(
                     &self.snapshot,
                     self.selected.as_ref(),
                     self.composer.as_ref(),
                     cx,
                 ),
-                right: review_screen::right(&self.snapshot),
+                right: review_screen::right(&self.snapshot, cx),
             },
             _ => Panels {
                 left: queue_screen::left(&self.snapshot, &self.filter, cx),
@@ -261,11 +366,23 @@ impl Render for Shell {
                 right: queue_screen::right(&self.snapshot.next_pull),
             },
         };
+        // The Files tab is part of the review screen, so R stays lit; the key
+        // strip reads Files, or Search while the finder is open.
+        let rail_screen = if self.screen == Screen::Files {
+            Screen::Diff
+        } else {
+            self.screen
+        };
+        let key_screen = if self.finder.is_some() {
+            Screen::Search
+        } else {
+            self.screen
+        };
         let window = frame::window(
             frame::top_bar(&self.snapshot),
-            frame::rail(self.screen, cx),
+            frame::rail(rail_screen, cx),
             panels,
-            key_strip(self.screen, &self.snapshot.queue.counters),
+            key_strip(key_screen, &self.snapshot.queue.counters),
         );
 
         div()
@@ -277,6 +394,36 @@ impl Render for Shell {
             .text_color(theme::text())
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key))
+            .on_action(cx.listener(|this: &mut Self, _: &OpenSubmit, window, cx| {
+                // ⇧⌘R opens the dialog, and submits it when it is already open.
+                if this.submit.is_some() {
+                    this.send_submit(cx);
+                } else {
+                    this.open_submit(window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this: &mut Self, _: &OpenFinder, window, cx| {
+                this.open_finder(window, cx);
+            }))
             .child(window)
+            .children(self.submit.as_ref().map(|dialog| {
+                submit_dialog::overlay(dialog, &self.snapshot, &self.identity.lane, cx)
+            }))
+            .children(
+                self.finder
+                    .as_ref()
+                    .map(|finder| finder::overlay(finder, cx)),
+            )
+    }
+}
+
+impl Shell {
+    /// The left panel of the review screen: the changes, or the Files tab.
+    fn review_left(&self, cx: &Context<Self>) -> Div {
+        let selected = self.selected.as_ref().map(|s| s.path.as_str());
+        match self.screen {
+            Screen::Files => files_panel::left(&self.snapshot, self.listing.as_ref(), selected, cx),
+            _ => review_screen::left(&self.snapshot, selected, cx),
+        }
     }
 }
