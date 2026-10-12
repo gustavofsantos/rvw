@@ -1,9 +1,10 @@
-//! rvw-gui: the native review window. This slice shows the queue screen.
+//! rvw-gui: the native review window: the queue and the review screens.
 
 mod data;
 mod frame;
 mod key_strip;
 mod queue_screen;
+mod review_screen;
 mod shell;
 mod theme;
 

@@ -3,9 +3,11 @@
 //! supplies everything around them.
 
 use gpui::prelude::*;
-use gpui::{div, px, Div, FontWeight, Pixels, Rgba, Stateful};
+use gpui::{div, px, ClickEvent, Context, Div, FontWeight, Pixels, Rgba, Stateful, Window};
+use rvw_view::keys::Screen;
 
 use crate::data::Snapshot;
+use crate::shell::Shell;
 use crate::theme;
 
 /// What a screen fills in the body of the frame.
@@ -16,12 +18,12 @@ pub struct Panels {
 }
 
 /// The whole window: top bar, the body of rail and panels, then the key strip.
-pub fn window(top: Div, panels: Panels, keys: Div) -> Div {
+pub fn window(top: Div, rail: Div, panels: Panels, keys: Div) -> Div {
     let body = div()
         .flex()
         .flex_1()
         .min_h(px(0.))
-        .child(rail())
+        .child(rail)
         .child(side(theme::LEFT_PANEL_WIDTH, Side::Left, panels.left))
         .child(div().flex().flex_1().min_w(px(0.)).child(panels.centre))
         .child(side(theme::RIGHT_PANEL_WIDTH, Side::Right, panels.right));
@@ -97,8 +99,15 @@ fn counter(label: String, color: Rgba) -> Div {
     div().text_color(color).child(label)
 }
 
-fn rail() -> Div {
-    let items = [("R", true), ("C", false), ("H", false), ("B", false)];
+/// The rail's four icons. Q and R open the queue and the review screens; H and
+/// B are drawn but not wired yet.
+pub fn rail(screen: Screen, cx: &mut Context<Shell>) -> Div {
+    let items = [
+        ("Q", Some(Screen::Queue)),
+        ("R", Some(Screen::Diff)),
+        ("H", None),
+        ("B", None),
+    ];
     div()
         .flex()
         .flex_col()
@@ -110,17 +119,33 @@ fn rail() -> Div {
         .bg(theme::panel())
         .border_r_1()
         .border_color(theme::hairline())
-        .children(items.map(|(glyph, active)| {
-            div()
+        .children(items.map(|(glyph, target)| {
+            let mut item = div()
+                .id(glyph)
                 .flex()
                 .items_center()
                 .justify_center()
                 .size(px(36.))
                 .rounded(theme::CONTROL_RADIUS)
                 .font_family(theme::CODE_FONT)
-                .text_color(if active { theme::ink() } else { theme::faint() })
-                .when(active, |d| d.bg(theme::selected_panel()))
-                .child(glyph)
+                .text_color(if target == Some(screen) {
+                    theme::ink()
+                } else {
+                    theme::faint()
+                })
+                .when(target == Some(screen), |d| d.bg(theme::selected_panel()))
+                .child(glyph);
+            if let Some(target) = target {
+                item = item.on_click(cx.listener(
+                    move |this: &mut Shell,
+                          _: &ClickEvent,
+                          _: &mut Window,
+                          cx: &mut Context<Shell>| {
+                        this.show(target, cx);
+                    },
+                ));
+            }
+            item
         }))
 }
 

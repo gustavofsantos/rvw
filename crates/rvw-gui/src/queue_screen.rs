@@ -430,7 +430,7 @@ fn elsewhere_detail(next: &NextPull) -> String {
     )
 }
 
-fn noun(count: usize, one: &'static str, many: &'static str) -> &'static str {
+pub(crate) fn noun(count: usize, one: &'static str, many: &'static str) -> &'static str {
     if count == 1 {
         one
     } else {

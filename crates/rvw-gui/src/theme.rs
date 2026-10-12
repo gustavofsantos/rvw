@@ -4,7 +4,7 @@
 //! The palette is complete before every screen uses it, hence the allow.
 #![allow(dead_code)]
 
-use gpui::{px, rgb, Pixels, Rgba};
+use gpui::{px, rgb, rgba, Pixels, Rgba};
 
 pub const WINDOW_RADIUS: Pixels = px(14.);
 pub const CONTROL_RADIUS: Pixels = px(8.);
@@ -74,4 +74,12 @@ pub fn rejected() -> Rgba {
 /// Orange means "you are needed". Nothing else is orange.
 pub fn needs_you() -> Rgba {
     rgb(0x00f5_4e00)
+}
+/// The tint behind an added diff line: the green at about 9% opacity.
+pub fn added_tint() -> Rgba {
+    rgba(0x007b_2f17)
+}
+/// The tint behind a removed diff line: the red at about 9% opacity.
+pub fn removed_tint() -> Rgba {
+    rgba(0xba3e_4b17)
 }

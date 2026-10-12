@@ -1,4 +1,5 @@
-//! The key strip: the thirteen keys, each with the light it shows on the queue.
+//! The key strip: the thirteen keys, each with the light it shows on the
+//! screen it sits under.
 
 use gpui::prelude::*;
 use gpui::{div, px, Div, FontWeight};
@@ -7,9 +8,9 @@ use rvw_view::queue::Counters;
 
 use crate::theme;
 
-pub fn key_strip(counters: &Counters) -> Div {
+pub fn key_strip(screen: Screen, counters: &Counters) -> Div {
     let context = Context {
-        screen: Screen::Queue,
+        screen,
         composing: false,
         draft_count: counters.draft,
         comment_done: false,
