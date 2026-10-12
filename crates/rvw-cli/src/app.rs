@@ -4,6 +4,7 @@
 use std::cell::OnceCell;
 use std::io::{IsTerminal, Read, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use clap::error::{ContextKind, ErrorKind};
 use rvw_core::{Error as CoreError, Service};
@@ -18,19 +19,19 @@ pub type CliResult<T> = Result<T, String>;
 pub struct App {
     workspace_flag: String,
     db_flag: String,
-    service: OnceCell<Service>,
+    service: OnceCell<Arc<Service>>,
 }
 
 pub type Out = Terminal<std::io::Stdout>;
 
 impl App {
-    pub fn svc(&self) -> CliResult<&Service> {
+    pub fn svc(&self) -> CliResult<&Arc<Service>> {
         if let Some(s) = self.service.get() {
             return Ok(s);
         }
         let path = self.db_path()?;
         let store = Store::open(&path).map_err(|e| e.message)?;
-        let _ = self.service.set(Service::new(Box::new(store)));
+        let _ = self.service.set(Arc::new(Service::new(Box::new(store))));
         Ok(self.service.get().expect("service was just set"))
     }
 

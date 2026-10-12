@@ -27,7 +27,7 @@ pub const MAX_SOURCE: usize = 4 << 20;
 /// Runs every review operation against a [`Repository`].
 pub struct Service {
     repo: Box<dyn Repository>,
-    now: Box<dyn Fn() -> OffsetDateTime>,
+    now: Box<dyn Fn() -> OffsetDateTime + Send + Sync>,
 }
 
 // Operations take their input by value, as the adapters build it per call.
@@ -40,7 +40,10 @@ impl Service {
     }
 
     /// A service over `repo` that stamps times with `now`.
-    pub fn with_clock(repo: Box<dyn Repository>, now: Box<dyn Fn() -> OffsetDateTime>) -> Self {
+    pub fn with_clock(
+        repo: Box<dyn Repository>,
+        now: Box<dyn Fn() -> OffsetDateTime + Send + Sync>,
+    ) -> Self {
         Self { repo, now }
     }
 
@@ -957,8 +960,8 @@ pub(crate) mod testing {
     //! An in-memory [`Repository`] for the service tests. Each write runs on a
     //! copy of the workspace that replaces the stored one only when it succeeds.
 
-    use std::cell::RefCell;
     use std::collections::BTreeMap;
+    use std::sync::Mutex;
 
     use time::{Date, Month, OffsetDateTime};
 
@@ -976,7 +979,7 @@ pub(crate) mod testing {
 
     #[derive(Default)]
     pub struct MemRepo {
-        data: RefCell<BTreeMap<String, WorkspaceData>>,
+        data: Mutex<BTreeMap<String, WorkspaceData>>,
     }
 
     struct MemTx<'a> {
@@ -991,12 +994,16 @@ pub(crate) mod testing {
         ) -> Result<()> {
             let mut copy = self
                 .data
-                .borrow()
+                .lock()
+                .expect("mem repo lock")
                 .get(workspace)
                 .cloned()
                 .unwrap_or_default();
             f(&mut MemTx { data: &mut copy })?;
-            self.data.borrow_mut().insert(workspace.to_string(), copy);
+            self.data
+                .lock()
+                .expect("mem repo lock")
+                .insert(workspace.to_string(), copy);
             Ok(())
         }
 
@@ -1007,7 +1014,8 @@ pub(crate) mod testing {
         ) -> Result<()> {
             let mut copy = self
                 .data
-                .borrow()
+                .lock()
+                .expect("mem repo lock")
                 .get(workspace)
                 .cloned()
                 .unwrap_or_default();
@@ -1015,7 +1023,13 @@ pub(crate) mod testing {
         }
 
         fn workspaces(&self) -> Result<Vec<String>> {
-            Ok(self.data.borrow().keys().cloned().collect())
+            Ok(self
+                .data
+                .lock()
+                .expect("mem repo lock")
+                .keys()
+                .cloned()
+                .collect())
         }
 
         fn location(&self) -> String {
@@ -1100,7 +1114,7 @@ pub(crate) mod testing {
     }
 
     /// Every stamp reads 2026-10-12T09:00:00+00:00.
-    pub fn fixed_clock() -> Box<dyn Fn() -> OffsetDateTime> {
+    pub fn fixed_clock() -> Box<dyn Fn() -> OffsetDateTime + Send + Sync> {
         let t = Date::from_calendar_date(2026, Month::October, 12)
             .expect("valid date")
             .with_hms(9, 0, 0)

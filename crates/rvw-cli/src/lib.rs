@@ -17,8 +17,11 @@ pub(crate) const PROG: &str = "rvw";
 pub fn run(args: &[String]) -> i32 {
     // The first SIGINT/SIGTERM cancels a git call in flight, as the Go
     // process's cancelled context did.
+    // A second signal ends the process, as in Go, even if the first is ignored.
+    let flag = rvw_git::cancel_flag();
     for sig in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
-        let _ = signal_hook::flag::register(sig, rvw_git::cancel_flag());
+        let _ = signal_hook::flag::register_conditional_shutdown(sig, 128 + sig, flag.clone());
+        let _ = signal_hook::flag::register(sig, flag.clone());
     }
     // Text output carries comments, code and names that agents wrote: it goes
     // through a Terminal writer so none of it can drive the terminal. JSON is

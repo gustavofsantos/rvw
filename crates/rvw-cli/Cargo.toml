@@ -21,3 +21,5 @@ rvw-core.workspace = true
 rvw-git.workspace = true
 rvw-store.workspace = true
 rvw-render.workspace = true
+rvw-mcp.workspace = true
+rvw-tui.workspace = true

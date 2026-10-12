@@ -4,7 +4,7 @@
 use crate::error::Result;
 use crate::types::{Comment, Review, ReviewStatus, Status};
 
-pub trait Repository {
+pub trait Repository: Send + Sync {
     /// Runs `f` in one write transaction on the workspace, creating the
     /// workspace record when it does not exist yet. An `Err` rolls back.
     fn update(&self, workspace: &str, f: &mut dyn FnMut(&mut dyn Tx) -> Result<()>) -> Result<()>;

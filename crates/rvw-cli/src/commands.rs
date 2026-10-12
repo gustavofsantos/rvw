@@ -858,9 +858,21 @@ fn mcp_cmd(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
             if !flags.http.is_empty() {
                 mcp::check_loopback(&flags.http)?;
             }
-            app.workspace()?;
-            app.svc()?;
-            Err("mcp serve is not available in this build yet".to_owned())
+            let ws = app.workspace()?;
+            let svc = std::sync::Arc::clone(app.svc()?);
+            let opts = rvw_mcp::Options {
+                workspace: ws,
+                lane: lane_of(&flags.lane),
+                author: author_of(&flags.author),
+                version: version().to_owned(),
+            };
+            if flags.http.is_empty() {
+                rvw_mcp::serve_stdio(svc, opts)
+            } else {
+                rvw_mcp::serve_http(svc, opts, &flags.http, &|addr| {
+                    App::notice(&format!("serving MCP at http://{addr}{}", mcp::MCP_PATH));
+                })
+            }
         }
         Some(("config", sm)) => {
             let flags = server_flags(sm);
@@ -903,7 +915,28 @@ fn tui(app: &App, m: &ArgMatches) -> CliResult<()> {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         return Err("tui needs an interactive terminal on stdin and stdout".to_owned());
     }
-    app.workspace()?;
-    app.svc()?;
-    Err("tui is not available in this build yet".to_owned())
+    let workspace = app.workspace()?;
+    let service = std::sync::Arc::clone(app.svc()?);
+    let editor = std::env::var("VISUAL")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .or_else(|| {
+            std::env::var("EDITOR")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+        });
+    let flag_editor = s(m, "editor");
+    rvw_tui::run(rvw_tui::Options {
+        service,
+        workspace,
+        lane: lane_of(&s(m, "lane")),
+        author: author_of(&s(m, "author")),
+        editor: if flag_editor.trim().is_empty() {
+            editor.unwrap_or_else(|| "vi".to_owned())
+        } else {
+            flag_editor.trim().to_owned()
+        },
+        style: String::new(),
+        leader: leader_of(&s(m, "leader"))?,
+    })
 }

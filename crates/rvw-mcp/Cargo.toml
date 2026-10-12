@@ -1,0 +1,22 @@
+[package]
+name = "rvw-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+rmcp = { version = "3.5.1", features = ["server", "macros", "transport-io", "transport-streamable-http-server"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time", "io-std", "io-util", "sync"] }
+axum = "0.8"
+schemars = "1"
+serde.workspace = true
+serde_json.workspace = true
+rvw-core.workspace = true
+rvw-git.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
