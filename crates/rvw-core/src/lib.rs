@@ -1,5 +1,6 @@
 //! rvw's domain: types, operations, the storage trait and the service.
 pub mod error;
+mod evidence;
 pub mod operations;
 pub mod repository;
 pub mod service;

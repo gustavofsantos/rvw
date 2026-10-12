@@ -9,13 +9,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::{Comment, Handoff, Review};
 
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde's skip_serializing_if takes a reference
 fn is_false(b: &bool) -> bool {
     !*b
 }
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde's skip_serializing_if takes a reference
 fn is_zero(n: &i64) -> bool {
-    *n == 0
-}
-fn is_zero_usize(n: &usize) -> bool {
     *n == 0
 }
 
@@ -28,7 +27,7 @@ pub struct AddInput {
     pub file: String,
     /// first line of the range, 1-indexed
     pub start_line: i64,
-    /// last line of the range, inclusive; defaults to start_line
+    /// last line of the range, inclusive; defaults to `start_line`
     #[serde(default, skip_serializing_if = "is_zero")]
     pub end_line: i64,
     /// the review note, markdown allowed
@@ -120,8 +119,8 @@ pub struct PullInput {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ids: Vec<String>,
     /// at most this many handoffs, oldest first; 0 means no limit
-    #[serde(default, skip_serializing_if = "is_zero_usize")]
-    pub limit: usize,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub limit: i64,
     /// read without dequeuing
     #[serde(default, skip_serializing_if = "is_false")]
     pub peek: bool,

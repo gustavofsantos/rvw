@@ -22,3 +22,6 @@ rvw-render = { path = "crates/rvw-render" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"   # every fallible fn returns the one documented Error type
+must_use_candidate = "allow"   # noisy on query helpers
+assert_is_empty = "allow"      # assert!(x.is_empty()) reads fine in tests
