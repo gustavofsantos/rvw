@@ -6,7 +6,9 @@ use std::hash::BuildHasher;
 use rvw_core::operations::ReviewSheet;
 use rvw_core::types::{parse_seq, Comment, Review, Status};
 
-/// Titles longer than this are cut, the cut itself ending in an ellipsis.
+/// The title length limit, in characters, ellipsis included. A title longer
+/// than this is cut to `TITLE_MAX_CHARS - 1` characters (59) followed by `…`,
+/// so a cut title is exactly 60 characters. A title of exactly 60 is not cut.
 const TITLE_MAX_CHARS: usize = 60;
 
 /// Where a comment stands from the reviewer's side.
@@ -53,7 +55,9 @@ pub fn glyph_of(comment: &Comment, state: State) -> &'static str {
 pub struct Row {
     /// comment id, e.g. "r9"
     pub id: String,
-    /// first non-empty line of the comment text, trimmed, cut to 60 chars
+    /// first non-empty line of the comment text, trimmed. A line over 60
+    /// characters is cut to 59 characters plus `…`, so 60 in total (see
+    /// `TITLE_MAX_CHARS`); a line of exactly 60 characters is kept whole.
     pub title: String,
     /// `file:N` or `file:N-M`
     pub location: String,
@@ -141,12 +145,14 @@ pub fn build<S: BuildHasher>(
     let mut groups = Vec::new();
     for sheet in ordered {
         // the review's own order first, then any sheet comment it did not list
+        let listed_ids: HashSet<&str> =
+            sheet.review.comment_ids.iter().map(String::as_str).collect();
         let listed = sheet.review.comment_ids.iter().map(String::as_str);
         let extra = sheet
             .comments
             .iter()
             .map(|c| c.id.as_str())
-            .filter(|id| !sheet.review.comment_ids.iter().any(|l| l == id));
+            .filter(|id| !listed_ids.contains(id));
 
         let mut rows = Vec::new();
         for id in listed.chain(extra) {
