@@ -1,6 +1,6 @@
 //! The queue as the reviewer sees it: groups, states and counters.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::BuildHasher;
 
 use rvw_core::operations::ReviewSheet;
@@ -228,6 +228,32 @@ fn passes(filter: &Filter, comment: &Comment, state: State) -> bool {
             .author
             .as_ref()
             .is_none_or(|author| comment.author.as_ref() == Some(author))
+}
+
+/// The lanes and authors the comments name, each sorted and without repeats.
+/// An empty lane or author counts as none.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Facets {
+    pub lanes: Vec<String>,
+    pub authors: Vec<String>,
+}
+
+/// The distinct lanes and authors of `comments`, for the queue's filters.
+pub fn facets(comments: &[Comment]) -> Facets {
+    let lanes: BTreeSet<&str> = comments
+        .iter()
+        .filter_map(|c| c.lane.as_deref())
+        .filter(|lane| !lane.is_empty())
+        .collect();
+    let authors: BTreeSet<&str> = comments
+        .iter()
+        .filter_map(|c| c.author.as_deref())
+        .filter(|author| !author.is_empty())
+        .collect();
+    Facets {
+        lanes: lanes.into_iter().map(str::to_owned).collect(),
+        authors: authors.into_iter().map(str::to_owned).collect(),
+    }
 }
 
 fn row_of(comment: &Comment, state: State) -> Row {
@@ -598,6 +624,23 @@ mod tests {
         c.comment = text.clone();
         let q = build(&[c], &[], &none(), &Filter::default());
         assert_eq!(q.groups[0].rows[0].title, text);
+    }
+
+    #[test]
+    fn facets_are_sorted_distinct_and_skip_empty_names() {
+        let mut ada = comment("r1", Status::Pending);
+        ada.author = Some("ada".into());
+        ada.lane = Some("feat".into());
+        let mut bob = comment("r2", Status::Pending);
+        bob.author = Some("bob".into());
+        bob.lane = Some("main".into());
+        let mut ada_again = comment("r3", Status::Pending);
+        ada_again.author = Some("ada".into());
+        ada_again.lane = Some(String::new());
+        let anonymous = comment("r4", Status::Pending);
+        let f = facets(&[bob, ada, ada_again, anonymous]);
+        assert_eq!(f.lanes, vec!["feat".to_string(), "main".to_string()]);
+        assert_eq!(f.authors, vec!["ada".to_string(), "bob".to_string()]);
     }
 
     #[test]
