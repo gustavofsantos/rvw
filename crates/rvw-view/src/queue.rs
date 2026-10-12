@@ -145,8 +145,12 @@ pub fn build<S: BuildHasher>(
     let mut groups = Vec::new();
     for sheet in ordered {
         // the review's own order first, then any sheet comment it did not list
-        let listed_ids: HashSet<&str> =
-            sheet.review.comment_ids.iter().map(String::as_str).collect();
+        let listed_ids: HashSet<&str> = sheet
+            .review
+            .comment_ids
+            .iter()
+            .map(String::as_str)
+            .collect();
         let listed = sheet.review.comment_ids.iter().map(String::as_str);
         let extra = sheet
             .comments
