@@ -5,8 +5,8 @@
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, AnyElement, App, ClickEvent, Context, Div, FontWeight, Pixels, SharedString, Stateful,
-    Window,
+    div, px, AnyElement, App, ClickEvent, Context, Div, FontWeight, Pixels, ScrollHandle,
+    SharedString, Stateful, Window,
 };
 use rvw_core::types::Comment;
 use rvw_view::changes::ChangedFile;
@@ -52,7 +52,12 @@ impl Selected {
     }
 }
 
-pub fn left(snapshot: &Snapshot, selected: Option<&str>, cx: &Context<Shell>) -> Div {
+pub fn left(
+    snapshot: &Snapshot,
+    selected: Option<&str>,
+    scroll: &ScrollHandle,
+    cx: &Context<Shell>,
+) -> Div {
     let rows: Vec<AnyElement> = snapshot
         .changes
         .iter()
@@ -73,7 +78,12 @@ pub fn left(snapshot: &Snapshot, selected: Option<&str>, cx: &Context<Shell>) ->
         noun(count, "file", "files"),
         snapshot.base_name
     );
-    panel(Screen::Diff, &summary, list("change-list", rows), cx)
+    panel(
+        Screen::Diff,
+        &summary,
+        list("change-list", rows, scroll),
+        cx,
+    )
 }
 
 /// The frame of the left panel, shared by both tabs: the Changes | Files
@@ -96,8 +106,8 @@ pub fn panel(active: Screen, summary: &str, list: Stateful<Div>, cx: &Context<Sh
         .child(list)
 }
 
-/// A scrolling list of rows.
-pub fn list(id: &'static str, rows: Vec<AnyElement>) -> Stateful<Div> {
+/// A scrolling list of rows. `scroll` lets the keyboard bring a row into view.
+pub fn list(id: &'static str, rows: Vec<AnyElement>, scroll: &ScrollHandle) -> Stateful<Div> {
     div()
         .id(id)
         .flex()
@@ -105,6 +115,7 @@ pub fn list(id: &'static str, rows: Vec<AnyElement>) -> Stateful<Div> {
         .flex_1()
         .min_h(px(0.))
         .overflow_y_scroll()
+        .track_scroll(scroll)
         .children(rows)
 }
 

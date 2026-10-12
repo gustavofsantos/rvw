@@ -8,11 +8,13 @@ use std::path::Path;
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, AnyElement, ClickEvent, Context, Div, FontWeight, Pixels, SharedString, Window,
+    div, px, AnyElement, ClickEvent, Context, Div, FontWeight, Pixels, ScrollHandle, SharedString,
+    Window,
 };
 use rvw_view::context::{self, Shown};
 use rvw_view::files::Marks;
 use rvw_view::keys::Screen;
+use rvw_view::nav;
 use rvw_view::selection::Selection;
 use rvw_view::tree::{self, build_tree, NodeId, Row, Tree};
 
@@ -65,6 +67,7 @@ pub fn left(
     snapshot: &Snapshot,
     listing: Option<&Result<FileList, String>>,
     selected: Option<&str>,
+    scroll: &ScrollHandle,
     cx: &Context<Shell>,
 ) -> Div {
     let (summary, rows): (String, Vec<AnyElement>) = match listing {
@@ -95,7 +98,7 @@ pub fn left(
     review_screen::panel(
         Screen::Files,
         &summary,
-        review_screen::list("file-tree", rows),
+        review_screen::list("file-tree", rows, scroll),
         cx,
     )
 }
@@ -221,6 +224,54 @@ impl Shell {
     pub fn ensure_listing(&mut self) {
         if self.listing.is_none() {
             self.listing = Some(load_listing(&self.snapshot.workspace));
+        }
+    }
+
+    /// J and K, and the arrow keys: selects the next or previous file of the
+    /// list on screen, as a click on it would, and brings its row into view.
+    /// Does nothing on a screen without a file list.
+    pub fn step_file(&mut self, delta: i32, cx: &mut Context<Self>) {
+        let rows = self.file_rows();
+        let paths: Vec<&str> = rows.iter().map(|(_, path)| path.as_str()).collect();
+        let current = self
+            .selected
+            .as_ref()
+            .map(|selected| selected.path.as_str());
+        let Some(index) = nav::file_step(&paths, current, delta) else {
+            return;
+        };
+        let (row, path) = &rows[index];
+        self.select_file(path, cx);
+        let scroll = if self.screen == Screen::Files {
+            &self.files_scroll
+        } else {
+            &self.changes_scroll
+        };
+        scroll.scroll_to_item(*row);
+    }
+
+    /// The files a keyboard step can reach, in display order, each with its
+    /// row's index in the rendered list.
+    fn file_rows(&self) -> Vec<(usize, String)> {
+        match (self.screen, self.listing.as_ref()) {
+            (Screen::Diff, _) => self
+                .snapshot
+                .changes
+                .iter()
+                .enumerate()
+                .map(|(index, file)| (index, file.path.clone()))
+                .collect(),
+            (Screen::Files, Some(Ok(list))) => list
+                .tree
+                .rows()
+                .into_iter()
+                .enumerate()
+                .filter_map(|(index, row)| {
+                    let node = list.tree.node(row.node);
+                    (!node.dir).then(|| (index, node.path.clone()))
+                })
+                .collect(),
+            _ => Vec::new(),
         }
     }
 }

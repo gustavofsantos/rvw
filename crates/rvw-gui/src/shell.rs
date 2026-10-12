@@ -4,7 +4,7 @@
 //! the common frame.
 
 use gpui::prelude::*;
-use gpui::{div, px, Context, Div, FocusHandle, KeyDownEvent, Render, Window};
+use gpui::{div, px, Context, Div, FocusHandle, KeyDownEvent, Render, ScrollHandle, Window};
 use rvw_core::Service;
 use rvw_view::keys::Screen;
 use rvw_view::queue::{Filter, Queue, State};
@@ -28,13 +28,13 @@ pub struct Shell {
     service: Service,
     /// The workspace, author and lane new comments are written with.
     identity: Identity,
-    /// `Queue` or `Diff` (the review screen).
-    screen: Screen,
+    /// `Queue` or `Diff` (the review screen), or the Files tab of it.
+    pub(crate) screen: Screen,
     filter: Filter,
     /// The snapshot's queue under `filter`.
     queue: Queue,
     /// The file the review screen shows, if any.
-    selected: Option<Selected>,
+    pub(crate) selected: Option<Selected>,
     /// The open comment composer, if any.
     composer: Option<Composer>,
     /// The open submit dialog, if any.
@@ -43,6 +43,10 @@ pub struct Shell {
     pub(crate) listing: Option<Result<FileList, String>>,
     /// The open find-a-file overlay, if any.
     pub(crate) finder: Option<Finder>,
+    /// Keeps the Changes list's row in view when the keyboard moves.
+    pub(crate) changes_scroll: ScrollHandle,
+    /// Keeps the Files tree's row in view when the keyboard moves.
+    pub(crate) files_scroll: ScrollHandle,
     /// Holds the keys (C) when no field has focus.
     focus: FocusHandle,
 }
@@ -78,6 +82,8 @@ impl Shell {
             submit: None,
             listing: None,
             finder: None,
+            changes_scroll: ScrollHandle::new(),
+            files_scroll: ScrollHandle::new(),
             focus: cx.focus_handle(),
         }
     }
@@ -208,7 +214,7 @@ impl Shell {
         cx.notify();
     }
 
-    /// C opens the composer on the review screen, unless it is open already.
+    /// Keys with no field open: C, and the file keys J, K and the arrows.
     fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         // The open dialog takes every key: Esc closes it from wherever focus is.
         if self.submit.is_some() {
@@ -225,12 +231,17 @@ impl Shell {
             }
             return;
         }
+        // With no field open, plain keys move through the review: C opens the
+        // composer, and J or Down and K or Up select the next or previous file.
+        if event.keystroke.modifiers.number_of_modifiers() != 0 || self.composer.is_some() {
+            return;
+        }
         let on_review = matches!(self.screen, Screen::Diff | Screen::Files);
-        if on_review
-            && event.keystroke.key == "c"
-            && event.keystroke.modifiers.number_of_modifiers() == 0
-        {
-            self.open_composer(window, cx);
+        match event.keystroke.key.as_str() {
+            "c" if on_review => self.open_composer(window, cx),
+            "j" | "down" => self.step_file(1, cx),
+            "k" | "up" => self.step_file(-1, cx),
+            _ => {}
         }
     }
 
@@ -422,8 +433,14 @@ impl Shell {
     fn review_left(&self, cx: &Context<Self>) -> Div {
         let selected = self.selected.as_ref().map(|s| s.path.as_str());
         match self.screen {
-            Screen::Files => files_panel::left(&self.snapshot, self.listing.as_ref(), selected, cx),
-            _ => review_screen::left(&self.snapshot, selected, cx),
+            Screen::Files => files_panel::left(
+                &self.snapshot,
+                self.listing.as_ref(),
+                selected,
+                &self.files_scroll,
+                cx,
+            ),
+            _ => review_screen::left(&self.snapshot, selected, &self.changes_scroll, cx),
         }
     }
 }
