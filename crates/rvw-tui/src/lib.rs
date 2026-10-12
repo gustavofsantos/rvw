@@ -2,7 +2,6 @@
 //! and comment on line ranges. An adapter over `rvw_core::Service`: it holds no
 //! domain logic and every action is one service call. Port of internal/tui.
 
-pub mod changes;
 pub mod editor;
 pub mod highlight;
 pub mod model;
@@ -16,7 +15,7 @@ pub mod update;
 pub mod view;
 
 /// Moved to `rvw-view`; re-exported so existing paths keep working.
-pub use rvw_view::{fuzzy, tree};
+pub use rvw_view::{changes, fuzzy, tree};
 
 use std::sync::Arc;
 

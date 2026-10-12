@@ -138,33 +138,8 @@ pub fn pulled() -> Style {
     Style::new().fg(Color::Indexed(3))
 }
 
-/// The kind of change a line of a file has against the last commit.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Sign {
-    /// No change.
-    None,
-    /// A new line.
-    Added,
-    /// A line that replaced another.
-    Changed,
-    /// Lines were deleted below this one.
-    Deleted,
-    /// Lines were deleted above this one, the first line.
-    DeletedTop,
-}
-
-impl Sign {
-    /// The gutter glyph of this sign.
-    #[must_use]
-    pub fn glyph(self) -> &'static str {
-        match self {
-            Self::None => " ",
-            Self::Added | Self::Changed => "▎",
-            Self::Deleted => "▁",
-            Self::DeletedTop => "▔",
-        }
-    }
-}
+/// The change sign type lives in `rvw-view`; re-exported so `style::Sign` works.
+pub use rvw_view::changes::Sign;
 
 /// The style of a change sign.
 #[must_use]
