@@ -1,0 +1,52 @@
+Open a full-screen review UI on the workspace: a file tree, the current file
+with syntax highlighting, and a rail in the gutter marking every line under an
+open comment. Select lines, comment on them, edit a comment, submit a review.
+The workspace is a git worktree; the tree leaves out the files git ignores.
+t cycles the tree through every file, the changed files only, and the
+reviews with their comments; opening a review or comment shows what was asked
+and how it was addressed, with the diff made while resolving it, and o opens
+the file at the comment. b chooses what the changed files, and the
+gutter's change marks, compare with: uncommitted changes (against HEAD, the
+default), the default branch (against its merge-base with main or master),
+or the previous commit (against HEAD~1). Untracked files count as changes.
+The bottom bar shows the comments on the cursor line, else the branch and
+the uncommitted changes as +added -deleted line counts.
+
+Comments are written in your editor: --editor, else $VISUAL, else $EDITOR,
+else vi. Lines from the scissors line down are context and are dropped; an
+empty note cancels. --lane and --author stamp what you add and submit; the
+gutter shows every lane's open comments.
+
+Nothing is watched: the file and its comments are re-read when you open a
+file, press r, or add, edit or submit; the branch and the changes when you
+press r, t or b; the reviews when you press r or t, or add, edit or submit.
+
+Keys (? shows them in the UI); <leader> is space unless --leader says:
+  <leader>p go to file · <leader>l open comments · Tab switch pane · s submit · q quit
+  t files, changes or reviews · b compare with: uncommitted, default branch, previous commit
+  tree    j/k move · l/↵ open or expand · h collapse or go to parent · gg/G
+  viewer  j/k · C-d/C-u half page · gg/G · NG or :N go to line
+          ]c/[c next/previous comment · ]h/[h next/previous change, around
+          V select lines · c comment · e edit
+          on a review or comment page: j/k scroll · o open the file · esc back
+          r reload
+
+Usage:
+  rvw tui [flags]
+
+Examples:
+  rvw tui
+  rvw tui --lane refactor-auth --editor "code --wait"
+  rvw tui --leader ,
+  rvw --workspace ~/src/project tui
+
+Flags:
+      --author string   who is reviewing (default: $USER)
+      --editor string   command to write comments in (default: $VISUAL, else $EDITOR, else vi)
+  -h, --help            help for tui
+      --lane string     lane the comments and reviews you write land in
+      --leader string   key that starts leader mappings: "space" or one character, such as "," (default "space")
+
+Global Flags:
+      --db string          database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)
+      --workspace string   queue to act on: the git toplevel of this directory (default: $PWD)

@@ -1,0 +1,28 @@
+Show this workspace's review comments, oldest first. Nothing is dequeued.
+
+With --reviews it shows submitted review sheets instead, each with its state:
+pending, pulled, or complete once every linked comment is decided. --status
+then takes pending, pulled, complete, open (not yet complete) or all.
+
+Usage:
+  rvw list [flags]
+
+Examples:
+  rvw list
+  rvw list --file src/api.py --format json   # what an editor draws signs from
+  rvw list --status pulled                   # what has already been handed over
+  rvw list --reviews                         # submitted reviews still pending
+  rvw list --reviews --status all            # every submitted review
+
+Flags:
+      --all-lanes       every lane, overriding --lane
+      --file string     only comments on this file
+      --format string   output shape: text, json, ids, count, markdown (default: text) (default "text")
+  -h, --help            help for list
+      --lane string     only this lane's comments (default: every lane)
+      --reviews         list submitted review sheets instead of comments
+      --status string   which comments to show: pending, pulled, done, rejected, open (pending + pulled), all (default "pending")
+
+Global Flags:
+      --db string          database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)
+      --workspace string   queue to act on: the git toplevel of this directory (default: $PWD)

@@ -1,0 +1,20 @@
+Record that a review comment was acted on, and by whom. For a tracked file
+that still exists, resolve also saves its current contents as a Git blob.
+`pull` says a comment was handed over; `resolve` says what became of it,
+so only a pulled comment can be resolved.
+
+Usage:
+  rvw resolve ID [flags]
+
+Examples:
+  rvw resolve r3
+  rvw resolve r3 --note "renamed to first(), added a test"
+
+Flags:
+      --author string   who decided (default: $USER)
+  -h, --help            help for resolve
+      --note string     what you did
+
+Global Flags:
+      --db string          database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)
+      --workspace string   queue to act on: the git toplevel of this directory (default: $PWD)

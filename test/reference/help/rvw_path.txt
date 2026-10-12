@@ -1,0 +1,12 @@
+Print the database backing every queue, or with --workspace-only the resolved workspace.
+
+Usage:
+  rvw path [flags]
+
+Flags:
+  -h, --help             help for path
+      --workspace-only   print the resolved workspace directory
+
+Global Flags:
+      --db string          database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)
+      --workspace string   queue to act on: the git toplevel of this directory (default: $PWD)

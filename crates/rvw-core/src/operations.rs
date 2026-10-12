@@ -1,0 +1,290 @@
+//! Inputs and outputs of every `Service` operation. Each one is a JSON object so
+//! it can double as an MCP tool's input or structured output. A field without
+//! `skip_serializing_if` is required; its doc comment is its description.
+//!
+//! `workspace` is always the canonical absolute path an adapter resolved. Lane
+//! "" means every lane; author "" means anonymous.
+
+use serde::{Deserialize, Serialize};
+
+use crate::types::{Comment, Handoff, Review};
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+fn is_zero(n: &i64) -> bool {
+    *n == 0
+}
+fn is_zero_usize(n: &usize) -> bool {
+    *n == 0
+}
+
+/// Enqueues one comment on a line range of one file.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AddInput {
+    /// absolute workspace path
+    pub workspace: String,
+    /// file the comment is about, inside the workspace; absolute or relative to it
+    pub file: String,
+    /// first line of the range, 1-indexed
+    pub start_line: i64,
+    /// last line of the range, inclusive; defaults to start_line
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub end_line: i64,
+    /// the review note, markdown allowed
+    pub comment: String,
+    /// whole-file content to snapshot instead of reading the file from disk (e.g. an unsaved editor buffer)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// language for fencing the code; guessed from the extension when empty
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub filetype: String,
+    /// branch or lane the comment belongs to
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub lane: String,
+    /// who raises the comment
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub author: String,
+}
+
+/// Groups pending comments under one review.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SubmitInput {
+    /// absolute workspace path
+    pub workspace: String,
+    /// comment, approve or request-changes
+    pub decision: String,
+    /// overall assessment
+    pub summary: String,
+    /// comments to link, in order; empty takes this author's pending comments in this lane
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub comment_ids: Vec<String>,
+    /// submit a summary-only review, linking nothing
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub no_comments: bool,
+    /// lane of the review
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub lane: String,
+    /// reviewer
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub author: String,
+}
+
+/// Scopes a read of the queue.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct QueryInput {
+    /// absolute workspace path
+    pub workspace: String,
+    /// pending (default), pulled, done, rejected, open or all
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub status: String,
+    /// only comments on this file, absolute or relative to the workspace
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub file: String,
+    /// only this lane's comments; empty means every lane
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub lane: String,
+}
+
+/// The comments matching a [`QueryInput`], oldest first.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListOutput {
+    /// absolute workspace path
+    pub workspace: String,
+    /// matching comments, oldest first
+    pub comments: Vec<Comment>,
+}
+
+/// Counts pending handoffs: a submitted review counts once, with its linked
+/// comments; for any other status it counts comments.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CountOutput {
+    /// absolute workspace path
+    pub workspace: String,
+    /// number of handoffs (pending) or comments (other statuses)
+    pub count: i64,
+}
+
+/// Dequeues handoffs for an agent to act on.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PullInput {
+    /// absolute workspace path
+    pub workspace: String,
+    /// only this lane; a pinned pull never takes another lane's or an unlaned comment
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub lane: String,
+    /// only handoffs touching this file
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub file: String,
+    /// only these comment or review ids; a linked comment brings its whole review
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ids: Vec<String>,
+    /// at most this many handoffs, oldest first; 0 means no limit
+    #[serde(default, skip_serializing_if = "is_zero_usize")]
+    pub limit: usize,
+    /// read without dequeuing
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub peek: bool,
+}
+
+/// What was handed over.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PullOutput {
+    /// absolute workspace path
+    pub workspace: String,
+    /// true when the handoffs left the queue (not a peek)
+    pub drained: bool,
+    /// submitted reviews, each with its linked comments
+    pub reviews: Vec<Handoff>,
+    /// standalone comments
+    pub comments: Vec<Comment>,
+    /// handoffs waiting in other lanes, when this pinned pull took nothing
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elsewhere: Option<Elsewhere>,
+}
+
+impl PullOutput {
+    /// The number of handoffs taken.
+    pub fn count(&self) -> usize {
+        self.reviews.len() + self.comments.len()
+    }
+}
+
+/// Counts handoffs pending outside the pinned lane.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Elsewhere {
+    /// handoffs pending in other lanes
+    pub count: i64,
+    /// those lanes, sorted; (no lane) for unlaned comments
+    pub lanes: Vec<String>,
+}
+
+/// Records what became of a comment.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ResolveInput {
+    /// absolute workspace path
+    pub workspace: String,
+    /// comment id, e.g. r3
+    pub id: String,
+    /// done, or rejected (which needs a note)
+    pub outcome: String,
+    /// what was done, or why not
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
+    /// who decides
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub author: String,
+}
+
+/// Names one comment or review.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GetInput {
+    /// absolute workspace path
+    pub workspace: String,
+    /// comment id (r3) or review id (rv2)
+    pub id: String,
+}
+
+/// A comment with what changed while resolving it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Evidence {
+    pub comment: Comment,
+    /// unified diff lines between the reviewed and resolved file versions
+    pub diff: Vec<String>,
+    /// whether both file snapshots exist
+    pub diff_available: bool,
+}
+
+/// pending, pulled, or complete once every linked comment is decided.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SheetState {
+    Pending,
+    Pulled,
+    Complete,
+}
+
+impl SheetState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SheetState::Pending => "pending",
+            SheetState::Pulled => "pulled",
+            SheetState::Complete => "complete",
+        }
+    }
+}
+
+/// A submitted review with the comments it links.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReviewSheet {
+    pub review: Review,
+    pub state: SheetState,
+    /// linked comments that still exist, in review order
+    pub comments: Vec<Comment>,
+}
+
+/// Every accepted sheet filter, in help order.
+pub const SHEET_FILTERS: [&str; 5] = ["pending", "pulled", "complete", "open", "all"];
+
+/// Scopes a read of submitted reviews.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SheetsInput {
+    /// absolute workspace path
+    pub workspace: String,
+    /// pending (default), pulled, complete, open or all
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub status: String,
+    /// only reviews linking a comment on this file, absolute or relative to the workspace
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub file: String,
+    /// only this lane's reviews; empty means every lane
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub lane: String,
+}
+
+/// The review sheets matching a [`SheetsInput`], oldest first.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SheetsOutput {
+    /// absolute workspace path
+    pub workspace: String,
+    /// number of matching review sheets
+    pub count: i64,
+    /// matching review sheets, oldest first
+    pub sheets: Vec<ReviewSheet>,
+}
+
+/// Replaces a comment's text.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EditInput {
+    /// absolute workspace path
+    pub workspace: String,
+    /// comment id
+    pub id: String,
+    /// new text
+    pub comment: String,
+}
+
+/// Lists workspaces in the store.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspacesInput {
+    /// include workspaces with nothing pending
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub all: bool,
+}
+
+/// Every workspace holding handoffs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspacesOutput {
+    pub workspaces: Vec<WorkspaceSummary>,
+}
+
+/// One workspace's queue at a glance.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceSummary {
+    /// absolute workspace path
+    pub workspace: String,
+    /// pending handoffs
+    pub pending: i64,
+    /// comments handed over and not yet decided
+    pub pulled: i64,
+}

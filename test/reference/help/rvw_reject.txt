@@ -1,0 +1,21 @@
+Record that a review comment will not be actioned. The reason is required —
+a silent decline is exactly what this queue exists to prevent.
+
+It is also how a reviewer withdraws a pending comment: it leaves the queue but
+stays on record. Nothing in rvw is deleted.
+
+Usage:
+  rvw reject ID --note TEXT [flags]
+
+Examples:
+  rvw reject r3 --note "intentional: the caller already validates"
+  rvw reject r5 --note "withdrawn: I misread the diff"
+
+Flags:
+      --author string   who decided (default: $USER)
+  -h, --help            help for reject
+      --note string     why not (required)
+
+Global Flags:
+      --db string          database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)
+      --workspace string   queue to act on: the git toplevel of this directory (default: $PWD)

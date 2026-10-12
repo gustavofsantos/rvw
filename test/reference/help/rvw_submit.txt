@@ -1,0 +1,20 @@
+Submit one review with a decision and summary over explicitly selected
+pending review comments. Without --id it takes this author's pending, unlinked
+comments in this exact lane; --no-comments submits a summary-only review.
+
+Usage:
+  rvw submit --decision DECISION --summary TEXT [--id ID]... | --no-comments [flags]
+
+Flags:
+      --author string     reviewer (default: $USER)
+      --decision string   review decision: comment, approve, request-changes
+      --format string     output shape: text, json, ids (default: text) (default "text")
+  -h, --help              help for submit
+      --id stringArray    comment id (repeatable; default: this author and exact lane)
+      --lane string       review lane
+      --no-comments       submit a summary-only review without selecting pending comments
+      --summary string    review assessment
+
+Global Flags:
+      --db string          database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)
+      --workspace string   queue to act on: the git toplevel of this directory (default: $PWD)

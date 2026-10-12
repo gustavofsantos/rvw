@@ -1,0 +1,19 @@
+Replace the text of one pending review comment. The file, range, and code
+snapshot are unchanged — reject and re-add to move a comment. Once a comment is
+pulled its text is what the agent was asked, so it can no longer be edited.
+
+Usage:
+  rvw edit ID [--comment TEXT] [flags]
+
+Examples:
+  rvw edit r3 --comment "split this function"
+  pbpaste | rvw edit r3
+
+Flags:
+      --comment string   new text (default: read stdin)
+      --format string    output shape: text, json (default: text) (default "text")
+  -h, --help             help for edit
+
+Global Flags:
+      --db string          database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)
+      --workspace string   queue to act on: the git toplevel of this directory (default: $PWD)

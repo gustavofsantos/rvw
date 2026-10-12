@@ -1,0 +1,75 @@
+rvw — a per-workspace queue of code review feedback, written in an editor or
+by a reviewing agent and pulled by a coding agent.
+
+You annotate code where you read it (an editor plugin, `rvw tui`, or `rvw add`
+straight from a shell); every comment lands in a durable queue keyed by the
+workspace it was written in. Whatever agent you are running later drains that
+queue with `rvw pull` — pulled comments leave the queue, so the same note is
+never worked twice.
+
+Comments stay standalone by default. `rvw submit` can group zero or more
+pending comments under one review with a decision and summary. Pulling any
+linked comment hands over the complete review as one unit.
+
+A comment carries who raised it and which lane it belongs to. It ends in a
+recorded resolution: `resolve` (done) or `reject` (with a reason).
+
+Everything is set with flags:
+  --workspace PATH  the queue to act on: the git toplevel of this directory
+                    (default: the current directory); worktrees are their
+                    own workspace, and a directory outside git has none
+  --lane NAME       the lane a comment lands in and a read is pinned to
+                    (default: every lane). Scoping is strict — a pull pinned
+                    to a lane never swallows another lane's comments, and
+                    says on stderr when comments are waiting elsewhere.
+  --author WHO      who is speaking (default: $USER); agents pass their name
+  --db PATH         the database (default: $XDG_DATA_HOME/rvw/rvw.db, else
+                    ~/.local/share/rvw/rvw.db)
+
+Usage:
+  rvw COMMAND [flags]
+  rvw [command]
+
+Examples:
+  rvw add --file src/api.py --lines 40-58 --comment "extract this branch"
+  rvw add --file src/api.py --lines 12 --comment "typo" --lane refactor-auth
+  rvw submit --id r1 --id r2 --decision request-changes --summary "Fix both"
+  rvw submit --no-comments --decision comment --summary "No findings"
+  rvw list                              # what is queued here, oldest first
+  rvw list --file src/api.py --format json
+  rvw list --reviews                    # submitted review sheets and their state
+  rvw pull                              # dequeue everything, as markdown
+  rvw pull --limit 1 --format json      # dequeue one, machine-readable
+  rvw pull --peek                       # look without dequeuing
+  rvw resolve r3 --note "renamed, test added"
+  rvw reject r4 --note "intentional: the caller validates"
+  rvw show r3                           # one comment, its decision and its diff
+  rvw show rv1                          # a whole review sheet
+  rvw count                             # pending handoff count, for a statusline
+  rvw workspaces                        # every workspace holding comments
+  rvw mcp config                        # connect Claude Code to the MCP server
+  rvw tui                               # read code and comment in a terminal UI
+
+Available Commands:
+  add         enqueue a review comment on a file range
+  count       print the pending handoff count (statusline-friendly)
+  edit        replace the text of a queued review comment
+  help        Help about any command
+  list        show queued review comments or submitted reviews without dequeuing them
+  mcp         serve the queue as MCP tools, and print how to connect Claude Code
+  path        print where the queue lives
+  pull        dequeue review handoffs for an agent to act on
+  reject      record that a comment will not be actioned, and why
+  resolve     record that a comment was acted on
+  show        show one review comment (or review sheet) with its source evidence
+  submit      submit a review over pending review comments
+  tui         browse the workspace and leave review comments in a terminal UI
+  workspaces  list workspaces holding review handoffs
+
+Flags:
+      --db string          database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)
+  -h, --help               help for rvw
+  -v, --version            version for rvw
+      --workspace string   queue to act on: the git toplevel of this directory (default: $PWD)
+
+Use "rvw [command] --help" for more information about a command.

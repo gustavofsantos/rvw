@@ -1,0 +1,16 @@
+Print how many review handoffs are pending here: a submitted review counts
+once, with its linked comments. For any other --status it counts comments.
+
+Usage:
+  rvw count [flags]
+
+Flags:
+      --all-lanes       every lane, overriding --lane
+      --file string     only count comments on this file
+  -h, --help            help for count
+      --lane string     only this lane's comments (default: every lane)
+      --status string   which comments to count (default: pending) (default "pending")
+
+Global Flags:
+      --db string          database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)
+      --workspace string   queue to act on: the git toplevel of this directory (default: $PWD)

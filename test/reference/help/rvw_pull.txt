@@ -1,0 +1,33 @@
+Dequeue this workspace's submitted reviews and standalone comments.
+
+A submitted review and its linked comments move as one handoff. Pulled
+handoffs do not appear again. Use --peek to read without draining.
+
+Lane scoping is strict: a pull pinned to a lane takes only that lane's
+comments — never an unlaned one, never another lane's — and reports on
+stderr when comments are waiting elsewhere, so nothing starves unseen.
+
+Usage:
+  rvw pull [flags]
+
+Examples:
+  rvw pull                     # everything pending, as markdown
+  rvw pull --format json       # same, machine-readable
+  rvw pull --limit 1           # oldest handoff only
+  rvw pull --id r3 --id r7     # named comments only
+  rvw pull --lane auth         # only that branch's comments
+  rvw pull --peek              # read without dequeuing
+
+Flags:
+      --all-lanes        every lane, overriding --lane
+      --file string      only handoffs touching this file
+      --format string    output shape: markdown, json, text, ids (default: markdown) (default "markdown")
+  -h, --help             help for pull
+      --id stringArray   pull only this id (repeatable)
+      --lane string      only this lane's comments (default: every lane)
+      --limit int        pull at most N handoffs, oldest first
+      --peek             print without dequeuing (leaves the queue intact)
+
+Global Flags:
+      --db string          database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)
+      --workspace string   queue to act on: the git toplevel of this directory (default: $PWD)

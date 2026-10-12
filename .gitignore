@@ -3,3 +3,5 @@
 .claude/settings.json
 CLAUDE.local.md
 AGENTS.local.md
+
+/target/

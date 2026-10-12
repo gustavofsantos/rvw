@@ -1,0 +1,31 @@
+Enqueue one review comment on a line range of one file.
+
+The code shown to the agent is snapshotted at add time: by default it is read
+from the file on disk, or from --code-file when the editor holds unsaved
+changes (pass the WHOLE buffer; --lines slices it). The comment comes from
+--comment, --comment-file, or stdin when it is piped.
+
+Usage:
+  rvw add --file PATH --lines N|N-M [--comment TEXT] [flags]
+
+Examples:
+  rvw add --file src/api.py --lines 40-58 --comment "extract this branch"
+  rvw add --file src/api.py --lines 12 --comment "typo" --format json
+  nvim-buffer | rvw add --file src/api.py --lines 40-58 --code-file - --comment "reads oddly"
+  echo "long note" | rvw add --file a.py --lines 3-9
+
+Flags:
+      --author string         who raised it (default: $USER)
+      --code-file string      snapshot the code from here instead of disk, or - for stdin (whole file)
+      --comment string        the comment text (may be multi-line)
+      --comment-file string   read the comment from a file, or - for stdin
+      --file string           file the comment is about
+      --filetype string       fence language (default: guessed from the extension)
+      --format string         output shape: text, json, ids (default: text) (default "text")
+  -h, --help                  help for add
+      --lane string           branch/lane this comment belongs to
+      --lines string          1-indexed, inclusive line range: N or N-M
+
+Global Flags:
+      --db string          database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)
+      --workspace string   queue to act on: the git toplevel of this directory (default: $PWD)

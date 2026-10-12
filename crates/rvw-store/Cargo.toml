@@ -1,0 +1,16 @@
+[package]
+name = "rvw-store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+rusqlite.workspace = true
+rvw-core.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
