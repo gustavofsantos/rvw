@@ -79,6 +79,13 @@ impl Selection {
         lo <= pos && pos <= hi && selectable(diff, pos)
     }
 
+    /// The later of the anchor and head in diff order, or `None` when empty.
+    /// This is the line a composer for the selection sits under.
+    #[must_use]
+    pub fn last(&self) -> Option<Pos> {
+        self.bounds().map(|(_, hi)| hi)
+    }
+
     /// The anchor and head in diff order.
     fn bounds(&self) -> Option<(Pos, Pos)> {
         let (anchor, head) = (self.anchor?, self.head?);
@@ -88,6 +95,16 @@ impl Selection {
             (head, anchor)
         })
     }
+}
+
+/// Where a comment that ends on new-file line `end_line` sits in the diff: the
+/// added or context line with that number. `None` when no shown hunk has it,
+/// as for a line outside every hunk or a comment on a removed line.
+#[must_use]
+pub fn anchor(diff: &FileDiff, end_line: i64) -> Option<Pos> {
+    cells(diff)
+        .find(|(_, line)| line.new_no.is_some_and(|n| i64::from(n) == end_line))
+        .map(|(pos, _)| pos)
 }
 
 /// The line at `pos`, if the diff has one there.
@@ -270,6 +287,35 @@ mod tests {
         assert!(sel.contains(&diff, pos(1, 1)));
         assert!(!sel.contains(&diff, pos(1, 2)));
         assert!(!sel.contains(&diff, pos(0, 0)));
+    }
+
+    #[test]
+    fn last_is_the_later_end_in_diff_order() {
+        let diff = sample();
+        let mut sel = Selection::default();
+        assert_eq!(sel.last(), None);
+        sel.click(&diff, pos(1, 1));
+        sel.extend(&diff, pos(0, 0));
+        assert_eq!(sel.last(), Some(pos(1, 1)));
+    }
+
+    #[test]
+    fn anchor_finds_the_new_numbered_line() {
+        let diff = sample();
+        assert_eq!(anchor(&diff, 10), Some(pos(0, 0)));
+        // The removed line 11 has no new number; the added one is 11.
+        assert_eq!(anchor(&diff, 11), Some(pos(0, 2)));
+        assert_eq!(anchor(&diff, 12), Some(pos(0, 3)));
+        assert_eq!(anchor(&diff, 41), Some(pos(1, 1)));
+    }
+
+    #[test]
+    fn anchor_is_none_outside_every_shown_hunk() {
+        let diff = sample();
+        assert_eq!(anchor(&diff, 9), None);
+        assert_eq!(anchor(&diff, 13), None);
+        assert_eq!(anchor(&diff, 0), None);
+        assert_eq!(anchor(&diff, -1), None);
     }
 
     #[test]
