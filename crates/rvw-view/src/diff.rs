@@ -20,6 +20,15 @@ pub struct Line {
     pub text: String,
 }
 
+impl Line {
+    /// The number the gutter shows: the new number, or the old one for a
+    /// removed line, which has no new number.
+    #[must_use]
+    pub fn gutter_no(&self) -> Option<u32> {
+        self.new_no.or(self.old_no)
+    }
+}
+
 /// A hunk: its whole `@@ -a,b +c,d @@` header line and its body.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hunk {
@@ -305,6 +314,22 @@ Binary files a/img.png and b/img.png differ
                 added: 0,
                 removed: 0,
             }
+        );
+    }
+
+    #[test]
+    fn gutter_shows_the_new_number_except_for_a_removed_line() {
+        assert_eq!(
+            line(LineKind::Context, Some(2), Some(5), "c").gutter_no(),
+            Some(5)
+        );
+        assert_eq!(
+            line(LineKind::Added, None, Some(7), "a").gutter_no(),
+            Some(7)
+        );
+        assert_eq!(
+            line(LineKind::Removed, Some(3), None, "r").gutter_no(),
+            Some(3)
         );
     }
 

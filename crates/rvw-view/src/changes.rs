@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use rvw_core::types::{Comment, Status};
 use rvw_git::gitx::{self, Change, Hunk};
 
 use crate::tree::{build_tree, Tree};
@@ -210,6 +211,55 @@ pub fn signs(hunks: &[Hunk], n: usize) -> Vec<Sign> {
         }
     }
     out
+}
+
+/// The comparison the review screen uses: the default branch when it can be
+/// compared with, else HEAD.
+///
+/// # Errors
+///
+/// Returns HEAD's message when there is no commit to compare with at all.
+pub fn resolve_base(dir: &Path) -> Result<Base, String> {
+    Compare::Default
+        .base(dir)
+        .or_else(|_| Compare::Head.base(dir))
+}
+
+/// A changed file as the review screen lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangedFile {
+    /// Relative to the repository root, which is the workspace root.
+    pub path: String,
+    /// git's status letter, or `?` for an untracked file.
+    pub status: char,
+    /// Comments on this file that are still open: pending or pulled.
+    pub open_comments: usize,
+}
+
+/// The changed files in tree order, directories left out, each with its
+/// status and its open comment count. A path listed twice takes its last
+/// status, as [`change_tree`] does.
+#[must_use]
+pub fn changed_files(changes: &[Change], comments: &[Comment]) -> Vec<ChangedFile> {
+    let (tree, status) = change_tree(changes);
+    let mut open: BTreeMap<&str, usize> = BTreeMap::new();
+    for comment in comments {
+        if matches!(comment.status, Status::Pending | Status::Pulled) {
+            *open.entry(comment.file.as_str()).or_default() += 1;
+        }
+    }
+    let rows = tree.rows();
+    rows.iter()
+        .map(|row| tree.node(row.node))
+        .filter(|node| !node.dir)
+        .map(|node| ChangedFile {
+            path: node.path.clone(),
+            status: status
+                .get(&node.path)
+                .map_or('?', |&letter| char::from(letter)),
+            open_comments: open.get(node.path.as_str()).copied().unwrap_or(0),
+        })
+        .collect()
 }
 
 /// Converts a count to `i64`, saturating; a file cannot have that many lines.
@@ -540,6 +590,123 @@ mod tests {
         assert_eq!(
             file_changes(r.path(), "new.txt", "HEAD", 0),
             (Vec::new(), Vec::new())
+        );
+    }
+
+    fn comment(file: &str, status: Status) -> Comment {
+        Comment {
+            id: format!("{file}-{status:?}"),
+            status,
+            workspace: "/ws".into(),
+            lane: None,
+            author: None,
+            file: file.into(),
+            path: format!("/ws/{file}"),
+            start_line: 1,
+            end_line: 1,
+            filetype: "rust".into(),
+            code: "x".into(),
+            comment: "fix".into(),
+            created_at: "2026-01-01T00:00:00Z".into(),
+            pulled_at: None,
+            resolved_at: None,
+            resolved_by: None,
+            resolution_note: None,
+            file_version: String::new(),
+            resolved_file_version: String::new(),
+            review_id: String::new(),
+            edited_at: String::new(),
+        }
+    }
+
+    fn change(path: &str, status: u8) -> Change {
+        Change {
+            path: path.into(),
+            status,
+        }
+    }
+
+    #[test]
+    fn changed_files_list_files_in_tree_order_with_their_status() {
+        let changes = [
+            change("README.md", b'D'),
+            change("src/b.go", b'M'),
+            change("src/api/a.go", b'?'),
+        ];
+        let files = changed_files(&changes, &[]);
+        let got: Vec<(&str, char)> = files.iter().map(|f| (f.path.as_str(), f.status)).collect();
+        assert_eq!(
+            got,
+            [("src/api/a.go", '?'), ("src/b.go", 'M'), ("README.md", 'D'),]
+        );
+    }
+
+    #[test]
+    fn changed_files_keep_the_last_status_of_a_duplicate_path() {
+        let changes = [change("a.rs", b'M'), change("a.rs", b'A')];
+        let files = changed_files(&changes, &[]);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].status, 'A');
+    }
+
+    #[test]
+    fn open_comments_count_pending_and_pulled_only() {
+        let changes = [change("a.rs", b'M'), change("b.rs", b'M')];
+        let comments = [
+            comment("a.rs", Status::Pending),
+            comment("a.rs", Status::Pulled),
+            comment("a.rs", Status::Done),
+            comment("a.rs", Status::Rejected),
+            comment("b.rs", Status::Rejected),
+        ];
+        let files = changed_files(&changes, &comments);
+        assert_eq!(files[0].open_comments, 2);
+        assert_eq!(files[1].open_comments, 0);
+    }
+
+    #[test]
+    fn a_changed_file_without_comments_has_none_open() {
+        let files = changed_files(
+            &[change("a.rs", b'M')],
+            &[comment("other.rs", Status::Pending)],
+        );
+        assert_eq!(files[0].open_comments, 0);
+    }
+
+    #[test]
+    fn no_changes_give_no_files() {
+        assert!(changed_files(&[], &[comment("a.rs", Status::Pending)]).is_empty());
+    }
+
+    #[test]
+    fn resolve_base_compares_with_the_default_branch_when_it_can() {
+        let r = repo();
+        write(r.path(), "a.txt", "a\n");
+        commit_all(r.path(), "base");
+        assert_eq!(resolve_base(r.path()).unwrap().name, "main");
+    }
+
+    #[test]
+    fn resolve_base_falls_back_to_head_without_a_default_branch() {
+        let r = repo();
+        write(r.path(), "a.txt", "a\n");
+        commit_all(r.path(), "base");
+        git(r.path(), &["branch", "-m", "main", "trunk"]);
+        assert_eq!(
+            resolve_base(r.path()),
+            Ok(Base {
+                id: "HEAD".into(),
+                name: "HEAD".into()
+            })
+        );
+    }
+
+    #[test]
+    fn resolve_base_fails_without_any_commit() {
+        let r = repo();
+        assert_eq!(
+            resolve_base(r.path()),
+            Err("no commit to compare with yet".to_owned())
         );
     }
 }
