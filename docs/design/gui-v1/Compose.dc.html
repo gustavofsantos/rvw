@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Submit a review</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#eeede7;font-family:'Hanken Grotesk',system-ui,sans-serif;color:#31302d;font-size:13.5px;-webkit-font-smoothing:antialiased}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.row{display:flex;align-items:center}
+.key{font-family:'JetBrains Mono',monospace;font-size:11px;color:#8a8882}
+.lab{color:#696761;margin-bottom:10px}
+.rad{width:14px;height:14px;border-radius:7px;border:1px solid #8a8882;display:inline-block;flex:none;box-sizing:border-box}
+.rad.on{border:4px solid #161614}
+</style>
+</helmet>
+<div style="width:720px;height:640px;box-sizing:border-box;background:#f7f7f4;border:1px solid #dbd9d2;border-radius:14px;display:flex;flex-direction:column;overflow:hidden">
+  <div class="row" style="height:56px;padding:0 28px;border-bottom:1px solid #dbd9d2">
+    <span style="font-size:16px;font-weight:500;color:#161614">Submit review</span><span style="flex:1"></span><span class="key">esc</span>
+  </div>
+
+  <div style="flex:1;padding:24px 28px;display:flex;flex-direction:column;gap:26px;overflow:hidden">
+    <div>
+      <div class="lab">Verdict</div>
+      <div style="display:flex;gap:32px">
+        <div class="row" style="gap:10px"><span class="rad"></span><span>Comment</span></div>
+        <div class="row" style="gap:10px"><span class="rad"></span><span>Approve</span></div>
+        <div class="row" style="gap:10px"><span class="rad on"></span><span style="color:#161614;font-weight:500">Request changes</span></div>
+      </div>
+      <div style="color:#696761;margin-top:8px">The agent must decide on each comment.</div>
+    </div>
+
+    <div>
+      <div class="lab">Summary for the agent</div>
+      <div style="border-bottom:1px solid #161614;padding:2px 0 10px;line-height:1.55;color:#161614">Both comments are about the transaction boundary. Fix them before touching the CLI.</div>
+    </div>
+
+    <div>
+      <div class="lab">Comments in this review, 2</div>
+      <div class="row" style="gap:14px;height:38px;border-bottom:1px solid #dbd9d2"><span style="color:#846600;width:14px;text-align:center">○</span><span class="mono" style="font-size:12px;color:#696761;width:30px">r14</span><span style="flex:1;color:#161614">Build the Handoff only after commit()</span><span class="mono" style="font-size:12px;color:#8a8882">service.rs:90-95</span></div>
+      <div class="row" style="gap:14px;height:38px;border-bottom:1px solid #dbd9d2"><span style="color:#846600;width:14px;text-align:center">○</span><span class="mono" style="font-size:12px;color:#696761;width:30px">r15</span><span style="flex:1;color:#161614">Name the lane in this error</span><span class="mono" style="font-size:12px;color:#8a8882">service.rs:131</span></div>
+    </div>
+
+    <div style="color:#696761;line-height:1.55"><span style="color:#161614;font-weight:500">r12 is still with claude.</span> The next pull will not include it again.</div>
+  </div>
+
+  <div class="row" style="height:68px;padding:0 28px;border-top:1px solid #dbd9d2;gap:16px">
+    <span style="color:#696761">Handed to lane main. Taken once.</span><span style="flex:1"></span>
+    <span style="color:#161614">Keep as draft</span>
+    <button style="height:36px;padding:0 20px;border-radius:8px;border:0;background:#161614;color:#f7f7f4;font:500 13.5px 'Hanken Grotesk',sans-serif">Submit <span class="mono" style="font-weight:400;font-size:11px;color:#8a8882">⇧⌘R</span></button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":720,"height":640}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The key strip</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#e6e5df;font-family:'Hanken Grotesk',system-ui,sans-serif;color:#31302d;font-size:13.5px;-webkit-font-smoothing:antialiased}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.row{display:flex;align-items:center}
+.lab{color:#696761}
+.kb{display:flex;height:56px;border-radius:12px;background:#f7f7f4;box-shadow:0 1px 2px rgba(22,22,20,.08),0 6px 20px rgba(22,22,20,.08);padding:0 12px;align-items:center}
+.k1{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;color:#aeaca2}
+.k1 .led{width:6px;height:6px;border-radius:3px;background:#dedcd4}
+.k1 .gl{font-family:'JetBrains Mono',monospace;font-size:11.5px}
+.k1 .nm{font-size:11.5px}
+.k1.on{color:#161614;font-weight:500}.k1.on .led{background:#161614}
+.k1.go{color:#161614;font-weight:500}.k1.go .led{background:#f54e00;box-shadow:0 0 0 3px rgba(245,78,0,.18)}
+.sep{width:1px;height:28px;background:#e4e3dc;flex:none}
+</style>
+</helmet>
+<div style="width:1440px;height:760px;box-sizing:border-box;padding:40px 48px;background:#e6e5df;display:flex;flex-direction:column;gap:22px">
+
+  <div>
+    <div style="font-size:22px;font-weight:500;color:#161614">The key strip</div>
+    <div style="margin-top:6px;color:#696761;line-height:1.55;max-width:880px">The same thirteen keys sit in the same places on every screen. Nothing appears or moves. A key is dark when it works here, and an orange light marks the one thing that needs you now. You learn the strip once.</div>
+  </div>
+
+  <div class="row" style="gap:28px;color:#696761"><span class="row" style="gap:8px"><span style="width:6px;height:6px;border-radius:3px;background:#dedcd4;display:inline-block"></span>not here</span><span class="row" style="gap:8px"><span style="width:6px;height:6px;border-radius:3px;background:#161614;display:inline-block"></span>available</span><span class="row" style="gap:8px"><span style="width:6px;height:6px;border-radius:3px;background:#f54e00;display:inline-block;box-shadow:0 0 0 3px rgba(245,78,0,.18)"></span>needs you</span></div>
+
+  <div>
+    <div class="lab" style="margin-bottom:8px">Writing a comment on a diff</div>
+    <div class="kb">
+      <div class="k1 on"><span class="led"></span><span class="gl">J K</span><span class="nm">Move</span></div>
+      <div class="k1"><span class="led"></span><span class="gl">↵</span><span class="nm">Open</span></div>
+      <div class="k1 on"><span class="led"></span><span class="gl">O</span><span class="nm">Open file</span></div>
+      <div class="sep"></div>
+      <div class="k1 on"><span class="led"></span><span class="gl">C</span><span class="nm">Comment</span></div>
+      <div class="k1 go"><span class="led"></span><span class="gl">⌘↵</span><span class="nm">Add</span></div>
+      <div class="k1 on"><span class="led"></span><span class="gl">⇧⌘R</span><span class="nm">Submit</span></div>
+      <div class="k1"><span class="led"></span><span class="gl">A</span><span class="nm">Accept</span></div>
+      <div class="k1"><span class="led"></span><span class="gl">R</span><span class="nm">Reopen</span></div>
+      <div class="sep"></div>
+      <div class="k1"><span class="led"></span><span class="gl">S</span><span class="nm">Stage</span></div>
+      <div class="k1"><span class="led"></span><span class="gl">⇧⌘C</span><span class="nm">Commit</span></div>
+      <div class="k1 on"><span class="led"></span><span class="gl">⌘Z</span><span class="nm">Undo</span></div>
+      <div class="sep"></div>
+      <div class="k1 on"><span class="led"></span><span class="gl">⌘P</span><span class="nm">Find file</span></div>
+      <div class="k1 on"><span class="led"></span><span class="gl">⌘K</span><span class="nm">Actions</span></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="lab" style="margin-bottom:8px">Reading what an agent did, a verdict is due</div>
+    <div class="kb">
+      <div class="k1 on"><span class="led"></span><span class="gl">J K</span><span class="nm">Move</span></div>
+      <div class="k1"><span class="led"></span><span class="gl">↵</span><span class="nm">Open</span></div>
+      <div class="k1 on"><span class="led"></span><span class="gl">O</span><span class="nm">Open file</span></div>
+      <div class="sep"></div>
+      <div class="k1"><span class="led"></span><span class="gl">C</span><span class="nm">Comment</span></div>
+      <div class="k1"><span class="led"></span><span class="gl">⌘↵</span><span class="nm">Add</span></div>
+      <div class="k1"><span class="led"></span><span class="gl">⇧⌘R</span><span class="nm">Submit</span></div>
+      <div class="k1 go"><span class="led"></span><span class="gl">A</span><span class="nm">Accept</span></div>
+      <div class="k1 on"><span class="led"></span><span class="gl">R</span><span class="nm">Reopen</span></div>
+      <div class="sep"></div>
+      <div class="k1"><span class="led"></span><span class="gl">S</span><span class="nm">Stage</span></div>
+      <div class="k1"><span class="led"></span><span class="gl">⇧⌘C</span><span class="nm">Commit</span></div>
+      <div class="k1 on"><span class="led"></span><span class="gl">⌘Z</span><span class="nm">Undo</span></div>
+      <div class="sep"></div>
+      <div class="k1 on"><span class="led"></span><span class="gl">⌘P</span><span class="nm">Find file</span></div>
+      <div class="k1 on"><span class="led"></span><span class="gl">⌘K</span><span class="nm">Actions</span></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="lab" style="margin-bottom:8px">Staging a change, ready to commit</div>
+    <div class="kb">
+      <div class="k1 on"><span class="led"></span><span class="gl">J K</span><span class="nm">Move</span></div>
+      <div class="k1"><span class="led"></span><span class="gl">↵</span><span class="nm">Open</span></div>
+      <div class="k1 on"><span class="led"></span><span class="gl">O</span><span class="nm">Open file</span></div>
+      <div class="sep"></div>
+      <div class="k1"><span class="led"></span><span class="gl">C</span><span class="nm">Comment</span></div>
+      <div class="k1"><span class="led"></span><span class="gl">⌘↵</span><span class="nm">Add</span></div>
+      <div class="k1"><span class="led"></span><span class="gl">⇧⌘R</span><span class="nm">Submit</span></div>
+      <div class="k1"><span class="led"></span><span class="gl">A</span><span class="nm">Accept</span></div>
+      <div class="k1"><span class="led"></span><span class="gl">R</span><span class="nm">Reopen</span></div>
+      <div class="sep"></div>
+      <div class="k1 on"><span class="led"></span><span class="gl">S</span><span class="nm">Stage</span></div>
+      <div class="k1 go"><span class="led"></span><span class="gl">⇧⌘C</span><span class="nm">Commit</span></div>
+      <div class="k1 on"><span class="led"></span><span class="gl">⌘Z</span><span class="nm">Undo</span></div>
+      <div class="sep"></div>
+      <div class="k1 on"><span class="led"></span><span class="gl">⌘P</span><span class="nm">Find file</span></div>
+      <div class="k1 on"><span class="led"></span><span class="gl">⌘K</span><span class="nm">Actions</span></div>
+    </div>
+  </div>
+
+  <div style="color:#696761;line-height:1.55;max-width:900px">Four groups, always in this order: move, review, git, find. A dark key says nothing about why a dimmed key is off, so hovering a dimmed key says what unlocks it, for example "Accept: select a comment that is done".</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":760}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

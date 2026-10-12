@@ -2,6 +2,8 @@
 
 Status: draft for discussion. Owner: Gustavo.
 
+Interface design: [gui-v1-design.md](gui-v1-design.md).
+
 ## Thesis
 
 Every Git client is organised around the **commit**. rvw's GUI is organised
@@ -135,6 +137,18 @@ Constraints:
 - Reported fields are attributed to the reporter and are not editable
   afterwards.
 
+### E. Context outside the change
+
+The agent may miss context that lives in a file the change did not touch. The
+reviewer must be able to bring it in.
+
+| # | Feature | Notes |
+|---|---|---|
+| E1 | **File tree** of the whole repository, with changed files and comment counts marked | A tab of the left panel beside "Changes". |
+| E2 | **Find a file** (⌘P): fuzzy search, changed files first, preview | Open, open beside the diff, or point a comment at it. |
+| E3 | **Context comment**: a comment on an unchanged file, labelled as context | Needs no core change. |
+| E4 | **Points at**: a context comment that references a changed location | New field on a comment; core and MCP change (M4). |
+
 ## Explicitly not in v1
 
 - Virtual branches, stacked branches, interactive rebase UI.
@@ -169,8 +183,8 @@ Each ends with something usable daily.
 Each milestone is small enough to finish in a few weeks and ends with
 something usable daily.
 
-1. **M1 Review desk.** A1 to A4, A7, read-only diff, branch switch,
-   command palette.
+1. **M1 Review desk.** A1 to A4, A7, E1 to E3, read-only diff, branch
+   switch, command palette.
    *Exit:* the TUI is no longer needed for review.
 2. **M2 Daily commit loop.** B1 to B4, B8, B9, A6.
    *Exit:* the user stages, commits and pushes from rvw for a full week, and
@@ -178,7 +192,7 @@ something usable daily.
 3. **M3 Navigate history.** B5 to B7, B10 to B14.
    *Exit:* the user no longer opens another Git client for history, search,
    worktrees, cherry-picks or tidying local commits.
-4. **M4 Close the loop.** A5, A8, C2, and the verdict core change (D3).
+4. **M4 Close the loop.** A5, A8, C2, E4, and the verdict core change (D3).
    *Exit:* every agent `done` ends accepted or reopened, and the commit gate
    warns on undecided comments.
 5. **M5 Provenance.** The session-report MCP operation (D5) and its skill

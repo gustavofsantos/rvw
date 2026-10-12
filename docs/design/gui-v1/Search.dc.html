@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Find a file</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#e6e5df;font-family:'Hanken Grotesk',system-ui,sans-serif;color:#31302d;font-size:13.5px;-webkit-font-smoothing:antialiased}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.row{display:flex;align-items:center}
+.key{font-family:'JetBrains Mono',monospace;font-size:11px;color:#8a8882}
+.lab{color:#696761}
+.side{width:300px;flex:none;background:rgba(238,237,231,.75);backdrop-filter:blur(20px);border-right:1px solid #e4e3dc}
+.aside{width:340px;flex:none;background:rgba(238,237,231,.75);backdrop-filter:blur(20px);border-left:1px solid #e4e3dc}
+.rl{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#8a8882}
+.rl.on{background:#e4e3dc;color:#161614}
+.sel{display:flex;align-items:center;gap:10px;height:30px;margin:0 8px;padding:0 12px;border-radius:6px;color:#31302d}
+.ln{display:flex;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:21px;white-space:pre;color:#31302d}
+.ln .n{width:46px;text-align:right;padding-right:14px;color:#8a8882;flex:none}
+.ln .c{padding-left:14px;flex:1}
+.rs{display:flex;align-items:center;gap:10px;height:44px;margin:0 8px;padding:0 12px;border-radius:8px}
+.rs.on{background:#e4e3dc}
+.hit{font-weight:600;color:#161614}
+.kb{display:flex;height:56px;flex:none;border-top:1px solid #e4e3dc;padding:0 24px;align-items:center}
+.k1{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;color:#aeaca2}
+.k1 .led{width:6px;height:6px;border-radius:3px;background:#dedcd4}
+.k1 .gl{font-family:'JetBrains Mono',monospace;font-size:11.5px}
+.k1 .nm{font-size:11.5px}
+.k1.on{color:#161614;font-weight:500}.k1.on .led{background:#161614}
+.k1.go{color:#161614;font-weight:500}.k1.go .led{background:#f54e00;box-shadow:0 0 0 3px rgba(245,78,0,.18)}
+.sep{width:1px;height:28px;background:#e4e3dc;flex:none}
+</style>
+</helmet>
+<div style="width:1440px;height:900px;box-sizing:border-box;padding:24px;background:#e6e5df">
+<div style="position:relative;height:100%;border-radius:14px;background:#f7f7f4;box-shadow:0 1px 2px rgba(22,22,20,.08),0 14px 44px rgba(22,22,20,.14);overflow:hidden;display:flex;flex-direction:column">
+
+  <div class="row" style="height:48px;flex:none;padding:0 24px;gap:24px;border-bottom:1px solid #e4e3dc">
+    <span style="font-weight:500;color:#161614;font-size:15px">rvw</span>
+    <span style="color:#696761">~/Projects/rvw</span>
+    <span style="color:#696761">branch <span class="mono" style="font-size:12.5px;color:#161614">rust-rewrite</span></span>
+    <span style="color:#696761">compared with <span style="color:#161614">main</span> ▾</span>
+    <span style="flex:1"></span>
+    <span style="color:#696761">Search files, commits, actions <span class="key">⌘K</span></span>
+    <span class="row" style="gap:8px;color:#161614"><span style="width:7px;height:7px;border-radius:4px;background:#f54e00;display:inline-block"></span>1 waiting on you</span>
+    <span style="color:#7856c0">◐ 3 with claude</span>
+    <span style="color:#846600">○ 2 in draft</span>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0">
+    <div style="width:56px;flex:none;border-right:1px solid #e4e3dc;display:flex;flex-direction:column;align-items:center;padding-top:14px;gap:6px">
+      <span class="rl on" aria-label="Review"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg></span>
+      <span class="rl" aria-label="Changes"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span>
+      <span class="rl" aria-label="History"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3.5"/><path d="M12 3v5.5M12 15.5V21"/></svg></span>
+      <span class="rl" aria-label="Branches"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="6" r="2.2"/><circle cx="7" cy="18" r="2.2"/><circle cx="17" cy="8" r="2.2"/><path d="M7 8.2v7.6M17 10.2c0 4-10 2-10 5.6"/></svg></span>
+    </div>
+
+    <div class="side" style="padding:16px 0">
+      <div style="margin:0 16px 12px;padding:3px;border-radius:9px;background:#e4e3dc;display:flex">
+        <span style="flex:1;text-align:center;padding:5px 0;border-radius:7px;background:#f7f7f4;color:#161614;font-weight:500;box-shadow:0 1px 2px rgba(22,22,20,.12)">Changes</span>
+        <span style="flex:1;text-align:center;padding:5px 0;color:#696761">Files</span>
+      </div>
+      <div class="row" style="margin:0 16px 12px;height:32px;border-radius:8px;background:#e4e3dc;padding:0 12px;color:#696761"><span style="flex:1">Find a file</span><span class="key">⌘P</span></div>
+      <div class="sel"><span class="mono" style="font-size:12px">operations.rs</span></div>
+      <div class="sel"><span class="mono" style="font-size:12px">service.rs</span></div>
+      <div class="sel"><span class="mono" style="font-size:12px">types.rs</span></div>
+    </div>
+
+    <div style="flex:1;min-width:0;padding-top:48px">
+      <div class="ln"><span class="n">88</span><span class="c">    pub fn pull(&amp;self, input: PullInput) -> Result&lt;Handoff&gt; {</span></div>
+      <div class="ln"><span class="n">89</span><span class="c">        let ws = self.workspace(&amp;input.workspace)?;</span></div>
+      <div class="ln"><span class="n">90</span><span class="c">        let mut tx = self.store.begin()?;</span></div>
+    </div>
+
+    <div class="aside"></div>
+  </div>
+
+  <div class="kb">
+    <div class="k1 on"><span class="led"></span><span class="gl">J K</span><span class="nm">Move</span></div>
+    <div class="k1 go"><span class="led"></span><span class="gl">↵</span><span class="nm">Open</span></div>
+    <div class="k1"><span class="led"></span><span class="gl">O</span><span class="nm">Open file</span></div>
+    <div class="sep"></div>
+    <div class="k1"><span class="led"></span><span class="gl">C</span><span class="nm">Comment</span></div>
+    <div class="k1"><span class="led"></span><span class="gl">⌘↵</span><span class="nm">Add</span></div>
+    <div class="k1"><span class="led"></span><span class="gl">⇧⌘R</span><span class="nm">Submit</span></div>
+    <div class="k1"><span class="led"></span><span class="gl">A</span><span class="nm">Accept</span></div>
+    <div class="k1"><span class="led"></span><span class="gl">R</span><span class="nm">Reopen</span></div>
+    <div class="sep"></div>
+    <div class="k1"><span class="led"></span><span class="gl">S</span><span class="nm">Stage</span></div>
+    <div class="k1"><span class="led"></span><span class="gl">⇧⌘C</span><span class="nm">Commit</span></div>
+    <div class="k1"><span class="led"></span><span class="gl">⌘Z</span><span class="nm">Undo</span></div>
+    <div class="sep"></div>
+    <div class="k1 on"><span class="led"></span><span class="gl">⌘P</span><span class="nm">Find file</span></div>
+    <div class="k1 on"><span class="led"></span><span class="gl">⌘K</span><span class="nm">Actions</span></div>
+  </div>
+
+  <!-- scrim and palette -->
+  <div style="position:absolute;left:0;top:0;right:0;bottom:0;background:rgba(22,22,20,.16)"></div>
+  <div style="position:absolute;left:290px;top:84px;width:860px;border-radius:14px;background:#f7f7f4;box-shadow:0 0 0 1px rgba(22,22,20,.06),0 24px 70px rgba(22,22,20,.28);overflow:hidden">
+
+    <div class="row" style="height:60px;padding:0 24px;gap:14px;border-bottom:1px solid #e4e3dc">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#696761" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg>
+      <span style="font-size:17px;color:#161614">serv<span style="display:inline-block;width:2px;height:20px;background:#f54e00;vertical-align:-4px;margin-left:1px"></span></span>
+      <span style="flex:1"></span>
+      <span style="color:#161614;font-weight:500">Files</span><span style="color:#696761">Commits</span><span style="color:#696761">Actions</span>
+    </div>
+
+    <div style="display:flex;height:420px">
+      <div style="width:470px;border-right:1px solid #e4e3dc;padding:10px 0">
+        <div class="rs on"><span class="mono" style="font-size:12.5px;flex:1"><span class="hit">serv</span>ice.rs</span><span class="mono" style="font-size:11.5px;color:#8a8882">rvw-core/src</span><span style="color:#846600">○ 2</span></div>
+        <div class="rs"><span class="mono" style="font-size:12.5px;flex:1"><span class="hit">serv</span>er.rs</span><span class="mono" style="font-size:11.5px;color:#8a8882">rvw-mcp/src</span><span style="width:6px;height:6px;border-radius:3px;background:#846600;display:inline-block"></span></div>
+        <div class="rs"><span class="mono" style="font-size:12.5px;flex:1">ob<span class="hit">serv</span>ability.rs</span><span class="mono" style="font-size:11.5px;color:#8a8882">rvw-core/src</span><span style="width:6px"></span></div>
+        <div class="rs"><span class="mono" style="font-size:12.5px;flex:1">pre<span class="hit">serv</span>e.rs</span><span class="mono" style="font-size:11.5px;color:#8a8882">rvw-store/src</span><span style="width:6px"></span></div>
+        <div class="rs"><span class="mono" style="font-size:12.5px;flex:1"><span class="hit">serv</span>ice-notes.md</span><span class="mono" style="font-size:11.5px;color:#8a8882">docs</span><span style="width:6px"></span></div>
+        <div style="padding:14px 24px 0;color:#696761">5 of 214 files. Changed files come first.</div>
+      </div>
+
+      <div style="flex:1;padding:20px 0">
+        <div style="padding:0 24px 12px"><div class="mono" style="font-size:12.5px;color:#161614">crates/rvw-core/src/service.rs</div><div style="color:#696761;margin-top:4px">Changed on this branch · 2 open comments</div></div>
+        <div class="ln"><span class="n" style="width:36px">78</span><span class="c" style="padding-left:8px">impl Service {</span></div>
+        <div class="ln"><span class="n" style="width:36px">79</span><span class="c" style="padding-left:8px">    pub fn new(store: Store) -> Self {</span></div>
+        <div class="ln"><span class="n" style="width:36px">80</span><span class="c" style="padding-left:8px">        Service { store, clock: Clock::system() }</span></div>
+        <div class="ln"><span class="n" style="width:36px">81</span><span class="c" style="padding-left:8px">    }</span></div>
+        <div class="ln"><span class="n" style="width:36px">82</span><span class="c" style="padding-left:8px"></span></div>
+        <div class="ln"><span class="n" style="width:36px">83</span><span class="c" style="padding-left:8px">    pub fn add(&amp;self, input: AddInput) -> Result&lt;Comment&gt; {</span></div>
+        <div class="ln"><span class="n" style="width:36px">84</span><span class="c" style="padding-left:8px">        let ws = self.workspace(&amp;input.workspace)?;</span></div>
+      </div>
+    </div>
+
+    <div class="row" style="height:46px;padding:0 24px;gap:22px;border-top:1px solid #e4e3dc;color:#696761;font-size:12.5px">
+      <span><span class="key">↵</span> Open</span>
+      <span><span class="key">⌘↵</span> Open beside the diff</span>
+      <span><span class="key">⌥↵</span> Point a comment at this file</span>
+      <span style="flex:1"></span>
+      <span><span class="key">esc</span> Close</span>
+    </div>
+  </div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{
+  "v": 3,
+  "attachments": {},
+  "createdOnFiles": {"v": 1, "at": "2026-10-12T12:00:00Z"},
+  "title": "rvw GUI: interface design v1",
+  "launch": {"view": "canvas"},
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {"x": 0, "y": 0, "w": 1440, "h": 900, "title": "1 · Review desk"},
+    "Files.dc.html": {"x": 3040, "y": 0, "w": 1440, "h": 900, "title": "7 · Files and context"},
+    "Search.dc.html": {"x": 3040, "y": 1300, "w": 1440, "h": 900, "title": "8 · Find a file"},
+    "Keys.dc.html": {"x": 3040, "y": 2600, "w": 1440, "h": 760, "title": "9 · The key strip"},
+    "Outcome.dc.html": {"x": 1520, "y": 0, "w": 1440, "h": 900, "title": "2 · Outcome of one comment"},
+    "Queue.dc.html": {"x": 0, "y": 1300, "w": 1440, "h": 900, "title": "3 · Queue home"},
+    "Compose.dc.html": {"x": 1520, "y": 1300, "w": 720, "h": 640, "title": "4 · Submit a review"},
+    "Commit.dc.html": {"x": 0, "y": 2600, "w": 1440, "h": 900, "title": "5 · Changes and commit"},
+    "History.dc.html": {"x": 1520, "y": 2600, "w": 1440, "h": 900, "title": "6 · History with provenance"}
+  },
+  "order": ["Main.dc.html", "Files.dc.html", "Search.dc.html", "Keys.dc.html", "Outcome.dc.html", "Queue.dc.html", "Compose.dc.html", "Commit.dc.html", "History.dc.html"],
+  "notes": {
+    "t1": {"x": 0, "y": -300, "text": "M1 · Review desk: read the change, comment on it, see what became of it", "kind": "title1", "maxW": 2960},
+    "t2": {"x": 0, "y": 1000, "text": "M1 · Queue and submitting a review", "kind": "title1", "maxW": 2960},
+    "t3": {"x": 0, "y": 2300, "text": "M2 to M5 · Commit, history, provenance", "kind": "title1", "maxW": 2960},
+    "rules": {"x": 2360, "y": 1300, "w": 560, "maxH": 800, "size": "s", "fill": "gray", "text": "Rules for every screen\n\n1. One shell: top bar, rail, left panel 300, right panel 340, status bar. Only the content changes.\n2. The review is the main object. The queue is always one glance away.\n3. Ink first. Color marks meaning, never decoration.\n4. One status vocabulary, color AND shape: ○ pending, ◐ pulled, ✓ done, ✗ rejected.\n5. Violet means an agent. Orange means you are needed. Nothing else is orange.\n6. Left to right: where am I, what changed, what is asked.\n7. Every action has a key; ⌘K finds every action, ⌘P finds every file.\n8. Nothing destructive without an undo entry.\n\nLayers: paper window, translucent panels, one soft shadow, 14px window corners, 8px controls.\nPalette: cursorized light, from the dot-files."}
+  },
+  "designSystems": []
+}
