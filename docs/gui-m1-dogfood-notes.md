@@ -97,3 +97,33 @@ How to build and run on Linux today:
    `RUSTFLAGS="-L <dir>" cargo build -p rvw-gui`.
 2. `rvw-gui --workspace <repo> --db <scratch.db>`. Use a scratch database
    while the GUI writes comments.
+
+## The multi-line editor round
+
+- The pure model went to a Haiku agent and came back right: 35 tests that pin
+  the behaviour (word moves, preferred column, coalesced undo). Every decision
+  the agent had to make was listed in its report, which made review quick.
+- The GPUI text area went to a Sonnet agent, a deliberate exception to "Haiku
+  mostly": it is the one place a mistake shows up as visual jitter, and nobody
+  can look at the window. It split the work into six files, found that
+  gpui's `position_for_index` puts a wrap boundary at the end of the upper row
+  and wrote its own caret placement, and put the height, scroll and click-count
+  rules into a tested pure module. That is the kind of care that was missing
+  from the earlier, cheaper slices.
+- A bad `KeyBinding` string panics at startup. Running the binary for a few
+  seconds after each change that touches bindings is the cheapest check there
+  is; it caught nothing here, but it is the only guard.
+- The key strip lit two keys that did nothing (`J K`, `O`). The strip is a
+  promise, so the follow-up made both honest: J/K now move through files, and
+  Open file stays off with a hover hint until it exists. Lesson: when a status
+  surface is built before the behaviour behind it, every lit control is a
+  debt; audit the strip against behaviour before each milestone is called done.
+
+Still unverified by eye, in priority order for whoever runs it first:
+
+1. The text area: wrap edges, selection look, caret and blink, growth between
+   2 and 8 lines.
+2. The diff: scrolling a large diff (every line is rebuilt per frame).
+3. Click targets and focus: selecting lines, opening the composer with C,
+   Escape and focus return, the finder with the keyboard.
+4. The key strip tooltips and the J/K scroll-into-view.
