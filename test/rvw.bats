@@ -19,7 +19,7 @@
 
 setup_file() {
   export RVW="$BATS_FILE_TMPDIR/rvw"
-  (cd "$BATS_TEST_DIRNAME/.." && go build -o "$RVW" ./cmd/rvw)
+  (cd "$BATS_TEST_DIRNAME/.." && cargo build --quiet -p rvw-cli && cp target/debug/rvw "$RVW")
 }
 
 setup() {

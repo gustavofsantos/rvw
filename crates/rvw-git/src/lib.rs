@@ -8,4 +8,4 @@
 pub mod gitx;
 pub mod workspace;
 
-pub use gitx::{Change, GitError, Hunk};
+pub use gitx::{cancel_flag, os_error_text, Change, GitError, Hunk};

@@ -51,7 +51,11 @@ pub fn canonical(path: &Path) -> io::Result<PathBuf> {
             Err(e) => {
                 return Err(io::Error::new(
                     e.kind(),
-                    format!("cannot resolve {}: {e}", abs.display()),
+                    format!(
+                        "cannot resolve {}: {}",
+                        abs.display(),
+                        crate::gitx::os_error_text(&e)
+                    ),
                 ));
             }
         }

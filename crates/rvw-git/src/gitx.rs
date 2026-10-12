@@ -1,9 +1,12 @@
 //! Port of internal/gitx/gitx.go: git plumbing run as `git -C <dir> ...`.
 
 use std::fmt;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc, OnceLock};
+use std::time::Duration;
 
 /// A git command that failed. `stderr` is git's trimmed message (or the OS
 /// error text when git could not be started).
@@ -51,13 +54,48 @@ fn owned_args(args: &[&str]) -> Vec<String> {
     args.iter().map(|a| (*a).to_owned()).collect()
 }
 
+/// Set by the process's signal handlers; a git call in flight is killed and
+/// reports `context canceled`, as the Go code's cancelled context did.
+static CANCELLED: OnceLock<Arc<AtomicBool>> = OnceLock::new();
+
+/// The shared cancellation flag. Register it with a signal handler.
+pub fn cancel_flag() -> Arc<AtomicBool> {
+    CANCELLED
+        .get_or_init(|| Arc::new(AtomicBool::new(false)))
+        .clone()
+}
+
+fn cancelled() -> bool {
+    cancel_flag().load(Ordering::Relaxed)
+}
+
+/// How long a killed git may keep its pipes open (a grandchild can hold them).
+const WAIT_DELAY: Duration = Duration::from_secs(1);
+
+/// The text of an OS error the way Go prints it: lower case, no `(os error N)`.
+pub fn os_error_text(e: &std::io::Error) -> String {
+    let text = e.to_string();
+    let text = text
+        .rsplit_once(" (os error ")
+        .map_or(text.as_str(), |(head, _)| head);
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(c) => c.to_lowercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
 /// Runs `git -C dir args...` with `stdin` piped in and closed. Only a failure
-/// to start git is an `Err`; a non-zero exit is reported through `Ran::code`.
+/// to start git, or a cancellation, is an `Err`; a non-zero exit is reported
+/// through `Ran::code`.
 fn exec(dir: &Path, stdin: &[u8], args: &[&str]) -> Result<Ran, GitError> {
     let fail = |stderr: String| GitError {
         args: owned_args(args),
         stderr,
     };
+    if cancelled() {
+        return Err(fail("context canceled".to_owned()));
+    }
     let mut child = Command::new("git")
         .arg("-C")
         .arg(dir)
@@ -66,23 +104,69 @@ fn exec(dir: &Path, stdin: &[u8], args: &[&str]) -> Result<Ran, GitError> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| fail(e.to_string()))?;
-    // Feed stdin from a thread so a large payload cannot deadlock against
-    // git's output pipes; a broken pipe just means git stopped reading.
-    let writer = child.stdin.take().map(|mut pipe| {
+        .map_err(|e| fail(os_error_text(&e)))?;
+    // Feed stdin and drain both output pipes on threads, so a large payload
+    // cannot deadlock against git's pipes; a broken pipe just means git
+    // stopped reading.
+    if let Some(mut pipe) = child.stdin.take() {
         let input = stdin.to_vec();
         std::thread::spawn(move || {
             let _ = pipe.write_all(&input);
-        })
-    });
-    let out = child.wait_with_output().map_err(|e| fail(e.to_string()))?;
-    if let Some(handle) = writer {
-        let _ = handle.join();
+        });
+    }
+    let reader = |pipe: Option<Box<dyn Read + Send>>| {
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(mut p) = pipe {
+                let _ = p.read_to_end(&mut buf);
+            }
+            let _ = tx.send(buf);
+        });
+        rx
+    };
+    let out_rx = reader(
+        child
+            .stdout
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+    let err_rx = reader(
+        child
+            .stderr
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+
+    let mut killed = false;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {}
+            Err(e) => return Err(fail(os_error_text(&e))),
+        }
+        if !killed && cancelled() {
+            let _ = child.kill();
+            killed = true;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    let collect = |rx: mpsc::Receiver<Vec<u8>>| {
+        if killed {
+            rx.recv_timeout(WAIT_DELAY).unwrap_or_default()
+        } else {
+            rx.recv().unwrap_or_default()
+        }
+    };
+    let stdout = collect(out_rx);
+    let stderr = collect(err_rx);
+    if killed {
+        return Err(fail("context canceled".to_owned()));
     }
     Ok(Ran {
-        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
-        code: out.status.code(),
-        stderr: String::from_utf8_lossy(&out.stderr).trim().to_owned(),
+        stdout: String::from_utf8_lossy(&stdout).into_owned(),
+        code: status.code(),
+        stderr: String::from_utf8_lossy(&stderr).trim().to_owned(),
     })
 }
 

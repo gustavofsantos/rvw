@@ -1,0 +1,23 @@
+[package]
+name = "rvw-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "rvw"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", default-features = false, features = ["std", "help", "usage", "error-context", "suggestions", "string"] }
+serde.workspace = true
+serde_json.workspace = true
+signal-hook = "0.3"
+rvw-core.workspace = true
+rvw-git.workspace = true
+rvw-store.workspace = true
+rvw-render.workspace = true

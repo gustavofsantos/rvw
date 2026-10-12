@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/rvw-core", "crates/rvw-git", "crates/rvw-store", "crates/rvw-render"]
+members = ["crates/rvw-core", "crates/rvw-git", "crates/rvw-store", "crates/rvw-render", "crates/rvw-cli"]
 
 [workspace.package]
 version = "0.0.0"
@@ -19,6 +19,7 @@ rvw-core = { path = "crates/rvw-core" }
 rvw-git = { path = "crates/rvw-git" }
 rvw-store = { path = "crates/rvw-store" }
 rvw-render = { path = "crates/rvw-render" }
+rvw-cli = { path = "crates/rvw-cli" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
