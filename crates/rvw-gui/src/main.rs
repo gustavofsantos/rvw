@@ -6,6 +6,7 @@ mod key_strip;
 mod queue_screen;
 mod review_screen;
 mod shell;
+mod text_input;
 mod theme;
 
 use std::path::PathBuf;
