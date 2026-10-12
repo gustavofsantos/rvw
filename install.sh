@@ -53,13 +53,13 @@ done
 case "$(uname -s)" in
 Linux) os=linux ;;
 Darwin) os=darwin ;;
-*) fail "no prebuilt binary for $(uname -s); download one from https://github.com/$repo/releases or run: go install github.com/$repo/cmd/rvw@latest" ;;
+*) fail "no prebuilt binary for $(uname -s); download one from https://github.com/$repo/releases or run: cargo install --git https://github.com/$repo rvw-cli" ;;
 esac
 
 case "$(uname -m)" in
 x86_64 | amd64) arch=amd64 ;;
 aarch64 | arm64) arch=arm64 ;;
-*) fail "no prebuilt binary for $(uname -m); run: go install github.com/$repo/cmd/rvw@latest" ;;
+*) fail "no prebuilt binary for $(uname -m); run: cargo install --git https://github.com/$repo rvw-cli" ;;
 esac
 
 command -v curl >/dev/null 2>&1 || fail "curl is required"

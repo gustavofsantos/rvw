@@ -9,26 +9,36 @@ on:
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          go-version-file: go.mod
-      - uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.14.0 # same as the Makefile
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets -- -D warnings # same as the Makefile
+      - run: cargo fmt --all --check
 
-  vuln:
+  audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: rustsec/audit-check@v2
         with:
-          go-version-file: go.mod
-      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./... # same as the Makefile
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.93.0 # workspace.package.rust-version
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-targets --locked
 
   test:
     runs-on: ubuntu-latest
@@ -36,14 +46,12 @@ jobs:
       LC_ALL: C.UTF-8
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - uses: bats-core/bats-action@4.0.0
       - run: sudo apt-get update && sudo apt-get install -y sqlite3
       - run: |
           git config --global user.name ci
           git config --global user.email ci@localhost
-      - run: go vet ./...
-      - run: go test -race ./...
+      - run: cargo test --workspace --locked
       - run: bats test/rvw.bats

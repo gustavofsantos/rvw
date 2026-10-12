@@ -1,46 +1,33 @@
-GOBIN := $(or $(shell go env GOBIN),$(shell go env GOPATH)/bin)
-
-# Pinned here and in .github/workflows/ci.yml. Run with go run, not go tool,
-# so their dependencies stay out of go.mod.
-GOLANGCI_LINT := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
-GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@v1.8.0
-GORELEASER := go run github.com/goreleaser/goreleaser/v2@v2.18.2
-
-.PHONY: build install uninstall test lint fmt vuln check hooks snapshot clean
+.PHONY: build install uninstall test lint fmt audit check hooks clean
 
 build:
-	go build -o bin/rvw ./cmd/rvw
+	cargo build --release -p rvw-cli
 
 install:
-	go install ./cmd/rvw
+	cargo install --path crates/rvw-cli --locked
 
 uninstall:
-	rm -f $(GOBIN)/rvw
+	cargo uninstall rvw-cli
 
 test:
-	go vet ./...
-	go test ./...
+	cargo test --workspace
 	bats test/rvw.bats
 
 lint:
-	$(GOLANGCI_LINT) run ./...
+	cargo clippy --workspace --all-targets -- -D warnings
+	cargo fmt --all --check
 
 fmt:
-	$(GOLANGCI_LINT) fmt ./...
+	cargo fmt --all
 
-vuln:
-	$(GOVULNCHECK) ./...
+# Needs cargo-audit: cargo install cargo-audit --locked
+audit:
+	cargo audit
 
-check: lint vuln test
+check: lint audit test
 
 hooks:
 	git config core.hooksPath .githooks
 
-# The release build without publishing, into dist/. The real one runs in CI
-# when a v* tag is pushed.
-snapshot:
-	$(GORELEASER) check
-	$(GORELEASER) release --snapshot --clean
-
 clean:
-	rm -rf bin dist
+	cargo clean

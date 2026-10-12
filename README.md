@@ -48,14 +48,14 @@ curl -fsSL https://raw.githubusercontent.com/gustavofsantos/rvw/main/install.sh 
 
 Archives for Linux and macOS are on the
 [releases page](https://github.com/gustavofsantos/rvw/releases). Windows is not
-supported. With Go installed you can also build it yourself:
+supported. With Rust installed you can also build it yourself:
 
 ```sh
-go install github.com/gustavofsantos/rvw/cmd/rvw@latest
+cargo install --git https://github.com/gustavofsantos/rvw rvw-cli
 ```
 
-Or, from a checkout, `make install` (`go install ./cmd/rvw`). `make uninstall`
-removes it.
+Or, from a checkout, `make install` (`cargo install --path crates/rvw-cli`).
+`make uninstall` removes it.
 
 ## Examples
 

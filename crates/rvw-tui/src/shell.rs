@@ -157,8 +157,10 @@ fn run_editor(screen: &mut Screen, editor: &str, path: &std::path::Path) -> Opti
 /// Shows the UI until the user quits or a signal cancels it.
 pub fn run(opts: Options) -> Result<(), String> {
     let editor = opts.editor.clone();
-    let mut model = Model::new(opts)?;
+    // Take the terminal first: Model::new lists the workspace and reads git,
+    // and keys typed meanwhile must queue in raw mode, not echo in cooked mode.
     let mut screen = Screen::enter();
+    let mut model = Model::new(opts)?;
     let cancel = rvw_git::cancel_flag();
 
     let mut timers: Vec<(Instant, u64)> = Vec::new();
