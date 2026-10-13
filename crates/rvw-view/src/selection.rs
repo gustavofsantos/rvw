@@ -52,6 +52,19 @@ impl Selection {
         }
     }
 
+    /// A pointer dragged over `pos` with the button held: moves the head to
+    /// `pos`, keeping the anchor. Returns whether the selection changed, so
+    /// the caller can skip a repaint. A removed line, or a position outside
+    /// the diff, changes nothing; with no anchor it behaves as `click`.
+    pub fn drag_to(&mut self, diff: &FileDiff, pos: Pos) -> bool {
+        if !selectable(diff, pos) {
+            return false;
+        }
+        let before = *self;
+        self.extend(diff, pos);
+        *self != before
+    }
+
     /// Drops the selection.
     pub fn clear(&mut self) {
         *self = Selection::default();
@@ -113,7 +126,8 @@ fn line_at(diff: &FileDiff, pos: Pos) -> Option<&Line> {
 }
 
 /// Whether `pos` is a line of the diff that can be selected: not removed.
-fn selectable(diff: &FileDiff, pos: Pos) -> bool {
+#[must_use]
+pub fn selectable(diff: &FileDiff, pos: Pos) -> bool {
     line_at(diff, pos).is_some_and(|line| line.kind != LineKind::Removed)
 }
 
@@ -328,5 +342,61 @@ mod tests {
         assert!(sel.is_empty());
         assert_eq!(sel.lines(&diff), None);
         assert!(!sel.contains(&diff, pos(0, 0)));
+    }
+
+    #[test]
+    fn drag_to_extends_and_reports_the_change() {
+        let diff = sample();
+        let mut sel = Selection::default();
+        sel.click(&diff, pos(0, 0));
+        assert!(sel.drag_to(&diff, pos(0, 3)));
+        assert_eq!(sel.lines(&diff), Some((10, 12)));
+    }
+
+    #[test]
+    fn drag_to_the_same_head_changes_nothing() {
+        let diff = sample();
+        let mut sel = Selection::default();
+        sel.click(&diff, pos(0, 0));
+        assert!(sel.drag_to(&diff, pos(0, 3)));
+        assert!(!sel.drag_to(&diff, pos(0, 3)));
+    }
+
+    #[test]
+    fn drag_back_to_the_anchor_shrinks_to_one_line() {
+        let diff = sample();
+        let mut sel = Selection::default();
+        sel.click(&diff, pos(0, 0));
+        sel.drag_to(&diff, pos(1, 2));
+        assert!(sel.drag_to(&diff, pos(0, 0)));
+        assert_eq!(sel.lines(&diff), Some((10, 10)));
+    }
+
+    #[test]
+    fn drag_past_the_anchor_flips_the_range() {
+        let diff = sample();
+        let mut sel = Selection::default();
+        sel.click(&diff, pos(1, 0));
+        assert!(sel.drag_to(&diff, pos(0, 3)));
+        assert_eq!(sel.lines(&diff), Some((12, 40)));
+    }
+
+    #[test]
+    fn drag_to_a_removed_or_missing_line_is_ignored() {
+        let diff = sample();
+        let mut sel = Selection::default();
+        sel.click(&diff, pos(0, 0));
+        assert!(!sel.drag_to(&diff, pos(0, 1)));
+        assert!(!sel.drag_to(&diff, pos(9, 0)));
+        assert!(!sel.drag_to(&diff, pos(0, 99)));
+        assert_eq!(sel.lines(&diff), Some((10, 10)));
+    }
+
+    #[test]
+    fn drag_without_an_anchor_selects_the_line() {
+        let diff = sample();
+        let mut sel = Selection::default();
+        assert!(sel.drag_to(&diff, pos(0, 2)));
+        assert_eq!(sel.lines(&diff), Some((11, 11)));
     }
 }
