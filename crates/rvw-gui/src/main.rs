@@ -6,6 +6,8 @@ mod changes_screen;
 mod changes_state;
 mod checkpoint_ui;
 mod code_scroll;
+#[cfg(test)]
+mod commit_loop_tests;
 mod compare_picker;
 mod composer;
 mod data;
