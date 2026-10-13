@@ -40,10 +40,10 @@ pub fn key_strip(screen: Screen, counters: &Counters) -> Div {
 
 /// One key. `hint` is the text of its tooltip, when it is off and has one.
 fn key_cell(key: Key, light: Light, hint: Option<&'static str>) -> Stateful<Div> {
-    let (led, text, weight) = match light {
-        Light::Off => (theme::selected_panel(), theme::faint(), FontWeight::NORMAL),
-        Light::Available => (theme::ink(), theme::ink(), FontWeight::MEDIUM),
-        Light::Needed => (theme::needs_you(), theme::ink(), FontWeight::MEDIUM),
+    let (text, weight) = match light {
+        Light::Off => (theme::faint(), FontWeight::NORMAL),
+        Light::Available => (theme::ink(), FontWeight::MEDIUM),
+        Light::Needed => (theme::needs_you(), FontWeight::MEDIUM),
     };
     let cell = div()
         .id(key.label())
@@ -51,15 +51,14 @@ fn key_cell(key: Key, light: Light, hint: Option<&'static str>) -> Stateful<Div>
         .flex_col()
         .flex_1()
         .items_center()
-        .gap(px(5.))
+        .gap(px(3.))
         .text_color(text)
         .font_weight(weight)
-        .child(div().size(px(6.)).rounded_full().bg(led))
         .child(
             div()
                 .font_family(theme::code_font())
                 .text_size(px(theme::KEY_FONT_SIZE))
-                .child(key.glyph()),
+                .child(theme::chord(key.glyph())),
         )
         .child(div().text_size(px(theme::KEY_FONT_SIZE)).child(key.label()));
     match hint {

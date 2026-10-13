@@ -145,7 +145,7 @@ fn submit_button(drafts: usize, cx: &Context<Shell>) -> Stateful<Div> {
                 .font_family(theme::code_font())
                 .text_size(px(theme::KEY_FONT_SIZE))
                 .text_color(theme::faint())
-                .child("⇧⌘R"),
+                .child(theme::chord("⇧⌘R")),
         );
     if ready {
         button = button

@@ -389,7 +389,7 @@ fn footer(lane: &str, cx: &Context<Shell>) -> Div {
             },
         ))
         .child("Submit")
-        .child(key_hint("⇧⌘R"));
+        .child(key_hint(&theme::chord("⇧⌘R")));
     div()
         .flex()
         .items_center()

@@ -199,13 +199,41 @@ pub fn syntax(class: Class) -> Option<Rgba> {
     }
 }
 
-/// The chord that submits a multi-line field, as the key hints spell it.
-pub fn submit_chord() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "\u{2318}\u{21b5}"
-    } else {
-        "Ctrl+Enter"
+/// Spells a macOS-style chord ("⇧⌘R", "⌘↵", "↵") the way this platform names
+/// its keys: as is on macOS, "Ctrl+Shift+R" elsewhere. Text with no modifier
+/// or return glyph ("J K", "O") is returned unchanged.
+pub fn chord(mac: &str) -> String {
+    spell(mac, cfg!(target_os = "macos"))
+}
+
+fn spell(mac: &str, is_mac: bool) -> String {
+    if is_mac {
+        return mac.to_owned();
     }
+    let (mut ctrl, mut shift) = (false, false);
+    let mut rest = String::new();
+    for c in mac.chars() {
+        match c {
+            '\u{2318}' => ctrl = true,
+            '\u{21e7}' => shift = true,
+            '\u{21b5}' => rest.push_str("Enter"),
+            other => rest.push(other),
+        }
+    }
+    let mut parts = Vec::new();
+    if ctrl {
+        parts.push("Ctrl");
+    }
+    if shift {
+        parts.push("Shift");
+    }
+    parts.push(&rest);
+    parts.join("+")
+}
+
+/// The chord that submits a multi-line field, as the key hints spell it.
+pub fn submit_chord() -> String {
+    chord("\u{2318}\u{21b5}")
 }
 
 #[cfg(test)]
@@ -235,6 +263,16 @@ mod tests {
             assert!(syntax(class).is_none());
         }
         assert_eq!(syntax(Class::Keyword), Some(rgb(0x0000_6cbc)));
+    }
+
+    #[test]
+    fn chords_are_spelled_for_the_platform() {
+        assert_eq!(spell("\u{21e7}\u{2318}R", true), "\u{21e7}\u{2318}R");
+        assert_eq!(spell("\u{21e7}\u{2318}R", false), "Ctrl+Shift+R");
+        assert_eq!(spell("\u{2318}\u{21b5}", false), "Ctrl+Enter");
+        assert_eq!(spell("\u{2318}P", false), "Ctrl+P");
+        assert_eq!(spell("\u{21b5}", false), "Enter");
+        assert_eq!(spell("J K", false), "J K");
     }
 
     #[test]

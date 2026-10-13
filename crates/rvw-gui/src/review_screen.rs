@@ -182,7 +182,7 @@ fn search_box(cx: &Context<Shell>) -> Stateful<Div> {
                 .font_family(theme::code_font())
                 .text_size(px(theme::KEY_FONT_SIZE))
                 .text_color(theme::faint())
-                .child("⌘P"),
+                .child(theme::chord("⌘P")),
         )
 }
 
