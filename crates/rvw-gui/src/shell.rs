@@ -7,14 +7,16 @@ use std::collections::BTreeMap;
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, Context, Div, FocusHandle, KeyDownEvent, Render, UniformListScrollHandle, Window,
+    div, px, App, Context, Div, FocusHandle, Focusable, KeyDownEvent, Render,
+    UniformListScrollHandle, Window,
 };
 use rvw_core::Service;
-use rvw_view::keys::Screen;
+use rvw_view::keys::{Context as KeyContext, Screen};
 use rvw_view::queue::{Filter, Queue, State};
 use rvw_view::selection::Pos;
 use rvw_view::viewmode::ViewMode;
 
+use crate::changes_state::{ChangesState, CommitChanges, UndoGit};
 use crate::composer::Composer;
 use crate::data::{self, Identity, Snapshot};
 use crate::diff_list::drag::DragState;
@@ -78,6 +80,8 @@ pub struct Shell {
     pub(crate) changes_scroll: UniformListScrollHandle,
     /// Keeps the Files tree's row in view when the keyboard moves.
     pub(crate) files_scroll: UniformListScrollHandle,
+    /// The Changes screen: staging, the commit box and the recent actions.
+    pub(crate) changes: ChangesState,
     /// Holds the keys (C) when no field has focus.
     focus: FocusHandle,
 }
@@ -133,6 +137,7 @@ impl Shell {
             removal: None,
             changes_scroll: UniformListScrollHandle::new(),
             files_scroll: UniformListScrollHandle::new(),
+            changes: ChangesState::default(),
             focus: cx.focus_handle(),
         }
     }
@@ -140,6 +145,9 @@ impl Shell {
     pub fn show(&mut self, screen: Screen, cx: &mut Context<Self>) {
         if screen == Screen::Files {
             self.ensure_listing();
+        }
+        if screen == Screen::Changes {
+            self.enter_changes(cx);
         }
         self.screen = screen;
         self.removal = None;
@@ -246,7 +254,19 @@ impl Shell {
         }
         // With no field open, plain keys move through the review: C opens the
         // composer, and J or Down and K or Up select the next or previous file.
-        if event.keystroke.modifiers.number_of_modifiers() != 0 || self.composer.is_some() {
+        if event.keystroke.modifiers.number_of_modifiers() != 0
+            || self.composer.is_some()
+            || self.message_focused(window, cx)
+        {
+            return;
+        }
+        if self.screen == Screen::Changes {
+            match event.keystroke.key.as_str() {
+                "j" | "down" => self.step_change(1, cx),
+                "k" | "up" => self.step_change(-1, cx),
+                "s" => self.move_chosen(cx),
+                _ => {}
+            }
             return;
         }
         if self.screen == Screen::Outcome {
@@ -315,6 +335,7 @@ impl Render for Shell {
             && self.submit.is_none()
             && self.finder.is_none()
             && !self.tools.field_open()
+            && !self.message_focused(window, cx)
             && !self.focus.is_focused(window)
         {
             self.focus.focus(window);
@@ -332,6 +353,11 @@ impl Render for Shell {
                     cx,
                 ),
                 right: crate::draft_panel::right(&self.snapshot, self.removal.as_ref(), cx),
+            },
+            (Screen::Changes, _) => Panels {
+                left: crate::changes_screen::left(&self.changes, cx),
+                centre: crate::changes_screen::centre(&self.changes, cx),
+                right: crate::changes_screen::right(&self.changes, &self.snapshot.comments, cx),
             },
             (Screen::Outcome, Some(open)) => Panels {
                 left: outcome_screen::left(open, &self.snapshot, cx),
@@ -362,7 +388,7 @@ impl Render for Shell {
             frame::top_bar(&self.snapshot, self.tools.compare_menu.as_ref(), window, cx),
             frame::rail(rail_screen, cx),
             panels,
-            key_strip(key_screen, &self.snapshot.queue.counters),
+            key_strip(&self.key_context(key_screen)),
         );
 
         div()
@@ -387,6 +413,12 @@ impl Render for Shell {
             .on_action(cx.listener(|this: &mut Self, _: &OpenPalette, window, cx| {
                 this.open_palette(window, cx);
             }))
+            .on_action(cx.listener(|this: &mut Self, _: &CommitChanges, _, cx| {
+                this.commit_changes(cx);
+            }))
+            .on_action(cx.listener(|this: &mut Self, _: &UndoGit, _, cx| {
+                this.undo_git(cx);
+            }))
             .child(window)
             .children(self.submit.as_ref().map(|dialog| {
                 crate::submit_dialog::overlay(dialog, &self.snapshot, &self.identity.lane, cx)
@@ -402,6 +434,33 @@ impl Render for Shell {
 }
 
 impl Shell {
+    /// Whether the commit message field has the keyboard.
+    pub(crate) fn message_focused(&self, window: &Window, cx: &App) -> bool {
+        self.changes
+            .message
+            .as_ref()
+            .is_some_and(|message| message.focus_handle(cx).is_focused(window))
+    }
+
+    /// Gives the keyboard back to the shell, so S, J and K reach it.
+    pub(crate) fn focus_shell(&self, window: &mut Window) {
+        self.focus.focus(window);
+    }
+
+    /// The facts the key strip lights its keys from.
+    fn key_context(&self, screen: Screen) -> KeyContext {
+        KeyContext {
+            screen,
+            composing: self.composer.is_some(),
+            draft_count: self.snapshot.queue.counters.draft,
+            comment_done: false,
+            staged_count: self.changes.lists.staged.len(),
+            can_undo: self.changes.log.can_undo(),
+            can_move: true,
+            can_open_file: false,
+        }
+    }
+
     /// The left panel of the review screen: the changes, or the Files tab.
     fn review_left(&self, cx: &Context<Self>) -> Div {
         match self.screen {

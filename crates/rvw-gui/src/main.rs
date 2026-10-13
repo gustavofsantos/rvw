@@ -2,6 +2,8 @@
 
 mod assets;
 mod branch_picker;
+mod changes_screen;
+mod changes_state;
 mod compare_picker;
 mod composer;
 mod data;
@@ -138,6 +140,7 @@ fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identit
             submit_dialog::bind_keys(cx);
             finder::bind_keys(cx);
             palette_overlay::bind_keys(cx);
+            changes_state::bind_keys(cx);
             let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),

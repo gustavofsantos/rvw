@@ -140,13 +140,14 @@ enum RailTarget {
     None,
 }
 
-/// The rail's four icons. Queue and Review open their screens, Branches the
-/// branch picker; History is drawn but not wired yet. The ids are the old
-/// letters.
+/// The rail's five icons. Queue, Review and Changes open their screens,
+/// Branches the branch picker; History is drawn but not wired yet. The ids are
+/// the old letters.
 pub fn rail(screen: Screen, cx: &mut Context<Shell>) -> Div {
     let items = [
         ("Q", "icons/queue.svg", RailTarget::Show(Screen::Queue)),
         ("R", "icons/review.svg", RailTarget::Show(Screen::Diff)),
+        ("C", "icons/changes.svg", RailTarget::Show(Screen::Changes)),
         ("H", "icons/history.svg", RailTarget::None),
         ("B", "icons/branches.svg", RailTarget::Branches),
     ];

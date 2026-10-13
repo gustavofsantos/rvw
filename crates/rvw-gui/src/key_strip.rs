@@ -3,23 +3,11 @@
 
 use gpui::prelude::*;
 use gpui::{div, px, AnyView, App, Context, Div, FontWeight, Render, Stateful, Window};
-use rvw_view::keys::{self, Context as KeyContext, Group, Key, Light, Screen};
-use rvw_view::queue::Counters;
+use rvw_view::keys::{self, Context as KeyContext, Group, Key, Light};
 
 use crate::theme;
 
-pub fn key_strip(screen: Screen, counters: &Counters) -> Div {
-    let context = KeyContext {
-        screen,
-        composing: false,
-        draft_count: counters.draft,
-        comment_done: false,
-        staged_count: 0,
-        can_undo: false,
-        can_move: true,
-        can_open_file: false,
-    };
-
+pub fn key_strip(context: &KeyContext) -> Div {
     let mut strip = div()
         .flex()
         .items_center()
@@ -28,12 +16,12 @@ pub fn key_strip(screen: Screen, counters: &Counters) -> Div {
         .border_t_1()
         .border_color(theme::hairline());
     let mut previous: Option<Group> = None;
-    for (key, light) in Key::ALL.into_iter().zip(keys::lights(&context)) {
+    for (key, light) in Key::ALL.into_iter().zip(keys::lights(context)) {
         if previous.is_some_and(|group| group != key.group()) {
             strip = strip.child(separator());
         }
         previous = Some(key.group());
-        strip = strip.child(key_cell(key, light, keys::hint(&context, key)));
+        strip = strip.child(key_cell(key, light, keys::hint(context, key)));
     }
     strip
 }

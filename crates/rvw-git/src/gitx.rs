@@ -89,6 +89,17 @@ pub fn os_error_text(e: &std::io::Error) -> String {
 /// to start git, or a cancellation, is an `Err`; a non-zero exit is reported
 /// through `Ran::code`.
 pub(crate) fn exec(dir: &Path, stdin: &[u8], args: &[&str]) -> Result<Ran, GitError> {
+    exec_env(dir, stdin, args, &[])
+}
+
+/// As [`exec`], with extra environment variables for this one git process,
+/// for example a temporary `GIT_INDEX_FILE`.
+pub(crate) fn exec_env(
+    dir: &Path,
+    stdin: &[u8],
+    args: &[&str],
+    env: &[(&str, &str)],
+) -> Result<Ran, GitError> {
     let fail = |stderr: String| GitError {
         args: owned_args(args),
         stderr,
@@ -101,6 +112,7 @@ pub(crate) fn exec(dir: &Path, stdin: &[u8], args: &[&str]) -> Result<Ran, GitEr
     let mut child = Command::new("git")
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_OPTIONAL_LOCKS", "0")
+        .envs(env.iter().copied())
         .arg("-C")
         .arg(dir)
         .args(args)
@@ -177,7 +189,17 @@ pub(crate) fn exec(dir: &Path, stdin: &[u8], args: &[&str]) -> Result<Ran, GitEr
 /// Runs git and returns its stdout; any exit other than 0 is a `GitError`
 /// carrying git's trimmed stderr.
 pub(crate) fn run(dir: &Path, stdin: &[u8], args: &[&str]) -> Result<String, GitError> {
-    let ran = exec(dir, stdin, args)?;
+    run_env(dir, stdin, args, &[])
+}
+
+/// As [`run`], with extra environment variables; see [`exec_env`].
+pub(crate) fn run_env(
+    dir: &Path,
+    stdin: &[u8],
+    args: &[&str],
+    env: &[(&str, &str)],
+) -> Result<String, GitError> {
+    let ran = exec_env(dir, stdin, args, env)?;
     if ran.code == Some(0) {
         Ok(ran.stdout)
     } else {

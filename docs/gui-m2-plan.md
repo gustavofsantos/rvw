@@ -70,6 +70,12 @@ Each slice ends green (`cargo test`, clippy, `fmt --check`) and is one commit.
 | 10 | Live tree: poll and refresh without losing work in progress | unit tests on the change test; manual run |
 | 11 | Close-out: key strip and palette audit, notes | `make check` |
 
+## Later
+
+- **Command log.** Every git call goes through `gitx::exec`, so a panel that
+  lists what rvw ran in the repository, with its output, needs only a hook
+  there. Asked for by the user; not in M2.
+
 ## Working rules for the agents
 
 - A subagent edits only the files named in its task and never commits.
