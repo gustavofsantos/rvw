@@ -34,9 +34,12 @@ struct Entry {
 }
 
 /// The best [`MAX_RESULTS`] files for `query`, best first. An empty query
-/// matches every file, so the picker starts with the changed files.
+/// gives none: the picker lists files once the reviewer types.
 #[must_use]
 pub fn hits(query: &str, files: &[String], marks: &Marks) -> Vec<Hit> {
+    if query.trim().is_empty() {
+        return Vec::new();
+    }
     let mut entries: Vec<Entry> = files
         .iter()
         .enumerate()
@@ -167,10 +170,18 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_query_lists_the_changed_files_first() {
+    fn an_empty_query_lists_no_file() {
         let all = files(&["a.rs", "b.rs", "c.rs"]);
         let marks = Marks::new(&[changed("c.rs")], &[]);
-        let found = hits("", &all, &marks);
+        assert!(hits("", &all, &marks).is_empty());
+        assert!(hits("  ", &all, &marks).is_empty());
+    }
+
+    #[test]
+    fn a_query_every_file_matches_lists_the_changed_files_first() {
+        let all = files(&["a.rs", "b.rs", "c.rs"]);
+        let marks = Marks::new(&[changed("c.rs")], &[]);
+        let found = hits(".rs", &all, &marks);
         let order: Vec<&str> = found.iter().map(|h| h.path.as_str()).collect();
         assert_eq!(order, ["c.rs", "a.rs", "b.rs"]);
     }
@@ -178,7 +189,7 @@ mod tests {
     #[test]
     fn at_most_twelve_hits_are_returned() {
         let names: Vec<String> = (0..30).map(|n| format!("f{n}.rs")).collect();
-        assert_eq!(hits("", &names, &Marks::default()).len(), MAX_RESULTS);
+        assert_eq!(hits("f", &names, &Marks::default()).len(), MAX_RESULTS);
     }
 
     #[test]

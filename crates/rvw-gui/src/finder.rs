@@ -4,8 +4,8 @@
 
 use gpui::prelude::*;
 use gpui::{
-    actions, div, px, App, ClickEvent, Context, Div, Entity, FontWeight, KeyBinding, SharedString,
-    Stateful, Subscription, Window,
+    actions, div, px, AnyElement, App, ClickEvent, Context, Div, Entity, FontWeight, KeyBinding,
+    ScrollHandle, SharedString, Stateful, Subscription, Window,
 };
 use rvw_view::files::Marks;
 use rvw_view::finder::{self as picker, Hit};
@@ -29,6 +29,8 @@ pub struct Finder {
     pub input: Entity<TextInput>,
     pub hits: Vec<Hit>,
     pub highlighted: usize,
+    /// Keeps the highlighted row in view when the arrows move it.
+    scroll: ScrollHandle,
     _events: Subscription,
     _typing: Subscription,
 }
@@ -57,6 +59,7 @@ impl Shell {
             input,
             hits: Vec::new(),
             highlighted: 0,
+            scroll: ScrollHandle::new(),
             _events: events,
             _typing: typing,
         });
@@ -82,6 +85,7 @@ impl Shell {
         if let Some(finder) = self.finder.as_mut() {
             finder.hits = hits;
             finder.highlighted = 0;
+            finder.scroll.scroll_to_item(0);
         }
         cx.notify();
     }
@@ -95,6 +99,7 @@ impl Shell {
             } else {
                 finder.highlighted.saturating_sub(1)
             };
+            finder.scroll.scroll_to_item(finder.highlighted);
         }
         cx.notify();
     }
@@ -154,6 +159,7 @@ fn card(finder: &Finder, cx: &Context<Shell>) -> Div {
         .child(
             div()
                 .flex()
+                .flex_none()
                 .items_center()
                 .h(px(52.))
                 .px(px(20.))
@@ -165,21 +171,44 @@ fn card(finder: &Finder, cx: &Context<Shell>) -> Div {
         .child(footer())
 }
 
-fn results(finder: &Finder, cx: &Context<Shell>) -> Div {
-    let rows: Vec<Stateful<Div>> = finder
+/// The matches, which scroll when the window is too short for them. Before
+/// anything is typed there are none, only a hint: listing the repository's
+/// files in no useful order helps no one.
+fn results(finder: &Finder, cx: &Context<Shell>) -> Stateful<Div> {
+    let mut rows: Vec<AnyElement> = finder
         .hits
         .iter()
         .enumerate()
-        .map(|(index, hit)| hit_row(index, hit, index == finder.highlighted, cx))
+        .map(|(index, hit)| hit_row(index, hit, index == finder.highlighted, cx).into_any_element())
         .collect();
     if rows.is_empty() {
-        return div()
-            .px(px(24.))
-            .py(px(16.))
-            .text_color(theme::muted())
-            .child("No file matches.");
+        let typed = !finder.input.read(cx).text().trim().is_empty();
+        let hint = if typed {
+            "No file matches."
+        } else {
+            "Type part of a file name or path."
+        };
+        rows.push(
+            div()
+                .px(px(16.))
+                .py(px(10.))
+                .text_color(theme::muted())
+                .child(hint)
+                .into_any_element(),
+        );
     }
-    div().flex().flex_col().py(px(6.)).children(rows)
+    // The rows are the scrolled element's own children: `scroll_to_item`
+    // finds the highlighted one by its index among them.
+    div()
+        .id("finder-results")
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h(px(0.))
+        .py(px(6.))
+        .overflow_y_scroll()
+        .track_scroll(&finder.scroll)
+        .children(rows)
 }
 
 /// One match: the file name in mono with the matched characters in bold, the
@@ -248,6 +277,7 @@ fn hit_row(index: usize, hit: &Hit, highlighted: bool, cx: &Context<Shell>) -> S
 fn footer() -> Div {
     div()
         .flex()
+        .flex_none()
         .items_center()
         .gap(px(16.))
         .h(px(36.))
