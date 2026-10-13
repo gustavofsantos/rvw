@@ -97,7 +97,7 @@ impl Key {
             Key::Reopen => "Reopen",
             Key::Stage => "Stage",
             Key::Commit => "Commit",
-            Key::Undo => "Undo",
+            Key::Undo => "Restore",
             Key::FindFile => "Find file",
             Key::Actions => "Actions",
         }
@@ -215,13 +215,13 @@ pub fn light(ctx: &Context, key: Key) -> Light {
                 Light::Off
             }
         }
-        Key::Commit => {
-            if ctx.screen == Screen::Changes && ctx.staged_count > 0 {
-                Light::Needed
-            } else {
-                Light::Off
-            }
-        }
+        // ⇧⌘C works from any screen with something staged: it opens the
+        // Changes screen, where the commit box is.
+        Key::Commit => match (ctx.screen, ctx.staged_count) {
+            (_, 0) => Light::Off,
+            (Screen::Changes, _) => Light::Needed,
+            _ => Light::Available,
+        },
         Key::Undo => {
             if ctx.can_undo {
                 Light::Available
@@ -252,7 +252,7 @@ pub fn hint(ctx: &Context, key: Key) -> Option<&'static str> {
         Key::Accept | Key::Reopen => Some("Select a comment the agent has done"),
         Key::Stage => Some("Stage changes on the Changes screen"),
         Key::Commit => Some("Stage something to commit"),
-        Key::Undo => Some("Nothing to undo"),
+        Key::Undo => Some("No checkpoint yet"),
         Key::FindFile | Key::Actions => None,
     }
 }
@@ -526,17 +526,17 @@ mod tests {
     }
 
     #[test]
-    fn commit_is_needed_on_changes_when_something_is_staged() {
+    fn commit_is_needed_on_changes_and_available_elsewhere_when_something_is_staged() {
         for screen in SCREENS {
             for staged_count in [0, 1] {
                 let c = Context {
                     staged_count,
                     ..ctx(screen)
                 };
-                let expected = if screen == Screen::Changes && staged_count > 0 {
-                    Light::Needed
-                } else {
-                    Light::Off
+                let expected = match (screen, staged_count) {
+                    (_, 0) => Light::Off,
+                    (Screen::Changes, _) => Light::Needed,
+                    _ => Light::Available,
                 };
                 assert_eq!(
                     light(&c, Key::Commit),
@@ -682,7 +682,10 @@ mod tests {
             hint(&ctx(Screen::Diff), Key::Commit),
             Some("Stage something to commit")
         );
-        assert_eq!(hint(&ctx(Screen::Diff), Key::Undo), Some("Nothing to undo"));
+        assert_eq!(
+            hint(&ctx(Screen::Diff), Key::Undo),
+            Some("No checkpoint yet")
+        );
     }
 
     #[test]
