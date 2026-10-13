@@ -31,11 +31,13 @@ mod text_input;
 mod theme;
 mod tools;
 mod verdict;
+mod window_chrome;
 
 use std::path::PathBuf;
 
 use gpui::{
-    px, size, App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions,
+    px, size, App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds,
+    WindowDecorations, WindowOptions,
 };
 
 use crate::data::{Identity, Snapshot};
@@ -130,6 +132,10 @@ fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identit
                     title: Some("rvw".into()),
                     ..TitlebarOptions::default()
                 }),
+                // Where the compositor draws no frame, the app draws its own
+                // controls (window_chrome.rs); macOS keeps its native bar.
+                window_decorations: Some(WindowDecorations::Client),
+                window_min_size: Some(size(px(900.), px(600.))),
                 ..WindowOptions::default()
             };
             let opened = cx.open_window(options, move |_window, cx| {

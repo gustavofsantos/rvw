@@ -10,6 +10,7 @@ use crate::compare_picker::{self, CompareMenu};
 use crate::data::Snapshot;
 use crate::shell::Shell;
 use crate::theme;
+use crate::window_chrome;
 
 /// What a screen fills in the body of the frame.
 pub struct Panels {
@@ -40,9 +41,14 @@ pub fn window(top: Div, rail: Div, panels: Panels, keys: Div) -> Div {
         .child(keys)
 }
 
-pub fn top_bar(snapshot: &Snapshot, menu: Option<&CompareMenu>, cx: &Context<Shell>) -> Div {
+pub fn top_bar(
+    snapshot: &Snapshot,
+    menu: Option<&CompareMenu>,
+    window: &Window,
+    cx: &Context<Shell>,
+) -> Div {
     let counters = snapshot.queue.counters;
-    div()
+    let bar = div()
         .flex()
         .items_center()
         .gap(px(16.))
@@ -63,18 +69,28 @@ pub fn top_bar(snapshot: &Snapshot, menu: Option<&CompareMenu>, cx: &Context<She
                 .text_color(theme::muted())
                 .child(snapshot.workspace.clone()),
         )
-        .child(branch_chip(&snapshot.branch, cx))
-        .child(compare_picker::chip(snapshot, menu, cx))
+        .child(window_chrome::no_drag(branch_chip(&snapshot.branch, cx)))
+        .child(window_chrome::no_drag(compare_picker::chip(
+            snapshot, menu, cx,
+        )))
         .child(div().flex_1())
-        .child(waiting_counter(counters.waiting_on_you))
-        .child(counter(
-            format!("◐ {} with claude", counters.with_agent),
-            theme::agent(),
+        .child(window_chrome::no_drag(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(16.))
+                .child(waiting_counter(counters.waiting_on_you))
+                .child(counter(
+                    format!("◐ {} with claude", counters.with_agent),
+                    theme::agent(),
+                ))
+                .child(counter(
+                    format!("○ {} in draft", counters.draft),
+                    theme::pending(),
+                )),
         ))
-        .child(counter(
-            format!("○ {} in draft", counters.draft),
-            theme::pending(),
-        ))
+        .children(window_chrome::controls(window));
+    window_chrome::drag_region(bar, window)
 }
 
 /// The branch name; a click opens the branch picker, as the rail's B does.

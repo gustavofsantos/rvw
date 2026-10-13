@@ -71,8 +71,8 @@ fn key_cell(key: Key, light: Light, hint: Option<&'static str>) -> Stateful<Div>
 }
 
 /// The card a hint shows in: a small paper-coloured tooltip.
-struct HintCard {
-    text: &'static str,
+pub struct HintCard {
+    pub text: &'static str,
 }
 
 impl Render for HintCard {

@@ -22,6 +22,22 @@ const ICONS: &[(&str, &[u8])] = &[
         "icons/branches.svg",
         include_bytes!("../assets/icons/branches.svg"),
     ),
+    (
+        "icons/window-minimize.svg",
+        include_bytes!("../assets/icons/window-minimize.svg"),
+    ),
+    (
+        "icons/window-maximize.svg",
+        include_bytes!("../assets/icons/window-maximize.svg"),
+    ),
+    (
+        "icons/window-restore.svg",
+        include_bytes!("../assets/icons/window-restore.svg"),
+    ),
+    (
+        "icons/window-close.svg",
+        include_bytes!("../assets/icons/window-close.svg"),
+    ),
 ];
 
 pub struct Assets;
@@ -54,5 +70,13 @@ mod tests {
             assert!(bytes.starts_with(b"<svg"), "{name} is not an svg");
         }
         assert!(Assets.load("icons/missing.svg").unwrap().is_none());
+    }
+
+    #[test]
+    fn the_window_control_icons_are_bundled() {
+        for name in ["minimize", "maximize", "restore", "close"] {
+            let path = format!("icons/window-{name}.svg");
+            assert!(Assets.load(&path).unwrap().is_some(), "{path} missing");
+        }
     }
 }

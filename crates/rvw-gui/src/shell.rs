@@ -344,8 +344,9 @@ impl Render for Shell {
         } else {
             self.screen
         };
+        let resize_layer = crate::window_chrome::resize_layer(window);
         let window = frame::window(
-            frame::top_bar(&self.snapshot, self.tools.compare_menu.as_ref(), cx),
+            frame::top_bar(&self.snapshot, self.tools.compare_menu.as_ref(), window, cx),
             frame::rail(rail_screen, cx),
             panels,
             key_strip(key_screen, &self.snapshot.queue.counters),
@@ -383,6 +384,7 @@ impl Render for Shell {
                     .map(|finder| finder::overlay(finder, cx)),
             )
             .children(self.tool_overlays(cx))
+            .children(resize_layer)
     }
 }
 
