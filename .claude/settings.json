@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo build *)",
+      "Bash(cargo test *)",
+      "Bash(cargo clippy *)",
+      "Bash(cargo fmt *)",
+      "Bash(bats *)",
+      "Bash(make lint)",
+      "Bash(make fmt)",
+      "Bash(make audit)",
+      "Bash(make check)",
+      "Bash(make test)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CLAUDE_CODE_REMOTE\" = true ] && [ -f \"$CLAUDE_PROJECT_DIR/scripts/setup-dev.sh\" ] && ! command -v bats >/dev/null && bash \"$CLAUDE_PROJECT_DIR/scripts/setup-dev.sh\" || true",
+            "timeout": 600
+          }
+        ]
+      }
+    ]
+  }
+}
