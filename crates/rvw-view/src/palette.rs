@@ -188,7 +188,12 @@ impl Action {
             | Action::GoToChanges
             | Action::GoToHistory => "Go",
             Action::FindFile | Action::SearchCommits => "Find",
-            Action::FileHistory | Action::CherryPick => "History",
+            Action::FileHistory
+            | Action::CherryPick
+            | Action::BlameFile
+            | Action::BrowseCommitFiles
+            | Action::CompareWith
+            | Action::EditHistory => "History",
             Action::NextFile | Action::PreviousFile => "Move",
             Action::Comment | Action::SubmitReview => "Review",
             Action::CompareUncommitted
@@ -196,7 +201,11 @@ impl Action {
             | Action::ComparePreviousCommit
             | Action::ToggleSplit
             | Action::ToggleFullFile => "Diff",
-            Action::SwitchBranch | Action::SwitchWorkspace | Action::ReloadQueue => "Repository",
+            Action::SwitchBranch
+            | Action::SwitchWorkspace
+            | Action::ReloadQueue
+            | Action::NewWorktree
+            | Action::RemoveWorktree => "Repository",
             Action::StageChosen
             | Action::Commit
             | Action::SaveCheckpoint
@@ -204,11 +213,6 @@ impl Action {
             | Action::FinishOperation
             | Action::AbortOperation
             | Action::OpenMergeTool => "Git",
-            Action::BlameFile
-            | Action::BrowseCommitFiles
-            | Action::CompareWith
-            | Action::EditHistory => "History",
-            Action::NewWorktree | Action::RemoveWorktree => "Repository",
             Action::OpenTerminal | Action::OpenDiffTool => "Tools",
             Action::StashChanges | Action::ApplyStash | Action::DropStash => "Stash",
             Action::NewBranch
@@ -331,7 +335,7 @@ pub fn unavailable(action: Action, state: &State) -> Option<&'static str> {
             .then_some("Select a commit in the history first")
             .or_else(|| (!state.on_branch).then_some("HEAD is not on a branch"))
             .or_else(|| operation_reason(state)),
-        Action::MergeBranch => (!state.on_branch)
+        Action::MergeBranch | Action::EditHistory => (!state.on_branch)
             .then_some("HEAD is not on a branch")
             .or_else(|| operation_reason(state)),
         Action::FinishOperation => (!state.operation_in_progress)
@@ -347,10 +351,6 @@ pub fn unavailable(action: Action, state: &State) -> Option<&'static str> {
         Action::BrowseCommitFiles | Action::CompareWith => (state.screen != Screen::History
             || !state.has_selected_commit)
             .then_some("Select a commit in the history first"),
-        Action::EditHistory => (!state.on_branch)
-            .then_some("HEAD is not on a branch")
-            .or_else(|| operation_reason(state)),
-        Action::NewWorktree | Action::RemoveWorktree | Action::OpenTerminal => None,
         Action::StageChosen => {
             (state.screen != Screen::Changes).then_some("Open the changes first")
         }
@@ -391,7 +391,10 @@ pub fn unavailable(action: Action, state: &State) -> Option<&'static str> {
         | Action::NewBranch
         | Action::DeleteBranch
         | Action::NewTag
-        | Action::SearchCommits => None,
+        | Action::SearchCommits
+        | Action::NewWorktree
+        | Action::RemoveWorktree
+        | Action::OpenTerminal => None,
     }
 }
 
