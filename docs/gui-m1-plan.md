@@ -37,3 +37,24 @@ Out of M1: accept and reopen (M4), staging and commit (M2), history (M3).
   by a manual run, because a window is not a test seam.
 - Review feedback goes through `rvw` against a scratch database, never the
   user's real queue.
+
+## Status at the end of the session
+
+Slices 0 to 7 are done, plus what the first real run asked for:
+
+| Done | Where |
+|---|---|
+| Shell, key strip with honest lights, queue screen | `rvw-gui`, `rvw-view::{keys, queue}` |
+| Review screen, diff, comments, submit dialog | `rvw-gui`, `rvw-view::{diff, selection}` |
+| Files tab, find a file, context comments | `rvw-view::{files, finder, context}` |
+| Multi-line comment editor | `rvw-view::editor`, `rvw-gui::text_area` |
+| Virtualised diff and lists | `rvw-view::diffrows`, `rvw-gui::diff_list` |
+| Syntax colour, off the UI thread | `rvw-view::highlight`, `rvw-gui::highlights` |
+| Outcome screen, seen record | `rvw-view::outcome`, `rvw-gui::seen` |
+| Edit, delete and undo of draft comments (`remove` operation) | core, CLI, MCP, bats |
+| Compare picker, branch switch, ⌘K palette, split diff | `rvw-view::{branches, palette, split, compare_menu}` |
+
+Left for later milestones: staging and commit (M2), history (M3), accept and
+reopen and the commit gate (M4), provenance (M5), ledger (M6). Editing the file
+in place, instead of opening an external editor, is the user's plan for the
+"Open file" key.
