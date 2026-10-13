@@ -21,12 +21,13 @@ pub enum Action {
     ComparePreviousCommit,
     SwitchBranch,
     ToggleSplit,
+    ToggleFullFile,
     ReloadQueue,
 }
 
 impl Action {
     /// Every action, in palette order.
-    pub const ALL: [Action; 14] = [
+    pub const ALL: [Action; 15] = [
         Action::GoToQueue,
         Action::GoToReview,
         Action::GoToFiles,
@@ -40,6 +41,7 @@ impl Action {
         Action::ComparePreviousCommit,
         Action::SwitchBranch,
         Action::ToggleSplit,
+        Action::ToggleFullFile,
         Action::ReloadQueue,
     ];
 
@@ -60,6 +62,7 @@ impl Action {
             Action::ComparePreviousCommit => "Compare with: the previous commit",
             Action::SwitchBranch => "Switch branch",
             Action::ToggleSplit => "Toggle split diff",
+            Action::ToggleFullFile => "Toggle whole file and changes",
             Action::ReloadQueue => "Reload",
         }
     }
@@ -75,7 +78,8 @@ impl Action {
             Action::CompareUncommitted
             | Action::CompareDefaultBranch
             | Action::ComparePreviousCommit
-            | Action::ToggleSplit => "Diff",
+            | Action::ToggleSplit
+            | Action::ToggleFullFile => "Diff",
             Action::SwitchBranch | Action::ReloadQueue => "Repository",
         }
     }
@@ -104,6 +108,8 @@ pub struct State {
     pub has_selection: bool,
     /// The changed list or the tree has files to move through.
     pub has_files: bool,
+    /// The file shown has changes, so it has both a diff and a whole view.
+    pub file_has_changes: bool,
 }
 
 /// Whether the screen shows a file: the diff or the file list.
@@ -131,6 +137,8 @@ pub fn unavailable(action: Action, state: &State) -> Option<&'static str> {
             && state.has_files))
             .then_some("Open the review to move through files"),
         Action::ToggleSplit => (state.screen != Screen::Diff).then_some("Open a diff first"),
+        Action::ToggleFullFile => (!(on_diff_or_files(state.screen) && state.file_has_changes))
+            .then_some("Open a changed file first"),
         Action::GoToQueue => (state.screen == Screen::Queue).then_some("You are on the queue"),
         Action::GoToReview => (state.screen == Screen::Diff).then_some("You are on the review"),
         Action::GoToFiles => (state.screen == Screen::Files).then_some("You are on the Files tab"),
@@ -266,12 +274,13 @@ mod tests {
             draft_count: 0,
             has_selection: false,
             has_files: false,
+            file_has_changes: false,
         }
     }
 
     #[test]
-    fn all_has_fourteen_distinct_actions_with_titles_and_groups() {
-        assert_eq!(Action::ALL.len(), 14);
+    fn all_has_fifteen_distinct_actions_with_titles_and_groups() {
+        assert_eq!(Action::ALL.len(), 15);
         let mut seen = std::collections::HashSet::new();
         for action in Action::ALL {
             assert!(seen.insert(action), "duplicate {action:?}");
@@ -289,6 +298,7 @@ mod tests {
         assert_eq!(Action::SubmitReview.chord(), Some("⇧⌘R"));
         assert_eq!(Action::SwitchBranch.chord(), None);
         assert_eq!(Action::ReloadQueue.chord(), None);
+        assert_eq!(Action::ToggleFullFile.chord(), None);
     }
 
     #[test]
@@ -389,7 +399,7 @@ mod tests {
     #[test]
     fn empty_query_lists_all_actions_in_order() {
         let got = entries("", &state(Screen::Diff));
-        assert_eq!(got.len(), 14);
+        assert_eq!(got.len(), 15);
         let order: Vec<Action> = got.iter().map(|e| e.action).collect();
         assert_eq!(order, Action::ALL);
         assert!(got.iter().all(|e| e.matches.is_empty() && e.score == 0));
@@ -479,11 +489,25 @@ mod tests {
                 "Diff",
                 "Diff",
                 "Diff",
+                "Diff",
                 "Repository",
                 "Repository"
             ]
         );
-        assert_eq!(got.len(), 14);
+        assert_eq!(got.len(), 15);
+    }
+
+    #[test]
+    fn toggling_the_whole_file_needs_a_changed_file_on_the_review() {
+        let reason = Some("Open a changed file first");
+        let mut s = state(Screen::Diff);
+        assert_eq!(unavailable(Action::ToggleFullFile, &s), reason);
+        s.file_has_changes = true;
+        assert_eq!(unavailable(Action::ToggleFullFile, &s), None);
+        s.screen = Screen::Files;
+        assert_eq!(unavailable(Action::ToggleFullFile, &s), None);
+        s.screen = Screen::Queue;
+        assert_eq!(unavailable(Action::ToggleFullFile, &s), reason);
     }
 
     #[test]

@@ -21,3 +21,4 @@ pub mod queue;
 pub mod selection;
 pub mod split;
 pub mod tree;
+pub mod viewmode;
