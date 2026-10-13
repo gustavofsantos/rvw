@@ -44,13 +44,15 @@ mod window_chrome;
 use std::path::PathBuf;
 
 use gpui::{
-    px, size, App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds,
-    WindowDecorations, WindowOptions,
+    actions, px, size, App, AppContext, Application, Bounds, KeyBinding, Menu, MenuItem,
+    TitlebarOptions, WindowBounds, WindowDecorations, WindowOptions,
 };
 
 use crate::data::{Identity, Snapshot};
 use crate::seen::Seen;
 use crate::shell::Shell;
+
+actions!(rvw_app, [Quit]);
 
 #[derive(Default)]
 struct Args {
@@ -152,6 +154,7 @@ fn show_window(
             finder::bind_keys(cx);
             palette_overlay::bind_keys(cx);
             changes_state::bind_keys(cx);
+            quit_with_the_window(cx);
             let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -178,4 +181,23 @@ fn show_window(
             }
             cx.activate(true);
         });
+}
+
+/// The app is its one window: closing it quits, as the Close control does
+/// where rvw draws its own. macOS would otherwise keep the process running
+/// with no window, and a click on the Dock icon would reopen nothing. ⌘Q
+/// and the app menu's Quit quit too.
+fn quit_with_the_window(cx: &mut App) {
+    cx.on_window_closed(|cx| {
+        if cx.windows().is_empty() {
+            cx.quit();
+        }
+    })
+    .detach();
+    cx.on_action(|_: &Quit, cx| cx.quit());
+    cx.bind_keys([KeyBinding::new("secondary-q", Quit, None)]);
+    cx.set_menus(vec![Menu {
+        name: "rvw".into(),
+        items: vec![MenuItem::action("Quit rvw", Quit)],
+    }]);
 }
