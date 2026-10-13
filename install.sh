@@ -5,7 +5,9 @@
 #   curl -fsSL https://raw.githubusercontent.com/gustavofsantos/rvw/main/install.sh | sh -s -- --version v1.1.0 --dir /usr/local/bin
 #
 # Downloads the archive for this OS and CPU, checks it against the release's
-# checksums.txt, and puts the rvw binary in --dir (default: ~/.local/bin).
+# checksums.txt, and puts the rvw binary in --dir (default: ~/.local/bin). An
+# archive that carries the desktop app also installs it, with an icon and a
+# desktop entry, under ~/.local/share.
 # Run it again to upgrade.
 set -eu
 
@@ -94,7 +96,7 @@ else
 fi
 [ "$want" = "$got" ] || fail "checksum mismatch for $archive"
 
-tar -xzf "$tmp/$archive" -C "$tmp" rvw
+tar -xzf "$tmp/$archive" -C "$tmp"
 mkdir -p "$dir" || fail "cannot create $dir; pick another with --dir"
 # Move into place from the same directory, so a running rvw is never
 # overwritten halfway.
@@ -103,6 +105,20 @@ chmod 755 "$dir/.rvw.new"
 mv -f "$dir/.rvw.new" "$dir/rvw"
 
 echo "Installed $("$dir/rvw" --version) to $dir/rvw" >&2
+
+# The desktop app, when this archive carries it (Linux): the rvw-gui binary,
+# its icon and a desktop entry whose Exec is the absolute path, since a desktop
+# session's PATH rarely includes ~/.local/bin.
+if [ "$os" = linux ] && [ -f "$tmp/rvw-gui" ]; then
+	data="${XDG_DATA_HOME:-$HOME/.local/share}"
+	cp "$tmp/rvw-gui" "$dir/.rvw-gui.new"
+	chmod 755 "$dir/.rvw-gui.new"
+	mv -f "$dir/.rvw-gui.new" "$dir/rvw-gui"
+	mkdir -p "$data/applications" "$data/icons/hicolor/scalable/apps"
+	cp "$tmp/share/icons/hicolor/scalable/apps/rvw.svg" "$data/icons/hicolor/scalable/apps/rvw.svg"
+	sed "s|^Exec=.*|Exec=$dir/rvw-gui|" "$tmp/share/applications/rvw.desktop" >"$data/applications/rvw.desktop"
+	echo "Installed rvw-gui, its icon and desktop entry under $data" >&2
+fi
 case ":$PATH:" in
 *":$dir:"*) ;;
 *) echo "Note: $dir is not on your PATH. Add it, for example: export PATH=\"$dir:\$PATH\"" >&2 ;;

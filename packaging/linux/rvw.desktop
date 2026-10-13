@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=rvw
+GenericName=Code review queue
+Comment=Local code review comments for humans and agents
+Exec=rvw-gui
+Icon=rvw
+Terminal=false
+Categories=Development;
+Keywords=review;code;diff;git;
+StartupWMClass=rvw

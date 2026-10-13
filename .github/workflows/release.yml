@@ -29,12 +29,28 @@ jobs:
       - run: cargo build --release --locked -p rvw-cli --target ${{ matrix.target }}
         env:
           RVW_VERSION: ${{ github.ref_name }} # shown by rvw --version
+      # The desktop app ships on Linux only for now: install.sh puts it, its
+      # icon and its desktop entry under ~/.local.
+      - name: Install the desktop app's build libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libfontconfig-dev
+      - if: runner.os == 'Linux'
+        run: cargo build --release --locked -p rvw-gui --target ${{ matrix.target }}
       # No version in the archive name, so releases/latest/download/<name>
       # always resolves. install.sh depends on this.
       - run: |
           mkdir -p stage
           cp target/${{ matrix.target }}/release/rvw README.md stage/
-          tar -czf rvw_${{ matrix.name }}.tar.gz -C stage rvw README.md
+          files="rvw README.md"
+          if [ "$RUNNER_OS" = Linux ]; then
+            cp target/${{ matrix.target }}/release/rvw-gui stage/
+            install -Dm644 packaging/linux/rvw.svg stage/share/icons/hicolor/scalable/apps/rvw.svg
+            install -Dm644 packaging/linux/rvw.desktop stage/share/applications/rvw.desktop
+            files="$files rvw-gui share"
+          fi
+          tar -czf rvw_${{ matrix.name }}.tar.gz -C stage $files
       - uses: actions/upload-artifact@v4
         with:
           name: rvw_${{ matrix.name }}

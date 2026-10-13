@@ -58,6 +58,11 @@ Or, from a checkout, `make install`: an optimized build, installed with cargo
 to `~/.cargo/bin/rvw` (or `bin/rvw` under `PREFIX=/some/dir`) and stamped with
 `git describe`. Run it again to upgrade; `make uninstall` removes it.
 
+On Linux the release archive and `install.sh` also install the desktop app
+(`rvw-gui`) with its icon and an application-menu entry under
+`~/.local/share`; from a checkout, `make install-gui` does the same. Launched
+from the menu, it opens the workspace with the most work waiting.
+
 ## Examples
 
 ![rvw from a shell: add, submit, pull, resolve, show](docs/demo/cli.gif)
