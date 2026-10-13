@@ -12,6 +12,7 @@ use std::rc::Rc;
 use gpui::{Context, HighlightStyle, Hsla};
 use rvw_view::diff::FileDiff;
 use rvw_view::highlight::{self, Class, Span};
+use rvw_view::viewmode::ViewMode;
 
 use crate::shell::Shell;
 use crate::theme;
@@ -89,12 +90,12 @@ impl Shell {
         let token = state.token;
         let name = selected.path.clone();
         let copy = (**diff).clone();
-        let outside = selected.outside;
+        let whole = selected.mode == ViewMode::File;
         cx.spawn(async move |this, cx| {
             let spans = cx
                 .background_executor()
                 .spawn(async move {
-                    if outside {
+                    if whole {
                         highlight::unchanged(&name, &copy)
                     } else {
                         highlight::diff(&name, &copy)

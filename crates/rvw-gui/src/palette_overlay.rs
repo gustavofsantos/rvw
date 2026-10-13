@@ -88,6 +88,10 @@ impl Shell {
                 .as_ref()
                 .is_some_and(|selected| !selected.selection.is_empty()),
             has_files: self.has_file_rows(),
+            file_has_changes: self
+                .selected
+                .as_ref()
+                .is_some_and(|selected| selected.changed),
         }
     }
 
@@ -158,6 +162,7 @@ impl Shell {
                 let split = !self.tools.split;
                 self.set_split(split, cx);
             }
+            Action::ToggleFullFile => self.toggle_file_mode(cx),
             // A failed re-read keeps the snapshot on screen as it was.
             Action::ReloadQueue => {
                 self.reload_for_new_base(cx).ok();

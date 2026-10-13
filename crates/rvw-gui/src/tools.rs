@@ -9,6 +9,7 @@ use gpui::{div, px, rgba, AnyElement, Context, Div, KeyDownEvent};
 use rvw_view::changes::Compare;
 use rvw_view::compare_menu;
 use rvw_view::keys::Screen;
+use rvw_view::viewmode::ViewMode;
 
 use crate::branch_picker::BranchPicker;
 use crate::compare_picker::CompareMenu;
@@ -80,14 +81,13 @@ impl Shell {
         }
     }
 
-    /// Whether the diff view can be split: the review screen with a file of
-    /// the change open, not the plain content of a file outside it.
+    /// Whether the diff view can be split: the review screen with the diff of
+    /// a file of the change open, not the whole file or a file outside it.
     pub(crate) fn split_available(&self) -> bool {
         self.screen == Screen::Diff
-            && self
-                .selected
-                .as_ref()
-                .is_some_and(|selected| !selected.outside && selected.diff.is_ok())
+            && self.selected.as_ref().is_some_and(|selected| {
+                selected.mode == ViewMode::Diff && !selected.outside && selected.diff.is_ok()
+            })
     }
 
     /// Whether the open file is drawn in two columns.

@@ -9,6 +9,7 @@ mod diff_list;
 mod diff_view;
 mod draft_edit;
 mod draft_panel;
+mod file_view;
 mod files_panel;
 mod finder;
 mod frame;

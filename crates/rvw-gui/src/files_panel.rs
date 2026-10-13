@@ -1,26 +1,21 @@
 //! The Files tab: the whole repository as a tree of folders and files. A
-//! folder opens and closes; a file is selected, and a file outside the change
-//! opens as plain content. The listing and the marks come from `rvw_view`;
-//! this file lays them out and reads the one file the centre shows.
+//! folder opens and closes; a file is selected and opens whole (`file_view`).
+//! The listing and the marks come from `rvw_view`; this file lays them out.
 
-use std::fs;
 use std::ops::Range;
 use std::path::Path;
-use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
     div, px, uniform_list, AnyElement, ClickEvent, Context, Div, FontWeight, Pixels,
     ScrollStrategy, SharedString, UniformListScrollHandle, Window,
 };
-use rvw_view::context::{self, Shown};
 use rvw_view::files::Marks;
 use rvw_view::keys::Screen;
 use rvw_view::nav;
-use rvw_view::selection::Selection;
 use rvw_view::tree::{self, build_tree, NodeId, Row, Tree};
 
-use crate::review_screen::{self, Selected};
+use crate::review_screen;
 use crate::shell::Shell;
 use crate::theme;
 
@@ -44,26 +39,6 @@ pub fn load_listing(workspace: &str) -> Result<FileList, String> {
     let tree = build_tree(&paths);
     let rows = tree.rows();
     Ok(FileList { paths, tree, rows })
-}
-
-/// The file at `path` as it is on disk, for a file the change does not touch.
-/// An unreadable, binary or empty file has an error to show instead of lines.
-pub fn load_outside(workspace: &str, path: &str) -> Selected {
-    let (diff, cut) = match fs::read(Path::new(workspace).join(path)) {
-        Ok(bytes) => match context::shown(&bytes) {
-            Shown::Text { diff, cut } => (Ok(Rc::new(diff)), cut),
-            Shown::Binary => (Err("Binary file, no preview shown.".to_owned()), false),
-            Shown::Empty => (Err("Empty file, nothing to show.".to_owned()), false),
-        },
-        Err(error) => (Err(format!("Cannot read {path}: {error}")), false),
-    };
-    Selected {
-        path: path.to_owned(),
-        diff,
-        selection: Selection::default(),
-        outside: true,
-        cut,
-    }
 }
 
 /// The left panel on the Files tab: the tree of the whole repository, or why

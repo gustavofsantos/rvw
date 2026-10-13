@@ -3,6 +3,8 @@
 //! queue view model when the filter changes and hands each screen's panels to
 //! the common frame.
 
+use std::collections::BTreeMap;
+
 use gpui::prelude::*;
 use gpui::{
     div, px, Context, Div, FocusHandle, KeyDownEvent, Render, UniformListScrollHandle, Window,
@@ -11,6 +13,7 @@ use rvw_core::Service;
 use rvw_view::keys::Screen;
 use rvw_view::queue::{Filter, Queue, State};
 use rvw_view::selection::Pos;
+use rvw_view::viewmode::ViewMode;
 
 use crate::composer::Composer;
 use crate::data::{self, Identity, Snapshot};
@@ -63,6 +66,8 @@ pub struct Shell {
     /// Bumped whenever the open file or its snapshot is replaced, so the diff
     /// list knows its rows are stale.
     pub(crate) diff_generation: u64,
+    /// The view the reviewer chose for a file this session; see `file_view`.
+    pub(crate) file_modes: BTreeMap<String, ViewMode>,
     /// The press-drag selection in progress; see `diff_list::drag`.
     pub(crate) drag: DragState,
     /// Syntax colour of the open file, tokenized in the background.
@@ -114,22 +119,13 @@ impl Shell {
             tools: Tools::default(),
             diff_list: None,
             diff_generation: 0,
+            file_modes: BTreeMap::new(),
             drag: DragState::default(),
             highlights: Highlighter::default(),
             removal: None,
             changes_scroll: UniformListScrollHandle::new(),
             files_scroll: UniformListScrollHandle::new(),
             focus: cx.focus_handle(),
-        }
-    }
-
-    /// The file a click or the finder opens: a change's diff, or, for a file
-    /// the change does not touch, its content on disk.
-    fn load_selected(&self, path: &str) -> Selected {
-        if self.snapshot.changes.iter().any(|file| file.path == path) {
-            Selected::load(&self.snapshot, path)
-        } else {
-            files_panel::load_outside(&self.snapshot.workspace, path)
         }
     }
 
@@ -143,7 +139,8 @@ impl Shell {
     }
 
     pub fn select_file(&mut self, path: &str, cx: &mut Context<Self>) {
-        self.selected = Some(self.load_selected(path));
+        let mode = self.mode_for(path);
+        self.selected = Some(self.load_selected(path, mode));
         self.diff_generation = self.diff_generation.wrapping_add(1);
         self.composer = None;
         self.removal = None;
@@ -195,7 +192,11 @@ impl Shell {
         )?;
         self.queue = snapshot.view(&self.filter);
         self.snapshot = snapshot;
-        self.selected = path.map(|path| self.load_selected(&path));
+        let mode = self.selected.as_ref().map(|selected| selected.mode);
+        self.selected = path.map(|path| {
+            let mode = mode.unwrap_or_else(|| self.mode_for(&path));
+            self.load_selected(&path, mode)
+        });
         self.diff_generation = self.diff_generation.wrapping_add(1);
         Ok(())
     }

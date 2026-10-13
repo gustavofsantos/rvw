@@ -16,6 +16,7 @@ use rvw_view::changes::ChangedFile;
 use rvw_view::diff::FileDiff;
 use rvw_view::keys::Screen;
 use rvw_view::selection::Selection;
+use rvw_view::viewmode::ViewMode;
 
 use crate::data::{self, Snapshot};
 use crate::diff_list::DiffList;
@@ -38,6 +39,10 @@ pub struct Selected {
     pub outside: bool,
     /// The file is longer than the lines shown.
     pub cut: bool,
+    /// The diff, or the whole file with the changed lines marked.
+    pub mode: ViewMode,
+    /// The change touches the file, so both modes exist for it.
+    pub changed: bool,
 }
 
 impl Selected {
@@ -49,6 +54,8 @@ impl Selected {
             selection: Selection::default(),
             outside: false,
             cut: false,
+            mode: ViewMode::Diff,
+            changed: true,
         }
     }
 }
@@ -258,7 +265,7 @@ pub fn centre(
         .min_w(px(0.))
         .bg(theme::paper())
         .child(file_header(selected, split, cx))
-        .children(selected.filter(|s| s.outside).map(context_banner))
+        .children(selected.and_then(context_banner))
         .child(diff_body(snapshot, selected, diff_list, cx))
 }
 
@@ -282,7 +289,7 @@ fn file_header(selected: Option<&Selected>, split: Option<bool>, cx: &Context<Sh
         return header;
     };
     if let Ok(diff) = &selected.diff {
-        if !selected.outside {
+        if !selected.outside && selected.mode == ViewMode::Diff {
             header = header
                 .child(
                     div()
@@ -306,6 +313,9 @@ fn file_header(selected: Option<&Selected>, split: Option<bool>, cx: &Context<Sh
                 .child(comment_button(cx));
         }
     }
+    if selected.changed {
+        header = header.child(crate::file_view::mode_toggle(selected.mode, cx));
+    }
     if let Some(split) = split {
         header = header.child(crate::split_view::toggle(split, cx));
     }
@@ -313,8 +323,11 @@ fn file_header(selected: Option<&Selected>, split: Option<bool>, cx: &Context<Sh
 }
 
 /// The notice above a file outside the change: a comment there travels with
-/// the review as context. Says so when the file is cut short.
-fn context_banner(selected: &Selected) -> Div {
+/// the review as context. Either file says so when it is cut short.
+fn context_banner(selected: &Selected) -> Option<Div> {
+    if !selected.outside && !selected.cut {
+        return None;
+    }
     let mut banner = div()
         .flex()
         .flex_col()
@@ -325,10 +338,12 @@ fn context_banner(selected: &Selected) -> Div {
         .py(px(10.))
         .rounded(theme::CONTROL_RADIUS)
         .bg(theme::panel())
-        .text_color(theme::muted())
-        .child(
+        .text_color(theme::muted());
+    if selected.outside {
+        banner = banner.child(
             "This file is outside your change. A comment here travels with your review as context.",
         );
+    }
     if selected.cut {
         banner = banner.child(
             div()
@@ -341,7 +356,7 @@ fn context_banner(selected: &Selected) -> Div {
                 )),
         );
     }
-    banner
+    Some(banner)
 }
 
 /// Opens the composer for the selection; the same as pressing C.
