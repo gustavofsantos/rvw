@@ -144,6 +144,8 @@ pub struct History {
     ids: HashSet<String>,
     /// Entries handed to `append`, skipped ones included.
     read: usize,
+    /// The widest graph row so far, in lanes.
+    lanes: usize,
 }
 
 impl History {
@@ -166,6 +168,7 @@ impl History {
                 continue;
             }
             let graph = self.graph.push(&entry.id, &entry.parents);
+            self.lanes = self.lanes.max(graph.width);
             let row_labels = labels(&entry.refs);
             self.rows.push(HistoryRow {
                 entry,
@@ -176,6 +179,12 @@ impl History {
         if self.selected.is_none() && !self.rows.is_empty() {
             self.selected = Some(0);
         }
+    }
+
+    /// The lanes the graph column draws so every row lines up: the widest
+    /// row read so far, at least 1 and at most [`MAX_LANES`].
+    pub fn lanes(&self) -> usize {
+        self.lanes.clamp(1, MAX_LANES)
     }
 
     /// The rows read so far, newest first.
@@ -525,5 +534,13 @@ mod tests {
 
         assert!(h.complete());
         assert!(!h.wants_more(149));
+    }
+
+    #[test]
+    fn lanes_is_the_widest_row_clamped() {
+        let mut history = History::new();
+        assert_eq!(history.lanes(), 1);
+        history.append(vec![entry("m", &["a", "b"]), entry("b", &["r"])], PAGE);
+        assert_eq!(history.lanes(), 2);
     }
 }

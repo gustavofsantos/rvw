@@ -210,18 +210,16 @@ fn counter(label: String, color: Rgba) -> Div {
 enum RailTarget {
     Show(Screen),
     Branches,
-    None,
 }
 
-/// The rail's five icons. Queue, Review and Changes open their screens,
-/// Branches the branch picker; History is drawn but not wired yet. The ids are
-/// the old letters.
+/// The rail's five icons. Queue, Review, Changes and History open their
+/// screens, Branches the branch picker. The ids are the old letters.
 pub fn rail(screen: Screen, cx: &mut Context<Shell>) -> Div {
     let items = [
         ("Q", "icons/queue.svg", RailTarget::Show(Screen::Queue)),
         ("R", "icons/review.svg", RailTarget::Show(Screen::Diff)),
         ("C", "icons/changes.svg", RailTarget::Show(Screen::Changes)),
-        ("H", "icons/history.svg", RailTarget::None),
+        ("H", "icons/history.svg", RailTarget::Show(Screen::History)),
         ("B", "icons/branches.svg", RailTarget::Branches),
     ];
     div()
@@ -237,7 +235,6 @@ pub fn rail(screen: Screen, cx: &mut Context<Shell>) -> Div {
         .border_color(theme::hairline())
         .children(items.map(|(id, icon, target)| {
             let active = matches!(target, RailTarget::Show(s) if s == screen);
-            let live = !matches!(target, RailTarget::None);
             div()
                 .id(id)
                 .flex()
@@ -246,10 +243,10 @@ pub fn rail(screen: Screen, cx: &mut Context<Shell>) -> Div {
                 .size(px(36.))
                 .rounded(theme::CONTROL_RADIUS)
                 .when(active, |d| d.bg(theme::selected_panel()))
-                .when(live && !active, |d| {
+                .when(!active, |d| {
                     d.cursor_pointer().hover(|s| s.bg(theme::hairline()))
                 })
-                .when(live, |d| {
+                .map(|d| {
                     d.on_click(cx.listener(
                         move |this: &mut Shell,
                               _: &ClickEvent,
@@ -257,7 +254,6 @@ pub fn rail(screen: Screen, cx: &mut Context<Shell>) -> Div {
                               cx: &mut Context<Shell>| match target {
                             RailTarget::Show(screen) => this.show(screen, cx),
                             RailTarget::Branches => this.open_branches(window, cx),
-                            RailTarget::None => {}
                         },
                     ))
                 })

@@ -30,6 +30,7 @@ use crate::finder::{self, Finder, OpenFinder};
 use crate::frame::{self, Panels};
 use crate::git_tools::{GitTools, RepoFacts};
 use crate::highlights::Highlighter;
+use crate::history_state::HistoryState;
 use crate::key_strip::key_strip;
 use crate::live::{self, Fingerprint};
 use crate::outcome_screen::{self, Outcome};
@@ -105,6 +106,8 @@ pub struct Shell {
     /// Repository facts, the git prompts and pickers, and the restore
     /// confirmation.
     pub(crate) git: GitTools,
+    /// The History screen: the commit list, the selected commit and search.
+    pub(crate) history: HistoryState,
     /// Holds the keys (C) when no field has focus.
     focus: FocusHandle,
     /// The database the queue lives in. The live poller fingerprints it
@@ -181,6 +184,7 @@ impl Shell {
             changes_scroll: UniformListScrollHandle::new(),
             files_scroll: UniformListScrollHandle::new(),
             changes: ChangesState::default(),
+            history: HistoryState::default(),
             git: GitTools {
                 facts,
                 ..GitTools::default()
@@ -199,6 +203,9 @@ impl Shell {
         }
         if screen == Screen::Changes {
             self.enter_changes(cx);
+        }
+        if screen == Screen::History && self.screen != Screen::History {
+            self.enter_history(cx);
         }
         self.screen = screen;
         self.outcome_pending = None;
@@ -492,6 +499,16 @@ impl Shell {
             }
             return;
         }
+        if self.screen == Screen::History {
+            match event.keystroke.key.as_str() {
+                "j" | "down" => self.step_commit(1, cx),
+                "k" | "up" => self.step_commit(-1, cx),
+                "/" => self.focus_search(window, cx),
+                "escape" => self.close_commit_file(cx),
+                _ => {}
+            }
+            return;
+        }
         if self.screen == Screen::Outcome {
             match event.keystroke.key.as_str() {
                 "j" | "down" => self.step_outcome(1, cx),
@@ -694,6 +711,11 @@ impl Shell {
                     &self.snapshot.comments,
                     cx,
                 ),
+            },
+            (Screen::History, _) => Panels {
+                left: crate::history_screen::left(&self.history, cx),
+                centre: crate::history_screen::centre(&self.history, cx),
+                right: crate::history_screen::right(&self.history, cx),
             },
             (Screen::Outcome, Some(open)) => Panels {
                 left: outcome_screen::left(open, &self.snapshot, cx),
