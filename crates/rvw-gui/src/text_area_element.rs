@@ -25,7 +25,7 @@ const CARET_WIDTH: f32 = 2.;
 const NEWLINE_WIDTH: f32 = 6.;
 
 fn selection_color() -> Rgba {
-    rgba(0xb7c7_d880)
+    rgba(0x006c_bc40)
 }
 
 /// The font the text is shaped with, read from the inherited text style.

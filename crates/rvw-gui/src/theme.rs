@@ -108,9 +108,10 @@ pub fn hairline_strong() -> Rgba {
 pub fn hairline_control() -> Rgba {
     rgb(0x00c9_c7be)
 }
-/// The background of a selected diff line.
+/// The background of a selected diff line: the palette's blue at 20%, so it
+/// reads as a selection on paper and over the green and red diff tints.
 pub fn selected_line() -> Rgba {
-    rgb(0x00e4_e3dc)
+    rgba(0x006c_bc33)
 }
 pub fn selected_panel() -> Rgba {
     rgb(0x00de_dcd4)

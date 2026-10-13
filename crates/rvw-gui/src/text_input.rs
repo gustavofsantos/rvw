@@ -479,7 +479,7 @@ struct PrepaintState {
 /// A light blue-grey behind selected text. The theme has no selection colour,
 /// so it lives here.
 fn selection_color() -> Rgba {
-    rgba(0xb7c7_d880)
+    rgba(0x006c_bc40)
 }
 
 impl IntoElement for TextElement {
