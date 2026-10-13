@@ -36,19 +36,23 @@ pub enum DiffRow {
     OutsideThread {
         comment_index: usize,
     },
+    /// The composer editing an outside comment, under that comment.
+    OutsideComposer,
     /// Closes a diff cut at [`MAX_ROWS`].
     Truncated,
 }
 
 /// The rows of `diff`. `thread_after` lists the comment indexes to show under
 /// each line, `composer_after` is the line the composer sits under, and
-/// `outside` the comments to put in the closing strip.
+/// `outside` the comments to put in the closing strip, with
+/// `composer_outside` the one of them the composer sits under.
 #[must_use]
 pub fn rows(
     diff: &FileDiff,
     thread_after: &BTreeMap<Pos, Vec<usize>>,
     composer_after: Option<Pos>,
     outside: &[usize],
+    composer_outside: Option<usize>,
 ) -> Vec<DiffRow> {
     let mut out = Vec::new();
     'hunks: for (hunk, body) in diff.hunks.iter().enumerate() {
@@ -71,11 +75,12 @@ pub fn rows(
     }
     if out.len() <= MAX_ROWS && !outside.is_empty() {
         out.push(DiffRow::OutsideTitle);
-        out.extend(
-            outside
-                .iter()
-                .map(|&comment_index| DiffRow::OutsideThread { comment_index }),
-        );
+        for &comment_index in outside {
+            out.push(DiffRow::OutsideThread { comment_index });
+            if composer_outside == Some(comment_index) {
+                out.push(DiffRow::OutsideComposer);
+            }
+        }
     }
     if out.len() > MAX_ROWS {
         out.truncate(MAX_ROWS);
@@ -121,7 +126,7 @@ mod tests {
     fn headers_and_lines_come_in_order() {
         let d = diff(&[("@@ a @@", 2), ("@@ b @@", 1)]);
         assert_eq!(
-            rows(&d, &BTreeMap::new(), None, &[]),
+            rows(&d, &BTreeMap::new(), None, &[], None),
             vec![
                 DiffRow::HunkHeader { hunk: 0 },
                 DiffRow::Line { pos: at(0, 0) },
@@ -136,7 +141,7 @@ mod tests {
     fn an_empty_header_has_no_row() {
         let d = diff(&[("", 1)]);
         assert_eq!(
-            rows(&d, &BTreeMap::new(), None, &[]),
+            rows(&d, &BTreeMap::new(), None, &[], None),
             vec![DiffRow::Line { pos: at(0, 0) }]
         );
     }
@@ -147,7 +152,7 @@ mod tests {
         let mut threads = BTreeMap::new();
         threads.insert(at(0, 0), vec![3, 1]);
         assert_eq!(
-            rows(&d, &threads, Some(at(0, 0)), &[]),
+            rows(&d, &threads, Some(at(0, 0)), &[], None),
             vec![
                 DiffRow::Line { pos: at(0, 0) },
                 DiffRow::Thread { comment_index: 3 },
@@ -162,7 +167,7 @@ mod tests {
     fn the_composer_sits_under_a_line_without_threads() {
         let d = diff(&[("", 2)]);
         assert_eq!(
-            rows(&d, &BTreeMap::new(), Some(at(0, 1)), &[]),
+            rows(&d, &BTreeMap::new(), Some(at(0, 1)), &[], None),
             vec![
                 DiffRow::Line { pos: at(0, 0) },
                 DiffRow::Line { pos: at(0, 1) },
@@ -175,7 +180,7 @@ mod tests {
     fn outside_comments_close_the_diff_under_a_title() {
         let d = diff(&[("", 1)]);
         assert_eq!(
-            rows(&d, &BTreeMap::new(), None, &[4, 2]),
+            rows(&d, &BTreeMap::new(), None, &[4, 2], None),
             vec![
                 DiffRow::Line { pos: at(0, 0) },
                 DiffRow::OutsideTitle,
@@ -186,15 +191,30 @@ mod tests {
     }
 
     #[test]
+    fn an_outside_composer_sits_under_its_comment() {
+        let d = diff(&[("", 1)]);
+        assert_eq!(
+            rows(&d, &BTreeMap::new(), None, &[4, 2], Some(4)),
+            vec![
+                DiffRow::Line { pos: at(0, 0) },
+                DiffRow::OutsideTitle,
+                DiffRow::OutsideThread { comment_index: 4 },
+                DiffRow::OutsideComposer,
+                DiffRow::OutsideThread { comment_index: 2 },
+            ]
+        );
+    }
+
+    #[test]
     fn an_empty_diff_has_no_rows_and_no_strip_without_comments() {
         let d = diff(&[]);
-        assert!(rows(&d, &BTreeMap::new(), None, &[]).is_empty());
+        assert!(rows(&d, &BTreeMap::new(), None, &[], None).is_empty());
     }
 
     #[test]
     fn a_huge_diff_is_cut_with_a_final_note() {
         let d = diff(&[("", MAX_ROWS + 5)]);
-        let out = rows(&d, &BTreeMap::new(), None, &[0]);
+        let out = rows(&d, &BTreeMap::new(), None, &[0], None);
         assert_eq!(out.len(), MAX_ROWS + 1);
         assert_eq!(out[MAX_ROWS], DiffRow::Truncated);
         assert_eq!(
@@ -208,7 +228,7 @@ mod tests {
     #[test]
     fn exactly_the_limit_is_not_cut() {
         let d = diff(&[("", MAX_ROWS)]);
-        let out = rows(&d, &BTreeMap::new(), None, &[]);
+        let out = rows(&d, &BTreeMap::new(), None, &[], None);
         assert_eq!(out.len(), MAX_ROWS);
         assert!(!out.contains(&DiffRow::Truncated));
     }

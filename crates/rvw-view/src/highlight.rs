@@ -14,6 +14,15 @@ use crate::diff::{FileDiff, Line, LineKind};
 const MAX_HIGHLIGHT: usize = 1 << 20;
 /// How much of the text is searched for a NUL byte.
 const BINARY_PROBE: usize = 8 << 10;
+/// The most lines of one diff or file that a front end highlights: about a
+/// second of tokenizing, spent off the UI thread.
+pub const MAX_LINES: usize = 4_000;
+
+/// Whether a diff or file of `line_count` lines is highlighted at all.
+#[must_use]
+pub fn worth_highlighting(line_count: usize) -> bool {
+    line_count <= MAX_LINES
+}
 
 /// What a run of text is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -76,6 +85,23 @@ pub fn diff(file_name: &str, diff: &FileDiff) -> Vec<Vec<Vec<Span>>> {
     diff.hunks
         .iter()
         .map(|hunk| hunk_spans(ss, syntax, &hunk.lines))
+        .collect()
+}
+
+/// Highlights a diff whose lines are all one file's text (the unchanged file
+/// the Files tab shows): a single stream, split back into the hunks' shapes.
+/// The result is indexed `[hunk][line]`, like [`diff`].
+#[must_use]
+pub fn unchanged(file_name: &str, file: &FileDiff) -> Vec<Vec<Vec<Span>>> {
+    let texts: Vec<&str> = file
+        .hunks
+        .iter()
+        .flat_map(|h| h.lines.iter().map(|l| l.text.as_str()))
+        .collect();
+    let mut spans = lines(file_name, &texts).into_iter();
+    file.hunks
+        .iter()
+        .map(|hunk| spans.by_ref().take(hunk.lines.len()).collect())
         .collect()
 }
 
@@ -493,6 +519,25 @@ mod tests {
         let spans = diff("lib.rs", &file);
         assert_eq!(spans.len(), 2);
         assert_eq!(class_at(&spans[1][0], 0), Some(Class::Keyword));
+    }
+
+    #[test]
+    fn the_cap_admits_four_thousand_lines_and_no_more() {
+        assert!(worth_highlighting(0));
+        assert!(worth_highlighting(MAX_LINES));
+        assert!(!worth_highlighting(MAX_LINES + 1));
+    }
+
+    #[test]
+    fn an_unchanged_file_is_one_stream_split_by_hunk() {
+        let file = crate::diff::from_text("/* open\nstill */\nlet a = 1;");
+        let spans = unchanged("lib.rs", &file);
+        let total: usize = file.hunks.iter().map(|h| h.lines.len()).sum();
+        assert_eq!(spans.len(), file.hunks.len());
+        assert_eq!(spans.iter().map(Vec::len).sum::<usize>(), total);
+        // The block comment carries over the line break.
+        assert_eq!(class_at(&spans[0][1], 0), Some(Class::Comment));
+        assert_eq!(class_at(&spans[0][2], 0), Some(Class::Keyword));
     }
 
     #[test]

@@ -101,10 +101,17 @@ pub struct Queue {
     pub counters: Counters,
 }
 
+/// Whether the reviewer can still edit or delete the comment: pending and not
+/// part of a submitted review.
+#[must_use]
+pub fn is_draft(comment: &Comment) -> bool {
+    comment.status == Status::Pending && comment.review_id.is_empty()
+}
+
 /// The state of a comment, given the ids the reviewer has acknowledged.
 pub fn state_of<S: BuildHasher>(comment: &Comment, acknowledged: &HashSet<String, S>) -> State {
     match comment.status {
-        Status::Pending if comment.review_id.is_empty() => State::Draft,
+        Status::Pending if is_draft(comment) => State::Draft,
         Status::Pending => State::NotYetTaken,
         Status::Pulled => State::WithAgent,
         Status::Done if acknowledged.contains(&comment.id) => State::Closed,
@@ -317,6 +324,15 @@ mod tests {
     fn in_review(mut c: Comment, review_id: &str) -> Comment {
         c.review_id = review_id.into();
         c
+    }
+
+    #[test]
+    fn only_a_pending_comment_outside_a_review_is_a_draft() {
+        assert!(is_draft(&comment("r1", Status::Pending)));
+        assert!(!is_draft(&in_review(comment("r1", Status::Pending), "rv1")));
+        for status in [Status::Pulled, Status::Done, Status::Rejected] {
+            assert!(!is_draft(&comment("r1", status)));
+        }
     }
 
     fn sheet(id: &str, created: &str, ids: &[&str], comments: Vec<Comment>) -> ReviewSheet {
