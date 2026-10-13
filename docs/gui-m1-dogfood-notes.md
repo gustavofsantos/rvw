@@ -138,3 +138,38 @@ Still unverified by eye, in priority order for whoever runs it first:
   clicks, file search, scrolling) felt fast and worked. The direction holds.
 - Still to learn from use: text area feel, syntax highlighting, and what a
   real review session needs next.
+
+## M2: the commit loop (2026-10-13)
+
+Orchestrating:
+
+- Agents found the spec's own bugs, which is the best thing they did. The
+  patch agent showed that the line-staging rule as written ran two lines
+  together in a file with no final newline; the checkpoint agent's gc test
+  showed that `refs/worktree/` is not protected from `gc` in another
+  worktree. Both were caught because the brief asked for tests against real
+  git, not for code that looks right. Ask for the test that would prove the
+  claim, then trust the test over the brief.
+- Contract stubs (types, fields and `todo!()` method signatures written by
+  the orchestrator) let two agents fill the state and the drawing of one
+  screen in parallel. Each added what the other needed as a report item
+  rather than an edit, and the orchestrator made the one-line joins.
+- Agents report the bug they could not fix when the file is out of their
+  list: the git prompt losing focus, the restore card not getting keys from
+  the commit field. Keep the file lists tight and read those notes first.
+- A user's mid-milestone change of design (checkpoints for undo) cost one
+  slice and one removal commit. Letting the running agents finish and
+  swapping afterwards was cheaper than stopping them.
+
+Machine:
+
+- `make check` mixes toolchains here: with `RUSTC` pointing at 1.99, the
+  doctests still run the system `rustdoc` 1.93 and fail on its
+  incompatible crates. Run `make lint` with the `RUSTC` workaround and
+  `cargo test` without it.
+
+Product:
+
+- Undo that refuses whenever the repository moved fails exactly when an
+  agent works in parallel. Checkpoints that always restore, and save the
+  current state first, are the predictable form.

@@ -90,3 +90,34 @@ Each slice ends green (`cargo test`, clippy, `fmt --check`) and is one commit.
   under `/tmp`.
 - Tests come first for git and view logic. The GUI layer is checked by
   compiling and by a manual run.
+
+## Status at the end of the session
+
+Slices 1 to 10 are done and the checks are green (`make lint`, `make audit`,
+`cargo test --workspace`, `bats test/rvw.bats`). Nothing has been looked at
+in a window yet: every GUI slice was checked by compiling, unit tests on its
+pure parts, and a run of the binary that stays up.
+
+| Done | Where |
+|---|---|
+| Status, staging diffs, stage, unstage, apply to the index | `rvw-git::index` |
+| Hunk and line patches, both directions | `rvw-view::patch` |
+| Commit, amend (unpushed HEAD only), discard | `rvw-git::commits` |
+| Stash, branches and tags, fetch, pull (ff only), push (never forced) | `rvw-git::{stash, refs, remote}` |
+| Checkpoints before every change, restore with a before and after | `rvw-git::checkpoint`, `rvw-gui::{git_tools, checkpoint_ui}` |
+| Changes screen: lists, diff, staging, commit box, open-comment notices | `rvw-view::commit_screen`, `rvw-gui::{changes_state, changes_screen}` |
+| Palette git actions, prompts and pickers, background network, top bar | `rvw-view::palette`, `rvw-gui::{git_actions, git_overlay, frame}` |
+| Live tree: agent edits and queue changes within a second | `rvw-gui::live` |
+
+Open, in priority order for the first person who runs it:
+
+1. Look at the Changes screen and the restore card: layout, focus, keys.
+2. Stage single lines on a real change, including a file with no final
+   newline, and commit.
+3. Restore a checkpoint after a commit and check the branch, files and
+   staged state; then restore the "Before restoring" one.
+4. With a composer open, the open file's diff waits for the composer to
+   close before it refreshes. Other views update.
+5. A palette action run from another screen reports on the Changes screen
+   only.
+6. Refs of a removed linked worktree's checkpoints are never cleaned up.
