@@ -18,6 +18,7 @@ use rvw_view::diff::{Line, LineKind};
 use rvw_view::selection::Pos;
 
 use crate::changes_state::{ChangesState, DiffRow, ListRow, OpenChange};
+use crate::code_scroll;
 use crate::git_tools::RepoFacts;
 use crate::queue_screen::noun;
 use crate::review_screen::LINE_HEIGHT;
@@ -319,7 +320,7 @@ fn diff_body(state: &ChangesState, open: &OpenChange, cx: &Context<Shell>) -> An
         };
         return notice(text).flex_1().into_any_element();
     }
-    uniform_list(
+    let mut list = uniform_list(
         "changes-diff",
         open.rows.len(),
         cx.processor(diff_row_elements),
@@ -327,7 +328,10 @@ fn diff_body(state: &ChangesState, open: &OpenChange, cx: &Context<Shell>) -> An
     .track_scroll(state.diff_scroll.clone())
     .flex_1()
     .min_h(px(0.))
-    .into_any_element()
+    .on_scroll_wheel(cx.listener(|this, event, _, cx| this.scroll_change_code(event, cx)));
+    // A sideways swipe moves the code, not the list up and down.
+    list.style().restrict_scroll_to_axis = Some(true);
+    list.into_any_element()
 }
 
 /// The diff rows in view, built from the shell's current state.
@@ -346,7 +350,7 @@ fn diff_row_elements(
     rows.iter()
         .map(|row| match *row {
             DiffRow::Header(hunk) => hunk_row(open, hunk, comments, cx),
-            DiffRow::Line(pos) => line_row(open, state.choice, pos, cx),
+            DiffRow::Line(pos) => line_row(open, state.choice, pos, state.code_scroll_x, cx),
         })
         .collect()
 }
@@ -431,7 +435,13 @@ fn hunk_link(side: Side, hunk: usize, cx: &Context<Shell>) -> Stateful<Div> {
 /// One diff line: old and new numbers, the sign, and the text. Added and
 /// removed lines carry a tint; a chosen line takes the selection colour
 /// instead. A click chooses the line, and Shift extends the choice.
-fn line_row(open: &OpenChange, choice: LineChoice, pos: Pos, cx: &Context<Shell>) -> AnyElement {
+fn line_row(
+    open: &OpenChange,
+    choice: LineChoice,
+    pos: Pos,
+    scroll_x: gpui::Pixels,
+    cx: &Context<Shell>,
+) -> AnyElement {
     let Some(line) = open
         .diff
         .hunks
@@ -483,7 +493,7 @@ fn line_row(open: &OpenChange, choice: LineChoice, pos: Pos, cx: &Context<Shell>
                 .text_color(sign_colour)
                 .child(sign),
         )
-        .child(line_text(line))
+        .child(line_text(line, scroll_x))
         .into_any_element()
 }
 
@@ -498,15 +508,19 @@ fn gutter(number: Option<u32>) -> Div {
         .child(number.map_or(String::new(), |n| n.to_string()))
 }
 
-/// The text of a line, clipped at the panel's edge rather than wrapped.
-fn line_text(line: &Line) -> Div {
+/// The text of a line, moved left by `scroll_x` and clipped at the panel's
+/// edge rather than wrapped.
+fn line_text(line: &Line, scroll_x: gpui::Pixels) -> Div {
     div()
         .flex_1()
         .min_w(px(0.))
         .pl(px(6.))
         .whitespace_nowrap()
         .overflow_hidden()
-        .child(line.text.clone())
+        .child(code_scroll::shifted(
+            line.text.clone().into_any_element(),
+            scroll_x,
+        ))
 }
 
 /// The commit box: the message, amend, the notices about open comments, the

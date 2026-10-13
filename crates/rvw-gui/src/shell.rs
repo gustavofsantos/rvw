@@ -76,6 +76,8 @@ pub struct Shell {
     /// Bumped whenever the open file or its snapshot is replaced, so the diff
     /// list knows its rows are stale.
     pub(crate) diff_generation: u64,
+    /// The width of one character of the code font; see `code_scroll`.
+    pub(crate) code_advance: gpui::Pixels,
     /// Done and rejected comments are drawn in the diff too. Off by default,
     /// so a file with many decided comments stays readable; for the session.
     pub(crate) show_resolved: bool,
@@ -162,6 +164,7 @@ impl Shell {
             diff_list: None,
             diff_generation: 0,
             show_resolved: false,
+            code_advance: crate::code_scroll::advance(window),
             file_modes: BTreeMap::new(),
             drag: DragState::default(),
             highlights: Highlighter::default(),
@@ -201,6 +204,21 @@ impl Shell {
         self.composer = None;
         self.removal = None;
         cx.notify();
+    }
+
+    /// A sideways wheel or swipe over the review's diff moves its code.
+    pub(crate) fn scroll_code(&mut self, event: &gpui::ScrollWheelEvent, cx: &mut Context<Self>) {
+        let delta = crate::code_scroll::sideways(event);
+        if delta == gpui::Pixels::ZERO {
+            return;
+        }
+        if self
+            .diff_list
+            .as_ref()
+            .is_some_and(|list| list.scroll_code(delta))
+        {
+            cx.notify();
+        }
     }
 
     /// Shows or hides the done and rejected comments in the diff.

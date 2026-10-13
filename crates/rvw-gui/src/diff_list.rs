@@ -23,10 +23,14 @@ use rvw_view::diffrows::{self, DiffRow};
 use rvw_view::queue;
 use rvw_view::selection::{self, Pos, Selection};
 
+use crate::code_scroll;
 use crate::diff_view;
 use crate::highlights::Shared;
 use crate::shell::Shell;
 use crate::text_area::TextArea;
+
+/// The width before a line's code: the number, the marker and the padding.
+const CODE_GUTTER: Pixels = px(62.);
 
 /// How far past the viewport rows are measured, so a scroll does not pop.
 const OVERDRAW: f32 = 800.;
@@ -42,6 +46,11 @@ pub struct ComposerSlot {
 /// What the rows are drawn from; replaced whole when the list is rebuilt.
 pub struct Model {
     pub diff: Arc<FileDiff>,
+    /// How far the code text is moved left; see `code_scroll`. Kept by the
+    /// rebuilds of the same file.
+    pub scroll_x: Rc<Cell<Pixels>>,
+    /// The width of the longest line's text.
+    pub code_width: Pixels,
     /// The comments of the open file; thread rows index into this.
     pub comments: Vec<Comment>,
     pub rows: Vec<DiffRow>,
@@ -93,6 +102,20 @@ impl DiffList {
 
     pub fn scroll_by(&self, distance: Pixels) {
         self.state.scroll_by(distance);
+    }
+
+    /// Moves the code sideways by a wheel's `delta`, within the longest
+    /// line. True when it moved.
+    pub fn scroll_code(&self, delta: Pixels) -> bool {
+        let view = self.state.viewport_bounds().size.width;
+        // A split row has two columns, each with its own gutter.
+        let column = if self.model.split { view / 2. } else { view };
+        let room = column - CODE_GUTTER;
+        let max = code_scroll::max_offset(self.model.code_width, room);
+        let old = self.model.scroll_x.get();
+        let new = code_scroll::scrolled(old, delta, max);
+        self.model.scroll_x.set(new);
+        new != old
     }
 
     /// The line row under `point`, or the nearest visible one when the
@@ -205,6 +228,15 @@ impl Shell {
     /// Brings the diff list in line with the open file, building its rows
     /// only when the key changed. Called by every render; a selection change
     /// or a caret blink finds the key equal and costs one comparison.
+    /// The sideways offset of the list's file when it is `path`, which a
+    /// rebuild keeps; a new one for another file.
+    fn kept_scroll_x(&self, path: &str) -> Rc<Cell<Pixels>> {
+        self.diff_list
+            .as_ref()
+            .filter(|list| list.path == path)
+            .map_or_else(Rc::default, |list| Rc::clone(&list.model.scroll_x))
+    }
+
     pub(crate) fn sync_diff_list(&mut self, window: &Window) {
         let split = self.split_active();
         let Some(selected) = self.selected.as_ref() else {
@@ -266,6 +298,8 @@ impl Shell {
             .position(|row| matches!(row, DiffRow::Composer | DiffRow::OutsideComposer));
         let model = Rc::new(Model {
             diff: Arc::clone(diff),
+            scroll_x: self.kept_scroll_x(&selected.path),
+            code_width: code_scroll::width(self.code_advance, code_scroll::longest_line(diff)),
             comments,
             rows,
             split,

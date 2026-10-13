@@ -452,6 +452,7 @@ fn diff_body(
         (Some(selected), None) => match (&selected.diff, diff_list) {
             (Ok(_), Some(list)) => body
                 .py(px(8.))
+                .on_scroll_wheel(cx.listener(|this, event, _, cx| this.scroll_code(event, cx)))
                 .child(list.element(cx.weak_entity()).size_full())
                 .child(drag_listeners(cx.weak_entity())),
             (Ok(diff), None) if diff.binary => body.child(notice("Binary file, no diff shown")),

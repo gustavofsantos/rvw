@@ -19,10 +19,14 @@ use rvw_view::keys::Screen;
 use rvw_view::patch::{hunk_patch, lines_patch, Direction};
 use rvw_view::selection::Pos;
 
+use crate::code_scroll;
 use crate::shell::Shell;
 use crate::text_area::{TextArea, TextAreaEvent};
 
 actions!(rvw_changes, [CommitChanges, RestoreLatest]);
+
+/// The width before a Changes line's code: two numbers, the sign, padding.
+const CHANGES_CODE_GUTTER: gpui::Pixels = gpui::px(114.);
 
 /// ⇧⌘C commits from any screen with something staged; ⌘Z opens the restore of
 /// the newest checkpoint when no text field takes it first.
@@ -58,6 +62,8 @@ pub struct OpenChange {
     /// The file moves only as a whole (new, deleted, renamed, binary...).
     pub whole_file_only: bool,
     pub rows: Vec<DiffRow>,
+    /// The columns of the longest line; see `code_scroll`.
+    pub longest_line: usize,
 }
 
 #[derive(Default)]
@@ -82,6 +88,8 @@ pub struct ChangesState {
     /// What the last restore did, e.g. "Restored “Before staging x”.".
     pub notice: Option<String>,
     pub list_scroll: UniformListScrollHandle,
+    /// How far the open file's code is moved left; see `code_scroll`.
+    pub code_scroll_x: gpui::Pixels,
     pub diff_scroll: UniformListScrollHandle,
     pub(crate) message_events: Option<Subscription>,
 }
@@ -159,9 +167,13 @@ impl Shell {
         match read.open {
             None => self.changes.choice.clear(),
             Some(Ok(open)) => {
-                let same = previous.as_ref().is_some_and(|old| {
-                    old.side == open.side && old.path == open.path && old.raw == open.raw
-                });
+                let same_file = previous
+                    .as_ref()
+                    .is_some_and(|old| old.side == open.side && old.path == open.path);
+                if !same_file {
+                    self.changes.code_scroll_x = gpui::Pixels::ZERO;
+                }
+                let same = same_file && previous.as_ref().is_some_and(|old| old.raw == open.raw);
                 if !same {
                     self.changes.choice.clear();
                 }
@@ -180,6 +192,7 @@ impl Shell {
         self.changes.choice.clear();
         self.changes.notice = None;
         self.changes.error = None;
+        self.changes.code_scroll_x = gpui::Pixels::ZERO;
         match load_change(&dir, &self.changes.lists, side, path) {
             Ok(open) => self.changes.open = Some(open),
             Err(message) => {
@@ -188,6 +201,38 @@ impl Shell {
             }
         }
         cx.notify();
+    }
+
+    /// A sideways wheel or swipe over the open file's diff moves its code,
+    /// within its longest line.
+    pub(crate) fn scroll_change_code(
+        &mut self,
+        event: &gpui::ScrollWheelEvent,
+        cx: &mut Context<Self>,
+    ) {
+        let delta = code_scroll::sideways(event);
+        let Some(open) = self.changes.open.as_ref() else {
+            return;
+        };
+        if delta == gpui::Pixels::ZERO {
+            return;
+        }
+        let view = self
+            .changes
+            .diff_scroll
+            .0
+            .borrow()
+            .base_handle
+            .bounds()
+            .size
+            .width;
+        let width = code_scroll::width(self.code_advance, open.longest_line);
+        let max = code_scroll::max_offset(width, view - CHANGES_CODE_GUTTER);
+        let new = code_scroll::scrolled(self.changes.code_scroll_x, delta, max);
+        if new != self.changes.code_scroll_x {
+            self.changes.code_scroll_x = new;
+            cx.notify();
+        }
     }
 
     /// Click chooses the line alone; Shift-click extends from the anchor.
@@ -620,6 +665,7 @@ fn open_from(side: Side, path: &str, raw: String, listed_whole: bool) -> OpenCha
         path: path.to_owned(),
         whole_file_only: listed_whole || diff.binary,
         rows: diff_rows(&diff),
+        longest_line: code_scroll::longest_line(&diff),
         diff: Arc::new(diff),
         raw,
     }

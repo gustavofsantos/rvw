@@ -15,6 +15,7 @@ use rvw_view::highlight::Span;
 use rvw_view::queue::is_draft;
 use rvw_view::selection::{Pos, Selection};
 
+use crate::code_scroll;
 use crate::composer;
 use crate::diff_list::{ComposerSlot, Model};
 use crate::highlights;
@@ -96,7 +97,7 @@ pub fn row(
                 .and_then(|file| file.get(pos.hunk))
                 .and_then(|hunk| hunk.get(pos.line))
                 .map_or(&[][..], Vec::as_slice);
-            line_view(line, spans, selected, pos, shell).into_any_element()
+            line_view(line, spans, selected, pos, model.scroll_x.get(), shell).into_any_element()
         }
         DiffRow::Pair { left, right } => {
             crate::split_view::pair(model, left, right, selection, shell)
@@ -161,6 +162,7 @@ fn line_view(
     spans: &[Span],
     selected: bool,
     pos: Pos,
+    scroll_x: Pixels,
     shell: &WeakEntity<Shell>,
 ) -> Div {
     let (tint, marker) = match line.kind {
@@ -209,7 +211,7 @@ fn line_view(
                 .pl(px(14.))
                 .whitespace_nowrap()
                 .overflow_hidden()
-                .child(code_text(&line.text, spans)),
+                .child(code_scroll::shifted(code_text(&line.text, spans), scroll_x)),
         )
 }
 

@@ -11,6 +11,7 @@ use gpui::{
 use rvw_view::diff::LineKind;
 use rvw_view::selection::{Pos, Selection};
 
+use crate::code_scroll;
 use crate::diff_list::Model;
 use crate::diff_view::{code_text, line_handlers};
 use crate::review_screen::LINE_HEIGHT;
@@ -155,6 +156,9 @@ fn cell(
                 .pl(px(14.))
                 .whitespace_nowrap()
                 .overflow_hidden()
-                .child(code_text(&line.text, spans)),
+                .child(code_scroll::shifted(
+                    code_text(&line.text, spans),
+                    model.scroll_x.get(),
+                )),
         )
 }
