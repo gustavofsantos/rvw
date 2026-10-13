@@ -11,6 +11,7 @@ pub(crate) mod drag;
 use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui::{
     list, px, Bounds, Entity, EntityId, List, ListAlignment, ListState, Pixels, Point, WeakEntity,
@@ -39,7 +40,7 @@ pub struct ComposerSlot {
 
 /// What the rows are drawn from; replaced whole when the list is rebuilt.
 pub struct Model {
-    pub diff: Rc<FileDiff>,
+    pub diff: Arc<FileDiff>,
     /// The comments of the open file; thread rows index into this.
     pub comments: Vec<Comment>,
     pub rows: Vec<DiffRow>,
@@ -259,7 +260,7 @@ impl Shell {
             .iter()
             .position(|row| matches!(row, DiffRow::Composer | DiffRow::OutsideComposer));
         let model = Rc::new(Model {
-            diff: Rc::clone(diff),
+            diff: Arc::clone(diff),
             comments,
             rows,
             split,

@@ -8,6 +8,7 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui::{Context, HighlightStyle, Hsla};
 use rvw_view::diff::FileDiff;
@@ -30,7 +31,7 @@ pub struct Highlighter {
     /// The shell's `diff_generation` this state was last compared at.
     generation: Option<u64>,
     path: String,
-    diff: Option<Rc<FileDiff>>,
+    diff: Option<Arc<FileDiff>>,
     /// Bumped for each task started; a result with another token is stale.
     token: u64,
 }
@@ -81,7 +82,7 @@ impl Shell {
         if same {
             return;
         }
-        reset(state, &selected.path, Some(Rc::clone(diff)));
+        reset(state, &selected.path, Some(Arc::clone(diff)));
         let lines: usize = diff.hunks.iter().map(|hunk| hunk.lines.len()).sum();
         if !highlight::worth_highlighting(lines) {
             return;
@@ -89,7 +90,7 @@ impl Shell {
         state.token += 1;
         let token = state.token;
         let name = selected.path.clone();
-        let copy = (**diff).clone();
+        let copy = Arc::clone(diff);
         let whole = selected.mode == ViewMode::File;
         cx.spawn(async move |this, cx| {
             let spans = cx
@@ -115,7 +116,7 @@ impl Shell {
 }
 
 /// Forgets the previous file's spans and invalidates its running task.
-fn reset(state: &mut Highlighter, path: &str, diff: Option<Rc<FileDiff>>) {
+fn reset(state: &mut Highlighter, path: &str, diff: Option<Arc<FileDiff>>) {
     state.token += 1;
     path.clone_into(&mut state.path);
     state.diff = diff;

@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use gpui::prelude::*;
 use gpui::{
@@ -42,7 +43,8 @@ use crate::tools::Tools;
 
 pub struct Shell {
     pub(crate) snapshot: Snapshot,
-    pub(crate) service: Service,
+    /// Shared with the live refresh, which reads the queue off the UI thread.
+    pub(crate) service: Arc<Service>,
     /// The workspace, author and lane new comments are written with.
     pub(crate) identity: Identity,
     /// The outcomes the reviewer has looked at, kept beside the database.
@@ -96,6 +98,9 @@ pub struct Shell {
     /// The fingerprint the window last refreshed to; `None` until the first
     /// poll records one. See `live`.
     pub(crate) live_last: Option<Fingerprint>,
+    /// Bumped by every re-read the window makes on the UI thread, so a live
+    /// read that started before one is dropped as stale. See `live`.
+    pub(crate) live_epoch: u64,
 }
 
 impl Shell {
@@ -131,11 +136,12 @@ impl Shell {
         live::start(cx);
         let mut shell = Self {
             snapshot,
-            service,
+            service: Arc::new(service),
             identity,
             seen,
             db_path,
             live_last: None,
+            live_epoch: 0,
             outcome: None,
             screen,
             filter: Filter::default(),
@@ -231,6 +237,7 @@ impl Shell {
             acknowledged,
             self.tools.compare,
         )?;
+        self.live_epoch = self.live_epoch.wrapping_add(1);
         self.queue = snapshot.view(&self.filter);
         self.snapshot = snapshot;
         let mode = self.selected.as_ref().map(|selected| selected.mode);
@@ -242,22 +249,15 @@ impl Shell {
         Ok(())
     }
 
-    /// Re-reads the snapshot like `refresh`, but keeps the open file's
+    /// Shows a snapshot read like `refresh` does, but keeps the open file's
     /// selection and its diff list when the file reads the same: its diff,
-    /// view, and flags. The diff list is rebuilt only when the file's diff
+    /// view, and flags. `fresh` is the open file read against `snapshot` in
+    /// the same view. The diff list is rebuilt only when the file's diff
     /// changed or its comments did, since its rows hold the comments. While a
     /// composer is open the file keeps its old diff, since the composer sits
     /// under the selection; the result is `false` then, and the file is
-    /// re-read once the composer closes. A failed read changes nothing.
-    pub(crate) fn refresh_keeping(&mut self) -> Result<bool, String> {
-        let acknowledged = self.seen.ids_for(&self.identity.workspace);
-        let snapshot = data::load(
-            &self.service,
-            &self.identity.workspace,
-            &self.identity.lane,
-            acknowledged,
-            self.tools.compare,
-        )?;
+    /// re-read once the composer closes.
+    pub(crate) fn apply_snapshot(&mut self, snapshot: Snapshot, fresh: Option<Selected>) -> bool {
         let queue = snapshot.view(&self.filter);
         let file_comments = |snapshot: &Snapshot, path: &str| {
             snapshot
@@ -274,9 +274,9 @@ impl Shell {
         self.snapshot = snapshot;
         self.queue = queue;
         let (Some(old), Some(before)) = (previous, before) else {
-            return Ok(true);
+            return true;
         };
-        let fresh = self.load_selected(&old.path, old.mode);
+        let fresh = fresh.unwrap_or_else(|| self.load_selected(&old.path, old.mode));
         let moved = file_comments(&self.snapshot, &old.path) != before;
         let same_file = fresh.diff == old.diff
             && fresh.mode == old.mode
@@ -290,7 +290,7 @@ impl Shell {
             if moved {
                 self.diff_generation = self.diff_generation.wrapping_add(1);
             }
-            return Ok(false);
+            return false;
         }
         if same_file {
             // The same diff has the same lines, so the reviewer's selection
@@ -306,7 +306,7 @@ impl Shell {
         if !same_file || moved {
             self.diff_generation = self.diff_generation.wrapping_add(1);
         }
-        Ok(true)
+        true
     }
 
     /// Re-reads the snapshot after a write. A failed re-read keeps the

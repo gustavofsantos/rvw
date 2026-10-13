@@ -123,8 +123,12 @@ Open, in priority order for the first person who runs it:
 5. A palette action run from another screen reports on the Changes screen
    only.
 6. Refs of a removed linked worktree's checkpoints are never cleaned up.
-7. The live refresh re-reads git on the UI thread after each change; with an
-   agent editing nonstop that may stall the window for tens of milliseconds.
-   Move those reads to the background executor.
+7. Done: the live refresh reads the queue, the open file, the Changes lists
+   and the repository facts on the background executor; the UI thread only
+   compares and applies. A read that a click or an action overtook (the
+   `live_epoch`, or the open file, changed meanwhile) is dropped and retried
+   on the next tick. Actions and clicks still read git on the UI thread:
+   on a very large repository, opening a review comment lags a little
+   (reported by the user, 2026-10-13).
 8. A checkpoint costs about 45 ms (unchanged) to 65 ms (new), measured with
    200 checkpoints in a debug build; most of it is starting git processes.

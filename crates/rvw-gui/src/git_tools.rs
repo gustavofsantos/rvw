@@ -83,6 +83,7 @@ impl Shell {
 
     /// Re-reads the repository facts.
     pub(crate) fn refresh_facts(&mut self) {
+        self.live_epoch = self.live_epoch.wrapping_add(1);
         self.git.facts = RepoFacts::read(self.repo_path());
     }
 
@@ -99,6 +100,7 @@ impl Shell {
         let saved = checkpoint::create(&dir, label, kept).map_err(|e| last_line(&e.stderr));
         // Pruning is housekeeping: a failure leaves extra checkpoints only.
         let _ = checkpoint::prune(&dir, KEEP_CHECKPOINTS);
+        self.live_epoch = self.live_epoch.wrapping_add(1);
         self.git.facts.checkpoints = checkpoint::list(&dir).unwrap_or_default();
         cx.notify();
         saved.map(|_| ())

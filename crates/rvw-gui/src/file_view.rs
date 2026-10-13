@@ -6,7 +6,7 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui::prelude::*;
 use gpui::{div, px, ClickEvent, Context, Div, FontWeight, Stateful, Window};
@@ -47,7 +47,7 @@ fn whole(snapshot: &Snapshot, path: &str, changed: bool) -> Selected {
                 BTreeSet::new()
             };
             match context::shown_marked(&bytes, &marks) {
-                Shown::Text { diff, cut } => (Ok(Rc::new(diff)), cut),
+                Shown::Text { diff, cut } => (Ok(Arc::new(diff)), cut),
                 Shown::Binary => (Err("Binary file, no preview shown.".to_owned()), false),
                 Shown::Empty => (Err("Empty file, nothing to show.".to_owned()), false),
             }
@@ -65,6 +65,20 @@ fn whole(snapshot: &Snapshot, path: &str, changed: bool) -> Selected {
     }
 }
 
+/// `Shell::load_selected` against `snapshot`, for a read off the UI thread.
+pub(crate) fn load_selected(snapshot: &Snapshot, path: &str, wanted: ViewMode) -> Selected {
+    let changed = snapshot.changes.iter().any(|file| file.path == path);
+    if viewmode::effective(wanted, changed) == ViewMode::Diff {
+        return Selected::load(snapshot, path);
+    }
+    let file = whole(snapshot, path, changed);
+    if changed && file.diff.is_err() {
+        Selected::load(snapshot, path)
+    } else {
+        file
+    }
+}
+
 impl Shell {
     /// The mode `path` opens in: the reviewer's last choice for it, else the
     /// default of the screen the click came from.
@@ -79,16 +93,7 @@ impl Shell {
     /// not touch is always its content; a deleted or unreadable changed file
     /// falls back to its diff.
     pub(crate) fn load_selected(&self, path: &str, wanted: ViewMode) -> Selected {
-        let changed = self.snapshot.changes.iter().any(|file| file.path == path);
-        if viewmode::effective(wanted, changed) == ViewMode::Diff {
-            return Selected::load(&self.snapshot, path);
-        }
-        let file = whole(&self.snapshot, path, changed);
-        if changed && file.diff.is_err() {
-            Selected::load(&self.snapshot, path)
-        } else {
-            file
-        }
+        load_selected(&self.snapshot, path, wanted)
     }
 
     /// Shows the open file in `mode` and remembers the choice. Does nothing

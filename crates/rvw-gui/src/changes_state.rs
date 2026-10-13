@@ -5,12 +5,13 @@
 //! is in `changes_screen`.
 
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui::{
     actions, App, AppContext, Context, Entity, KeyBinding, ScrollStrategy, Subscription,
     UniformListScrollHandle,
 };
+use rvw_core::types::Comment;
 use rvw_git::{commits, index, GitError};
 use rvw_view::commit_screen::{self, LineChoice, Lists, Side};
 use rvw_view::diff::{parse, FileDiff};
@@ -53,7 +54,7 @@ pub struct OpenChange {
     pub path: String,
     /// The diff as git printed it; patches are built from this text.
     pub raw: String,
-    pub diff: Rc<FileDiff>,
+    pub diff: Arc<FileDiff>,
     /// The file moves only as a whole (new, deleted, renamed, binary...).
     pub whole_file_only: bool,
     pub rows: Vec<DiffRow>,
@@ -115,16 +116,35 @@ impl Shell {
     /// Re-reads the lists, keeping the open file (or its neighbour) and, when
     /// its diff did not change, the chosen lines.
     pub(crate) fn reload_changes(&mut self) {
-        let dir = self.repo_dir();
-        let previous = self.changes.open.take();
-        let index_it_had = previous
-            .as_ref()
-            .and_then(|open| self.changes.lists.find(open.side, &open.path))
+        let read = read_changes(
+            &self.repo_dir(),
+            &self.snapshot.comments,
+            self.open_change_place().as_ref(),
+        );
+        self.apply_changes(read);
+    }
+
+    /// The open file's side, path and index in its list, which a read of the
+    /// lists reselects from.
+    pub(crate) fn open_change_place(&self) -> Option<(Side, String, usize)> {
+        let open = self.changes.open.as_ref()?;
+        let index = self
+            .changes
+            .lists
+            .find(open.side, &open.path)
             .map_or(0, |(index, _)| index);
-        let status = match index::status(&dir) {
-            Ok(status) => status,
-            Err(e) => {
-                self.changes.load_error = Some(one_line(&e.stderr));
+        Some((open.side, open.path.clone(), index))
+    }
+
+    /// Shows what `read_changes` read, keeping the chosen lines when the open
+    /// file's diff did not change.
+    pub(crate) fn apply_changes(&mut self, read: ChangesRead) {
+        self.live_epoch = self.live_epoch.wrapping_add(1);
+        let previous = self.changes.open.take();
+        let lists = match read.lists {
+            Ok(lists) => lists,
+            Err(message) => {
+                self.changes.load_error = Some(message);
                 self.changes.lists = Lists::default();
                 self.changes.list_rows = list_rows(&self.changes.lists);
                 self.changes.choice.clear();
@@ -132,32 +152,22 @@ impl Shell {
             }
         };
         self.changes.load_error = None;
-        self.changes.lists = commit_screen::lists(&status, &self.snapshot.comments);
-        self.changes.list_rows = list_rows(&self.changes.lists);
-        self.changes.has_head = commits::head(&dir).is_some();
-        self.changes.head_pushed = commits::head_pushed(&dir).unwrap_or(false);
-
-        let target = match &previous {
-            Some(open) => {
-                commit_screen::reselect(&self.changes.lists, open.side, &open.path, index_it_had)
-            }
-            None => commit_screen::step(&self.changes.lists, None, 1),
-        };
-        let Some((side, path)) = target else {
-            self.changes.choice.clear();
-            return;
-        };
-        match load_change(&dir, &self.changes.lists, side, &path) {
-            Ok(open) => {
-                let same = previous
-                    .as_ref()
-                    .is_some_and(|old| old.side == side && old.path == path && old.raw == open.raw);
+        self.changes.list_rows = list_rows(&lists);
+        self.changes.lists = lists;
+        self.changes.has_head = read.has_head;
+        self.changes.head_pushed = read.head_pushed;
+        match read.open {
+            None => self.changes.choice.clear(),
+            Some(Ok(open)) => {
+                let same = previous.as_ref().is_some_and(|old| {
+                    old.side == open.side && old.path == open.path && old.raw == open.raw
+                });
                 if !same {
                     self.changes.choice.clear();
                 }
                 self.changes.open = Some(open);
             }
-            Err(message) => {
+            Some(Err(message)) => {
                 self.changes.error = Some(message);
                 self.changes.choice.clear();
             }
@@ -610,8 +620,51 @@ fn open_from(side: Side, path: &str, raw: String, listed_whole: bool) -> OpenCha
         path: path.to_owned(),
         whole_file_only: listed_whole || diff.binary,
         rows: diff_rows(&diff),
-        diff: Rc::new(diff),
+        diff: Arc::new(diff),
         raw,
+    }
+}
+
+/// The Changes screen as git shows it now, read off the UI thread when the
+/// window refreshes live; see `Shell::apply_changes`.
+pub(crate) struct ChangesRead {
+    /// The two lists, or why git could not list them.
+    pub(crate) lists: Result<Lists, String>,
+    has_head: bool,
+    head_pushed: bool,
+    /// The file to open: the one open before (or its neighbour when it left
+    /// its list), else the first. `None` when both lists are empty.
+    pub(crate) open: Option<Result<OpenChange, String>>,
+}
+
+/// Reads the lists, with `comments` counted per file, and the file to open.
+/// `previous` is `Shell::open_change_place` of the file open before.
+pub(crate) fn read_changes(
+    dir: &Path,
+    comments: &[Comment],
+    previous: Option<&(Side, String, usize)>,
+) -> ChangesRead {
+    let lists = match index::status(dir) {
+        Ok(status) => commit_screen::lists(&status, comments),
+        Err(e) => {
+            return ChangesRead {
+                lists: Err(one_line(&e.stderr)),
+                has_head: false,
+                head_pushed: false,
+                open: None,
+            }
+        }
+    };
+    let target = match previous {
+        Some((side, path, index)) => commit_screen::reselect(&lists, *side, path, *index),
+        None => commit_screen::step(&lists, None, 1),
+    };
+    let open = target.map(|(side, path)| load_change(dir, &lists, side, &path));
+    ChangesRead {
+        has_head: commits::head(dir).is_some(),
+        head_pushed: commits::head_pushed(dir).unwrap_or(false),
+        lists: Ok(lists),
+        open,
     }
 }
 

@@ -5,7 +5,7 @@
 
 use gpui::prelude::*;
 use std::ops::Range;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui::{
     canvas, div, px, uniform_list, AnyElement, App, ClickEvent, Context, Div, FontWeight,
@@ -32,7 +32,7 @@ pub const LINE_HEIGHT: Pixels = px(21.);
 /// The file open in the centre: its path, and its diff or why it is unreadable.
 pub struct Selected {
     pub path: String,
-    pub diff: Result<Rc<FileDiff>, String>,
+    pub diff: Result<Arc<FileDiff>, String>,
     /// The reviewer's lines in this file; reset when the file changes.
     pub selection: Selection,
     /// The change does not touch the file; it is shown as plain content.
@@ -50,7 +50,7 @@ impl Selected {
     pub fn load(snapshot: &Snapshot, path: &str) -> Self {
         Self {
             path: path.to_owned(),
-            diff: data::load_diff(&snapshot.workspace, &snapshot.base_id, path).map(Rc::new),
+            diff: data::load_diff(&snapshot.workspace, &snapshot.base_id, path).map(Arc::new),
             selection: Selection::default(),
             outside: false,
             cut: false,

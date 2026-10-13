@@ -1,17 +1,29 @@
 //! The live working tree: changes made outside the window, by an agent or a
 //! terminal, show within about a second, and the reviewer keeps their place.
 //! Once a second a background task reads a `Fingerprint` of the repository
-//! and the database. Only a change of it reaches the shell, which re-reads
-//! what it shows; see `Shell::live_refresh`.
+//! and the database. A change of it starts a `LiveJob`, which re-reads what
+//! the window shows off the UI thread; `Shell::live_apply` shows it.
 
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use gpui::Context;
+use rvw_core::types::Comment;
+use rvw_core::Service;
+use rvw_view::changes::Compare;
+use rvw_view::commit_screen::Side;
+use rvw_view::viewmode::ViewMode;
 
+use crate::changes_state::{read_changes, ChangesRead};
+use crate::data::{self, Snapshot};
+use crate::file_view::load_selected;
+use crate::git_tools::RepoFacts;
+use crate::review_screen::Selected;
 use crate::shell::Shell;
 
 /// How often the window reads the fingerprint.
@@ -53,6 +65,10 @@ impl Fingerprint {
 /// Polls the fingerprint once a second for the life of the window. Each read
 /// finishes before the next timer starts, so ticks never overlap. The paths
 /// are read from the shell on every tick. The loop ends when the shell is gone.
+///
+/// Git and the database are read on the background executor, both for the
+/// fingerprint and, when it changed, for what the window shows; the UI thread
+/// only compares and applies. See `LiveJob`.
 pub fn start(cx: &mut Context<Shell>) {
     cx.spawn(async move |this, cx| loop {
         cx.background_executor().timer(INTERVAL).await;
@@ -68,8 +84,18 @@ pub fn start(cx: &mut Context<Shell>) {
             .background_executor()
             .spawn(async move { Fingerprint::read(&dir, &db) })
             .await;
+        let Ok(job) = this.update(cx, |this, _| this.live_job(fingerprint)) else {
+            break;
+        };
+        let Some(job) = job else {
+            continue;
+        };
+        let read = cx
+            .background_executor()
+            .spawn(async move { job.read() })
+            .await;
         if this
-            .update(cx, |this, cx| this.live_tick(fingerprint, cx))
+            .update(cx, |this, cx| this.live_apply(read, cx))
             .is_err()
         {
             break;
@@ -78,48 +104,153 @@ pub fn start(cx: &mut Context<Shell>) {
     .detach();
 }
 
-impl Shell {
-    /// Handles one fingerprint. The first only records it. A changed one
-    /// refreshes the window. It is kept only once the window has caught up, so
-    /// a failed read, or an open file that waits for its composer to close, is
-    /// tried again on the next tick.
-    pub(crate) fn live_tick(&mut self, fingerprint: Fingerprint, cx: &mut Context<Self>) {
-        let fingerprint = fingerprint.keep_git(self.live_last.as_ref());
-        let Some(last) = self.live_last else {
-            self.live_last = Some(fingerprint);
-            return;
+/// What the window showed when a live read started. The read is applied only
+/// when the window still shows the same, so a click or an action taken while
+/// git ran is never undone by an older read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiveKey {
+    /// `Shell::live_epoch`: bumped by every re-read made on the UI thread.
+    pub epoch: u64,
+    /// The review screen's open file and its view.
+    pub selected: Option<(String, ViewMode)>,
+    /// The Changes screen's open file.
+    pub open: Option<(Side, String)>,
+    pub compare: Option<Compare>,
+}
+
+/// One live read: what to read, captured on the UI thread, and read on the
+/// background executor by `read`.
+pub struct LiveJob {
+    fingerprint: Fingerprint,
+    key: LiveKey,
+    /// Git changed, so the Changes screen and the repository facts are read
+    /// too.
+    git_changed: bool,
+    service: Arc<Service>,
+    workspace: String,
+    lane: String,
+    acknowledged: HashSet<String>,
+    /// The comments shown now, which the Changes lists count when the queue
+    /// cannot be read.
+    comments: Vec<Comment>,
+    /// `Shell::open_change_place`.
+    open_place: Option<(Side, String, usize)>,
+}
+
+/// What a `LiveJob` read.
+pub struct LiveRead {
+    fingerprint: Fingerprint,
+    key: LiveKey,
+    snapshot: Result<Snapshot, String>,
+    /// The review screen's open file, read against `snapshot`.
+    selected: Option<Selected>,
+    /// Read only when git changed.
+    changes: Option<ChangesRead>,
+    facts: Option<RepoFacts>,
+}
+
+impl LiveJob {
+    /// Reads the queue, the open file and, when git changed, the Changes
+    /// screen and the repository facts. Runs off the UI thread.
+    fn read(self) -> LiveRead {
+        let snapshot = data::load(
+            &self.service,
+            &self.workspace,
+            &self.lane,
+            self.acknowledged,
+            self.key.compare,
+        );
+        let selected = match (&snapshot, &self.key.selected) {
+            (Ok(snapshot), Some((path, mode))) => Some(load_selected(snapshot, path, *mode)),
+            _ => None,
         };
-        if last == fingerprint {
-            return;
+        let (changes, facts) = if self.git_changed {
+            let dir = Path::new(&self.workspace);
+            let comments = snapshot
+                .as_ref()
+                .map_or(&self.comments[..], |snapshot| &snapshot.comments[..]);
+            (
+                Some(read_changes(dir, comments, self.open_place.as_ref())),
+                Some(RepoFacts::read(dir)),
+            )
+        } else {
+            (None, None)
+        };
+        LiveRead {
+            fingerprint: self.fingerprint,
+            key: self.key,
+            snapshot,
+            selected,
+            changes,
+            facts,
         }
-        let git_changed = last.git != fingerprint.git;
-        let db_changed = last.db != fingerprint.db;
-        if matches!(self.live_refresh(git_changed, db_changed, cx), Ok(true)) {
-            self.live_last = Some(fingerprint);
+    }
+}
+
+impl Shell {
+    /// What the window shows now, to tell a stale live read; see `LiveKey`.
+    pub(crate) fn live_key(&self) -> LiveKey {
+        LiveKey {
+            epoch: self.live_epoch,
+            selected: self
+                .selected
+                .as_ref()
+                .map(|selected| (selected.path.clone(), selected.mode)),
+            open: self
+                .changes
+                .open
+                .as_ref()
+                .map(|open| (open.side, open.path.clone())),
+            compare: self.tools.compare,
         }
     }
 
-    /// Re-reads the snapshot, keeping the reviewer's place. A change to the
-    /// repository also reloads the Changes screen and the repository facts.
-    /// The result is `Ok(true)` when the window shows the change, `Ok(false)`
-    /// when the open file waits for a composer. A failed read changes nothing
-    /// on screen.
-    pub(crate) fn live_refresh(
-        &mut self,
-        git_changed: bool,
-        db_changed: bool,
-        cx: &mut Context<Self>,
-    ) -> Result<bool, String> {
-        if !git_changed && !db_changed {
-            return Ok(true);
+    /// Handles one fingerprint. The first only records it. A changed one
+    /// starts a read of what the window shows.
+    pub(crate) fn live_job(&mut self, fingerprint: Fingerprint) -> Option<LiveJob> {
+        let fingerprint = fingerprint.keep_git(self.live_last.as_ref());
+        let Some(last) = self.live_last else {
+            self.live_last = Some(fingerprint);
+            return None;
+        };
+        if last == fingerprint {
+            return None;
         }
-        let settled = self.refresh_keeping()?;
-        if git_changed {
-            self.reload_changes();
-            self.refresh_facts();
+        Some(LiveJob {
+            fingerprint,
+            key: self.live_key(),
+            git_changed: last.git != fingerprint.git,
+            service: Arc::clone(&self.service),
+            workspace: self.identity.workspace.clone(),
+            lane: self.identity.lane.clone(),
+            acknowledged: self.seen.ids_for(&self.identity.workspace),
+            comments: self.snapshot.comments.clone(),
+            open_place: self.open_change_place(),
+        })
+    }
+
+    /// Shows a live read, keeping the reviewer's place. The fingerprint is
+    /// kept only once the window has caught up, so a stale or failed read, or
+    /// an open file that waits for its composer to close, is tried again on
+    /// the next tick. A failed read changes nothing on screen.
+    pub(crate) fn live_apply(&mut self, read: LiveRead, cx: &mut Context<Self>) {
+        if read.key != self.live_key() {
+            return;
+        }
+        let Ok(snapshot) = read.snapshot else {
+            return;
+        };
+        let settled = self.apply_snapshot(snapshot, read.selected);
+        if let Some(changes) = read.changes {
+            self.apply_changes(changes);
+        }
+        if let Some(facts) = read.facts {
+            self.git.facts = facts;
         }
         cx.notify();
-        Ok(settled)
+        if settled {
+            self.live_last = Some(read.fingerprint);
+        }
     }
 }
 
@@ -347,6 +478,87 @@ mod tests {
     }
 
     /// Runs git in `dir`; the error is its stderr, for a failed command.
+    /// A job as the window would start it after git changed, with nothing
+    /// open on either screen.
+    fn job(repo: &tempfile::TempDir, db: &tempfile::TempDir) -> LiveJob {
+        let store = rvw_store::Store::open(&db.path().join("rvw.db")).unwrap();
+        LiveJob {
+            fingerprint: Fingerprint {
+                git: Some(1),
+                db: [None, None],
+            },
+            key: LiveKey {
+                epoch: 0,
+                selected: None,
+                open: None,
+                compare: None,
+            },
+            git_changed: true,
+            service: Arc::new(Service::new(Box::new(store))),
+            workspace: repo.path().to_string_lossy().into_owned(),
+            lane: String::new(),
+            acknowledged: HashSet::new(),
+            comments: Vec::new(),
+            open_place: None,
+        }
+    }
+
+    fn open_path(read: &LiveRead) -> Option<(Side, String)> {
+        match read.changes.as_ref()?.open.as_ref()? {
+            Ok(open) => Some((open.side, open.path.clone())),
+            Err(message) => panic!("{message}"),
+        }
+    }
+
+    #[test]
+    fn a_live_read_reads_the_queue_the_open_file_the_changes_and_the_facts() {
+        let repo = repo();
+        let db = tempfile::tempdir().unwrap();
+        fs::write(repo.path().join("a.txt"), "two\n").unwrap();
+        let mut job = job(&repo, &db);
+        job.key.selected = Some(("a.txt".to_owned(), ViewMode::Diff));
+
+        let read = job.read();
+
+        let snapshot = read.snapshot.as_ref().unwrap();
+        assert!(snapshot.changes.iter().any(|file| file.path == "a.txt"));
+        let selected = read.selected.as_ref().unwrap();
+        assert_eq!(selected.path, "a.txt");
+        assert!(selected.diff.is_ok());
+        let lists = read.changes.as_ref().unwrap().lists.as_ref().unwrap();
+        assert_eq!(lists.side(Side::Unstaged)[0].path, "a.txt");
+        assert_eq!(open_path(&read), Some((Side::Unstaged, "a.txt".to_owned())));
+        assert_eq!(read.facts.unwrap().branch.as_deref(), Some("main"));
+    }
+
+    #[test]
+    fn a_live_read_follows_the_open_file_to_the_other_list() {
+        let repo = repo();
+        let db = tempfile::tempdir().unwrap();
+        fs::write(repo.path().join("a.txt"), "two\n").unwrap();
+        run_git(repo.path(), &["add", "a.txt"]).unwrap();
+        let mut job = job(&repo, &db);
+        job.open_place = Some((Side::Unstaged, "a.txt".to_owned(), 0));
+
+        let read = job.read();
+
+        assert_eq!(open_path(&read), Some((Side::Staged, "a.txt".to_owned())));
+    }
+
+    #[test]
+    fn a_live_read_after_a_queue_change_alone_leaves_git_unread() {
+        let repo = repo();
+        let db = tempfile::tempdir().unwrap();
+        let mut job = job(&repo, &db);
+        job.git_changed = false;
+
+        let read = job.read();
+
+        assert!(read.snapshot.is_ok());
+        assert!(read.changes.is_none());
+        assert!(read.facts.is_none());
+    }
+
     fn run_git(dir: &Path, args: &[&str]) -> Result<(), String> {
         let output = Command::new("git")
             .arg("-C")
