@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use rvw_core::operations::{
-    AddInput, PullInput, QueryInput, ReviewSheet, SheetsInput, SubmitInput,
+    AddInput, EditInput, PullInput, QueryInput, RemoveInput, ReviewSheet, SheetsInput, SubmitInput,
 };
 use rvw_core::types::Comment;
 use rvw_core::Service;
@@ -185,6 +185,48 @@ pub fn add_comment(
         .map_err(|e| e.message)
 }
 
+/// Replaces the text of the pending comment `id`.
+///
+/// # Errors
+///
+/// Fails with a message to write something when `text` is blank, and
+/// otherwise with the service's message, as when the comment was pulled.
+pub fn edit_comment(
+    service: &Service,
+    identity: &Identity,
+    id: &str,
+    text: &str,
+) -> Result<Comment, String> {
+    if text.trim().is_empty() {
+        return Err(BLANK_EDIT.into());
+    }
+    service
+        .edit(EditInput {
+            workspace: identity.workspace.clone(),
+            id: id.to_owned(),
+            comment: text.to_owned(),
+        })
+        .map_err(|e| e.message)
+}
+
+/// What a blank edit is refused with.
+pub const BLANK_EDIT: &str = "Write something, or delete the comment.";
+
+/// Deletes the draft comment `id` and returns it as it was.
+///
+/// # Errors
+///
+/// Fails with the service's message when the comment is not a draft: it was
+/// pulled, or it belongs to a submitted review.
+pub fn remove_comment(service: &Service, identity: &Identity, id: &str) -> Result<Comment, String> {
+    service
+        .remove(RemoveInput {
+            workspace: identity.workspace.clone(),
+            id: id.to_owned(),
+        })
+        .map_err(|e| e.message)
+}
+
 /// Submits `comment_ids` as one review with `decision` and `summary`, and
 /// returns the new review's id. An empty `comment_ids` makes a summary-only
 /// review, so the service never takes the author's other pending comments.
@@ -230,7 +272,11 @@ pub fn load_diff(workspace: &str, base_id: &str, path: &str) -> Result<FileDiff,
 }
 
 #[cfg(test)]
-mod tests {
+#[path = "data_draft_tests.rs"]
+mod draft_tests;
+
+#[cfg(test)]
+pub(crate) mod tests {
     use std::fs;
     use std::process::Command;
 
@@ -296,7 +342,7 @@ mod tests {
 
     /// A workspace with `app.py` and a store; returns the tempdir (kept alive),
     /// the service and the identity.
-    fn workspace_with_store() -> (tempfile::TempDir, Service, Identity) {
+    pub(crate) fn workspace_with_store() -> (tempfile::TempDir, Service, Identity) {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path().join("proj");
         fs::create_dir(&root).expect("mkdir");

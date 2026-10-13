@@ -15,9 +15,11 @@ use rvw_view::selection::Pos;
 use crate::composer::Composer;
 use crate::data::{self, Identity, Snapshot};
 use crate::diff_list::DiffList;
+use crate::draft_edit::Removal;
 use crate::files_panel::{self, FileList};
 use crate::finder::{self, Finder, OpenFinder};
 use crate::frame::{self, Panels};
+use crate::highlights::Highlighter;
 use crate::key_strip::key_strip;
 use crate::outcome_screen::{self, Outcome};
 use crate::queue_screen;
@@ -57,6 +59,10 @@ pub struct Shell {
     /// Bumped whenever the open file or its snapshot is replaced, so the diff
     /// list knows its rows are stale.
     pub(crate) diff_generation: u64,
+    /// Syntax colour of the open file, tokenized in the background.
+    pub(crate) highlights: Highlighter,
+    /// The delete the right panel offers to undo, or why one failed.
+    pub(crate) removal: Option<Removal>,
     /// Keeps the Changes list's row in view when the keyboard moves.
     pub(crate) changes_scroll: UniformListScrollHandle,
     /// Keeps the Files tree's row in view when the keyboard moves.
@@ -101,6 +107,8 @@ impl Shell {
             finder: None,
             diff_list: None,
             diff_generation: 0,
+            highlights: Highlighter::default(),
+            removal: None,
             changes_scroll: UniformListScrollHandle::new(),
             files_scroll: UniformListScrollHandle::new(),
             focus: cx.focus_handle(),
@@ -122,6 +130,7 @@ impl Shell {
             self.ensure_listing();
         }
         self.screen = screen;
+        self.removal = None;
         cx.notify();
     }
 
@@ -129,6 +138,7 @@ impl Shell {
         self.selected = Some(self.load_selected(path));
         self.diff_generation = self.diff_generation.wrapping_add(1);
         self.composer = None;
+        self.removal = None;
         cx.notify();
     }
 
@@ -145,6 +155,7 @@ impl Shell {
         } else {
             selected.selection.click(diff, pos);
         }
+        self.removal = None;
         cx.notify();
     }
 
@@ -158,59 +169,8 @@ impl Shell {
         if self.composer.is_some() || nothing_selected {
             return;
         }
-        let input = cx.new(|cx| TextArea::new("Write a comment", cx).with_lines(2, 8));
-        let events = cx.subscribe(
-            &input,
-            |this: &mut Self, _, event: &TextAreaEvent, cx: &mut Context<Self>| {
-                this.on_composer_event(*event, cx);
-            },
-        );
-        input.update(cx, |area, cx| area.focus(window, cx));
-        self.composer = Some(Composer::new(input, events));
-        cx.notify();
-    }
-
-    fn on_composer_event(&mut self, event: TextAreaEvent, cx: &mut Context<Self>) {
-        match event {
-            TextAreaEvent::Cancel => self.composer = None,
-            TextAreaEvent::Submit => self.submit_comment(cx),
-        }
-        cx.notify();
-    }
-
-    /// Adds the typed comment on the selection. A blank text keeps the
-    /// composer open; a refused add shows its message in the composer.
-    fn submit_comment(&mut self, cx: &mut Context<Self>) {
-        let Some(text) = self
-            .composer
-            .as_ref()
-            .map(|composer| composer.input.read(cx).text().trim_end().to_owned())
-        else {
-            return;
-        };
-        if text.is_empty() {
-            return;
-        }
-        match self.add_selected(&text) {
-            Ok(()) => self.reload(cx),
-            Err(message) => {
-                if let Some(composer) = self.composer.as_mut() {
-                    composer.error = Some(message);
-                }
-                cx.notify();
-            }
-        }
-    }
-
-    fn add_selected(&self, text: &str) -> Result<(), String> {
-        let selected = self.selected.as_ref().ok_or("no file is open")?;
-        let diff = selected.diff.as_ref().map_err(Clone::clone)?;
-        let (lo, hi) = selected
-            .selection
-            .lines(diff)
-            .ok_or("select a line first")?;
-        let lines = (i64::from(lo), i64::from(hi));
-        data::add_comment(&self.service, &self.identity, &selected.path, lines, text)
+        self.removal = None;
+        self.install_composer(None, "", window, cx);
     }
 
     /// Re-reads the snapshot, with the seen outcomes, keeping the file open
@@ -233,7 +193,7 @@ impl Shell {
 
     /// Re-reads the snapshot after a write. A failed re-read keeps the
     /// composer open with its message.
-    fn reload(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn reload(&mut self, cx: &mut Context<Self>) {
         match self.refresh() {
             Ok(()) => self.composer = None,
             Err(message) => {
@@ -317,6 +277,7 @@ impl Shell {
         if self.submit.is_some() || self.finder.is_some() {
             return;
         }
+        self.removal = None;
         let drafts = submit_dialog::draft_rows(&self.snapshot).len();
         let summary = cx.new(|cx| TextArea::new("Summary for the agent", cx).with_lines(2, 6));
         let events = cx.subscribe(
@@ -377,6 +338,7 @@ impl Shell {
     fn apply(&mut self, filter: Filter, cx: &mut Context<Self>) {
         self.queue = self.snapshot.view(&filter);
         self.filter = filter;
+        self.removal = None;
         cx.notify();
     }
 }
@@ -400,6 +362,7 @@ impl Render for Shell {
         {
             self.focus.focus(window);
         }
+        self.sync_highlights(cx);
         self.sync_diff_list(window);
         let panels = match (self.screen, self.outcome.as_ref()) {
             (Screen::Diff | Screen::Files, _) => Panels {
@@ -410,7 +373,7 @@ impl Render for Shell {
                     self.diff_list.as_ref(),
                     cx,
                 ),
-                right: crate::draft_panel::right(&self.snapshot, cx),
+                right: crate::draft_panel::right(&self.snapshot, self.removal.as_ref(), cx),
             },
             (Screen::Outcome, Some(open)) => Panels {
                 left: outcome_screen::left(open, &self.snapshot, cx),

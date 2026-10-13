@@ -12,14 +12,17 @@ use crate::theme;
 pub struct Composer {
     pub input: Entity<TextArea>,
     pub error: Option<String>,
+    /// The id of the comment being edited; `None` for a new comment.
+    pub editing: Option<String>,
     _events: Subscription,
 }
 
 impl Composer {
-    pub fn new(input: Entity<TextArea>, events: Subscription) -> Self {
+    pub fn new(input: Entity<TextArea>, events: Subscription, editing: Option<String>) -> Self {
         Self {
             input,
             error: None,
+            editing,
             _events: events,
         }
     }

@@ -6,11 +6,12 @@ use gpui::{div, px, ClickEvent, Context, Div, FontWeight, SharedString, Stateful
 use rvw_view::queue::Row;
 
 use crate::data::Snapshot;
+use crate::draft_edit::Removal;
 use crate::shell::Shell;
 use crate::submit_dialog;
 use crate::theme;
 
-pub fn right(snapshot: &Snapshot, cx: &Context<Shell>) -> Div {
+pub fn right(snapshot: &Snapshot, removal: Option<&Removal>, cx: &Context<Shell>) -> Div {
     let rows = submit_dialog::draft_rows(snapshot);
     let drafts = rows.len();
     let list = if rows.is_empty() {
@@ -37,9 +38,45 @@ pub fn right(snapshot: &Snapshot, cx: &Context<Shell>) -> Div {
                 .text_color(theme::ink())
                 .child("Your review"),
         )
+        .children(removal.map(|removal| removal_line(removal, cx)))
         .child(list)
         .child(div().flex_1())
         .child(submit_button(drafts, cx))
+}
+
+/// The line after a delete: what was removed and Undo, or why it failed.
+fn removal_line(removal: &Removal, cx: &Context<Shell>) -> Div {
+    let line = div().flex().items_center().gap(px(10.));
+    match removal {
+        Removal::Removed(removed) => line
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .truncate()
+                    .text_color(theme::muted())
+                    .child(format!("Removed {}", removed.id)),
+            )
+            .child(
+                div()
+                    .id("undo-remove")
+                    .cursor_pointer()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme::ink())
+                    .on_click(cx.listener(
+                        |this: &mut Shell,
+                         _: &ClickEvent,
+                         _: &mut Window,
+                         cx: &mut Context<Shell>| {
+                            this.undo_removal(cx);
+                        },
+                    ))
+                    .child("Undo"),
+            ),
+        Removal::Failed(message) => {
+            line.child(div().text_color(theme::rejected()).child(message.clone()))
+        }
+    }
 }
 
 /// One draft comment. A click opens its outcome screen.

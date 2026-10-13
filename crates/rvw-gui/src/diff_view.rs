@@ -5,16 +5,19 @@
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, AnyElement, App, Div, FontWeight, MouseButton, MouseDownEvent, Pixels, Rgba,
-    WeakEntity, Window,
+    div, px, AnyElement, App, ClickEvent, Div, FontWeight, MouseButton, MouseDownEvent, Pixels,
+    Rgba, Stateful, StyledText, WeakEntity, Window,
 };
 use rvw_core::types::{Comment, Status};
 use rvw_view::diff::{Line, LineKind};
 use rvw_view::diffrows::{DiffRow, TRUNCATED_NOTE};
+use rvw_view::highlight::Span;
+use rvw_view::queue::is_draft;
 use rvw_view::selection::Selection;
 
 use crate::composer;
-use crate::diff_list::Model;
+use crate::diff_list::{ComposerSlot, Model};
+use crate::highlights;
 use crate::review_screen::LINE_HEIGHT;
 use crate::shell::Shell;
 use crate::theme;
@@ -28,8 +31,26 @@ pub fn range_text(lo: u32, hi: u32) -> String {
     }
 }
 
-/// The composer's caption, "Line A-B"; empty when nothing is selected.
-fn caption(model: &Model, selection: &Selection) -> String {
+/// The caption of a composer editing comment `id` on `lo..=hi`.
+fn edit_caption(id: &str, lo: i64, hi: i64) -> String {
+    if lo == hi {
+        format!("Editing {id} \u{b7} line {lo}")
+    } else {
+        format!("Editing {id} \u{b7} lines {lo}-{hi}")
+    }
+}
+
+/// The composer's caption: "Line A-B" for a new comment, "Editing r4 · lines
+/// A-B" for an edit; empty when nothing is selected.
+fn caption(model: &Model, selection: &Selection, slot: &ComposerSlot) -> String {
+    if let Some(id) = slot.editing.as_deref() {
+        return model
+            .comments
+            .iter()
+            .find(|comment| comment.id == id)
+            .map(|comment| edit_caption(id, comment.start_line, comment.end_line))
+            .unwrap_or_default();
+    }
     selection
         .lines(&model.diff)
         .map(|(lo, hi)| {
@@ -76,17 +97,23 @@ pub fn row(
                     .update(cx, |this, cx| this.select_line(pos, shift, cx))
                     .ok();
             };
-            line_view(line, selected, on_down).into_any_element()
+            let spans = model.spans.borrow().clone();
+            let spans = spans
+                .as_deref()
+                .and_then(|file| file.get(pos.hunk))
+                .and_then(|hunk| hunk.get(pos.line))
+                .map_or(&[][..], Vec::as_slice);
+            line_view(line, spans, selected, on_down).into_any_element()
         }
         DiffRow::Thread { comment_index } => model.comments.get(comment_index).map_or_else(
             || div().into_any_element(),
-            |comment| padded(thread(comment, px(62.))),
+            |comment| padded(thread(comment, px(62.), shell)),
         ),
-        DiffRow::Composer => {
+        DiffRow::Composer | DiffRow::OutsideComposer => {
             let Some(slot) = model.composer.as_ref() else {
                 return div().into_any_element();
             };
-            let caption = caption(model, &selection);
+            let caption = caption(model, &selection, slot);
             div()
                 .w_full()
                 .py(px(6.))
@@ -103,7 +130,7 @@ pub fn row(
             .into_any_element(),
         DiffRow::OutsideThread { comment_index } => model.comments.get(comment_index).map_or_else(
             || div().into_any_element(),
-            |comment| padded(thread(comment, px(24.))),
+            |comment| padded(thread(comment, px(24.), shell)),
         ),
         DiffRow::Truncated => note(TRUNCATED_NOTE.to_owned(), px(24.)).into_any_element(),
     }
@@ -130,6 +157,7 @@ fn note(text: String, indent: Pixels) -> Div {
 
 fn line_view(
     line: &Line,
+    spans: &[Span],
     selected: bool,
     on_down: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
 ) -> Div {
@@ -176,20 +204,33 @@ fn line_view(
                 .pl(px(14.))
                 .whitespace_nowrap()
                 .overflow_hidden()
-                .child(line.text.clone()),
+                .child(code_text(&line.text, spans)),
         )
 }
 
+/// The text of a line with its syntax colours. A line with nothing to colour
+/// stays a plain string, which is the cheap path for most lines.
+fn code_text(text: &str, spans: &[Span]) -> AnyElement {
+    let runs = highlights::runs(spans);
+    if runs.is_empty() {
+        text.to_owned().into_any_element()
+    } else {
+        StyledText::new(text.to_owned())
+            .with_highlights(runs)
+            .into_any_element()
+    }
+}
+
 /// One comment: a rule in its status colour, the author, the id and lines,
-/// the status, then the text.
-fn thread(comment: &Comment, indent: Pixels) -> Div {
+/// the status, then the text. A draft also has Edit and Delete at the right.
+fn thread(comment: &Comment, indent: Pixels, shell: &WeakEntity<Shell>) -> Div {
     let colour = status_colour(comment.status);
     let lines = if comment.start_line == comment.end_line {
         format!("line {}", comment.start_line)
     } else {
         format!("lines {} to {}", comment.start_line, comment.end_line)
     };
-    let meta = div()
+    let mut meta = div()
         .flex()
         .flex_wrap()
         .items_center()
@@ -212,6 +253,12 @@ fn thread(comment: &Comment, indent: Pixels) -> Div {
             status_glyph(comment.status),
             comment.status.as_str()
         )));
+    if is_draft(comment) {
+        meta = meta
+            .child(div().flex_1())
+            .child(action("edit", comment, shell))
+            .child(action("delete", comment, shell));
+    }
     div()
         .flex()
         .flex_col()
@@ -230,6 +277,31 @@ fn thread(comment: &Comment, indent: Pixels) -> Div {
         )
 }
 
+/// A small text action in a draft's header: faint, ink on hover.
+fn action(kind: &'static str, comment: &Comment, shell: &WeakEntity<Shell>) -> Stateful<Div> {
+    let id = comment.id.clone();
+    let shell = shell.clone();
+    let label = if kind == "edit" { "Edit" } else { "Delete" };
+    div()
+        .id(gpui::SharedString::from(format!("{kind}-{id}")))
+        .text_size(px(12.))
+        .text_color(theme::faint())
+        .cursor_pointer()
+        .hover(|style| style.text_color(theme::ink()))
+        .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+            shell
+                .update(cx, |this, cx| {
+                    if kind == "edit" {
+                        this.start_edit(&id, window, cx);
+                    } else {
+                        this.delete_comment(&id, cx);
+                    }
+                })
+                .ok();
+        })
+        .child(label)
+}
+
 fn status_colour(status: Status) -> Rgba {
     match status {
         Status::Pending => theme::pending(),
@@ -245,5 +317,16 @@ fn status_glyph(status: Status) -> &'static str {
         Status::Pulled => "◐",
         Status::Done => "✓",
         Status::Rejected => "✗",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_edit_caption_names_the_comment_and_its_lines() {
+        assert_eq!(edit_caption("r4", 7, 7), "Editing r4 \u{b7} line 7");
+        assert_eq!(edit_caption("r4", 7, 9), "Editing r4 \u{b7} lines 7-9");
     }
 }

@@ -42,6 +42,7 @@ impl Shell {
             error,
         });
         self.screen = Screen::Outcome;
+        self.removal = None;
         cx.notify();
     }
 
@@ -66,6 +67,7 @@ impl Shell {
         if let Some(open) = self.outcome.take() {
             self.screen = open.back;
         }
+        self.removal = None;
         cx.notify();
     }
 

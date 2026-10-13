@@ -7,6 +7,7 @@
 use std::sync::OnceLock;
 
 use gpui::{px, rgb, rgba, Pixels, Rgba, SharedString};
+use rvw_view::highlight::Class;
 
 pub const WINDOW_RADIUS: Pixels = px(14.);
 pub const CONTROL_RADIUS: Pixels = px(8.);
@@ -151,6 +152,19 @@ pub fn removed_tint() -> Rgba {
     rgba(0xba3e_4b17)
 }
 
+/// The colour of a syntax class in a diff line. `None` is ink: functions,
+/// operators and punctuation stay quiet so colour marks meaning only.
+pub fn syntax(class: Class) -> Option<Rgba> {
+    match class {
+        Class::Keyword => Some(rgb(0x0000_6cbc)),
+        Class::String | Class::Number => Some(rgb(0x00aa_5100)),
+        Class::Constant => Some(rgb(0x00a9_438d)),
+        Class::Type => Some(rgb(0x0000_7677)),
+        Class::Comment => Some(rgb(0x0069_6761)),
+        Class::Function | Class::Operator | Class::Punctuation | Class::Plain => None,
+    }
+}
+
 /// The chord that submits a multi-line field, as the key hints spell it.
 pub fn submit_chord() -> &'static str {
     if cfg!(target_os = "macos") {
@@ -166,6 +180,27 @@ mod tests {
 
     fn installed(names: &[&str]) -> Vec<String> {
         names.iter().map(|name| (*name).to_owned()).collect()
+    }
+
+    #[test]
+    fn only_meaningful_classes_have_a_colour() {
+        for class in [
+            Class::Keyword,
+            Class::String,
+            Class::Number,
+            Class::Constant,
+        ] {
+            assert!(syntax(class).is_some());
+        }
+        for class in [
+            Class::Function,
+            Class::Operator,
+            Class::Punctuation,
+            Class::Plain,
+        ] {
+            assert!(syntax(class).is_none());
+        }
+        assert_eq!(syntax(Class::Keyword), Some(rgb(0x0000_6cbc)));
     }
 
     #[test]

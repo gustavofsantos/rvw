@@ -10,13 +10,14 @@ use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use gpui::{list, px, Entity, List, ListAlignment, ListState, WeakEntity, Window};
+use gpui::{list, px, Entity, EntityId, List, ListAlignment, ListState, WeakEntity, Window};
 use rvw_core::types::Comment;
 use rvw_view::diff::FileDiff;
 use rvw_view::diffrows::{self, DiffRow};
 use rvw_view::selection::{self, Pos, Selection};
 
 use crate::diff_view;
+use crate::highlights::Shared;
 use crate::shell::Shell;
 use crate::text_area::TextArea;
 
@@ -27,6 +28,8 @@ const OVERDRAW: f32 = 800.;
 pub struct ComposerSlot {
     pub input: Entity<TextArea>,
     pub error: Option<String>,
+    /// The id of the comment the composer edits, if it edits one.
+    pub editing: Option<String>,
 }
 
 /// What the rows are drawn from; replaced whole when the list is rebuilt.
@@ -38,6 +41,9 @@ pub struct Model {
     /// The file is outside the change; the composer's caption says so.
     pub outside_change: bool,
     pub composer: Option<ComposerSlot>,
+    /// Syntax spans of the file, filled in by the background task. Read when
+    /// a row is drawn, so their arrival needs a repaint and no rebuild.
+    pub spans: Shared,
 }
 
 /// What the rows were built for. A different key rebuilds them.
@@ -46,6 +52,8 @@ struct Key {
     /// Bumped by the shell when the open file or its snapshot is replaced.
     generation: u64,
     composer_after: Option<Pos>,
+    /// The composer's field; another field is another composer.
+    composer_input: Option<EntityId>,
     error: bool,
 }
 
@@ -69,6 +77,34 @@ impl DiffList {
     }
 }
 
+/// The file's comments and the rows of its diff. `outside_edit` is the id of
+/// a comment with no line in view that the composer edits.
+fn layout(
+    diff: &FileDiff,
+    all: &[Comment],
+    path: &str,
+    composer_after: Option<Pos>,
+    outside_edit: Option<&str>,
+) -> (Vec<Comment>, Vec<DiffRow>) {
+    let comments: Vec<Comment> = all
+        .iter()
+        .filter(|comment| comment.file == path)
+        .cloned()
+        .collect();
+    let mut under: BTreeMap<Pos, Vec<usize>> = BTreeMap::new();
+    let mut outside = Vec::new();
+    for (index, comment) in comments.iter().enumerate() {
+        match selection::anchor(diff, comment.end_line) {
+            Some(pos) => under.entry(pos).or_default().push(index),
+            None => outside.push(index),
+        }
+    }
+    let composer_outside =
+        outside_edit.and_then(|id| comments.iter().position(|comment| comment.id == id));
+    let rows = diffrows::rows(diff, &under, composer_after, &outside, composer_outside);
+    (comments, rows)
+}
+
 impl Shell {
     /// Brings the diff list in line with the open file, building its rows
     /// only when the key changed. Called by every render; a selection change
@@ -85,10 +121,26 @@ impl Shell {
                 return;
             }
         };
-        let composer_after = self.composer.as_ref().and(selected.selection.last());
+        // A composer editing a comment sits under that comment's last line,
+        // or under the comment in the outside strip; a new one, under the
+        // selection.
+        let editing = self
+            .composer
+            .as_ref()
+            .and_then(|composer| composer.editing.as_deref())
+            .and_then(|id| self.snapshot.comments.iter().find(|c| c.id == id));
+        let (composer_after, edits_outside) = match (self.composer.as_ref(), editing) {
+            (None, _) => (None, false),
+            (Some(_), Some(comment)) => {
+                let anchor = selection::anchor(diff, comment.end_line);
+                (anchor, anchor.is_none())
+            }
+            (Some(_), None) => (selected.selection.last(), false),
+        };
         let key = Key {
             generation: self.diff_generation,
             composer_after,
+            composer_input: self.composer.as_ref().map(|c| c.input.entity_id()),
             error: self
                 .composer
                 .as_ref()
@@ -101,23 +153,17 @@ impl Shell {
             }
         }
 
-        let comments: Vec<Comment> = self
-            .snapshot
-            .comments
+        let outside_edit = editing.filter(|_| edits_outside).map(|c| c.id.as_str());
+        let (comments, rows) = layout(
+            diff,
+            &self.snapshot.comments,
+            &selected.path,
+            composer_after,
+            outside_edit,
+        );
+        let composer_row = rows
             .iter()
-            .filter(|comment| comment.file == selected.path)
-            .cloned()
-            .collect();
-        let mut under: BTreeMap<Pos, Vec<usize>> = BTreeMap::new();
-        let mut outside = Vec::new();
-        for (index, comment) in comments.iter().enumerate() {
-            match selection::anchor(diff, comment.end_line) {
-                Some(pos) => under.entry(pos).or_default().push(index),
-                None => outside.push(index),
-            }
-        }
-        let rows = diffrows::rows(diff, &under, composer_after, &outside);
-        let composer_row = rows.iter().position(|row| *row == DiffRow::Composer);
+            .position(|row| matches!(row, DiffRow::Composer | DiffRow::OutsideComposer));
         let model = Rc::new(Model {
             diff: Rc::clone(diff),
             comments,
@@ -126,14 +172,16 @@ impl Shell {
             composer: self.composer.as_ref().map(|composer| ComposerSlot {
                 input: composer.input.clone(),
                 error: composer.error.clone(),
+                editing: composer.editing.clone(),
             }),
+            spans: Rc::clone(&self.highlights.shared),
         });
 
         let previous = self.diff_list.take();
-        let opened = key.composer_after.is_some()
+        let opened = key.composer_input.is_some()
             && previous
                 .as_ref()
-                .is_none_or(|list| list.key.composer_after.is_none());
+                .is_none_or(|list| list.key.composer_input != key.composer_input);
         // The same file keeps its scroll position through a rebuild; a new
         // file starts at its top.
         let state = match previous {
