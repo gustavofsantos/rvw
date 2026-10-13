@@ -325,7 +325,7 @@ impl Shell {
         }
         let dir = self.repo_dir();
         match commits::discard(&dir, path) {
-            Ok(_) => {
+            Ok(()) => {
                 self.changes.error = None;
                 self.changes.notice = None;
                 self.reload_changes();

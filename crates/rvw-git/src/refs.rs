@@ -1,4 +1,4 @@
-//! Branches and tags: create, rename, delete and put back, and the upstream a branch tracks.
+//! Branches and tags: create, rename, delete, and the upstream a branch tracks.
 
 use std::path::Path;
 
@@ -17,7 +17,7 @@ pub fn create_branch(dir: &Path, name: &str, start: Option<&str>) -> Result<Stri
     ref_id(dir, &format!("refs/heads/{name}"))
 }
 
-/// Deletes local branch `name`; returns the commit it pointed at, so it can be put back.
+/// Deletes local branch `name`; returns the commit it pointed at.
 pub fn delete_branch(dir: &Path, name: &str, force: bool) -> Result<String, GitError> {
     check_branch(dir, &["branch"], name)?;
     let id = ref_id(dir, &format!("refs/heads/{name}"))?;
@@ -29,16 +29,6 @@ pub fn delete_branch(dir: &Path, name: &str, force: bool) -> Result<String, GitE
     }
     run(dir, &[], &["branch", if force { "-D" } else { "-d" }, name])?;
     Ok(id)
-}
-
-/// Recreates branch `name` at `commit`; fails when a branch of that name exists.
-pub fn restore_branch(dir: &Path, name: &str, commit: &str) -> Result<(), GitError> {
-    let op = ["update-ref"];
-    check_branch(dir, &op, name)?;
-    check_rev(&op, commit)?;
-    let full = format!("refs/heads/{name}");
-    // An empty old value makes update-ref refuse when the ref already exists.
-    run(dir, &[], &["update-ref", full.as_str(), commit, ""]).map(|_| ())
 }
 
 pub fn rename_branch(dir: &Path, from: &str, to: &str) -> Result<(), GitError> {
@@ -153,15 +143,6 @@ pub fn delete_tag(dir: &Path, name: &str) -> Result<String, GitError> {
     let id = ref_id(dir, &format!("refs/tags/{name}"))?;
     run(dir, &[], &["tag", "-d", name])?;
     Ok(id)
-}
-
-/// Recreates tag `name` pointing at `target` exactly (an annotated tag keeps its object).
-pub fn restore_tag(dir: &Path, name: &str, target: &str) -> Result<(), GitError> {
-    let op = ["update-ref"];
-    check_tag(dir, &op, name)?;
-    check_rev(&op, target)?;
-    let full = format!("refs/tags/{name}");
-    run(dir, &[], &["update-ref", full.as_str(), target, ""]).map(|_| ())
 }
 
 /// Rejects a branch name that is empty, option-like or not a valid branch
@@ -305,7 +286,7 @@ mod tests {
     }
 
     #[test]
-    fn delete_branch_returns_its_commit_and_restore_brings_it_back() {
+    fn delete_branch_returns_its_commit() {
         let r = repo();
         write(r.path(), "a.txt", "a\n");
         commit_all(r.path(), "init");
@@ -314,13 +295,6 @@ mod tests {
 
         assert_eq!(delete_branch(r.path(), "topic", false).unwrap(), head);
         assert!(!branch_list(r.path()).contains("topic"));
-
-        restore_branch(r.path(), "topic", &head).unwrap();
-        assert_eq!(rev_of(r.path(), "refs/heads/topic"), head);
-
-        let err = restore_branch(r.path(), "topic", &head).unwrap_err();
-        assert!(err.stderr.contains("topic"), "{err}");
-        assert_eq!(rev_of(r.path(), "refs/heads/topic"), head);
     }
 
     #[test]
@@ -442,7 +416,7 @@ mod tests {
     }
 
     #[test]
-    fn delete_then_restore_an_annotated_tag_keeps_it_annotated() {
+    fn delete_tag_returns_the_tag_object_of_an_annotated_tag() {
         let r = repo();
         write(r.path(), "a.txt", "a\n");
         commit_all(r.path(), "init");
@@ -450,14 +424,6 @@ mod tests {
 
         assert_eq!(delete_tag(r.path(), "v1").unwrap(), annotated);
         assert_eq!(tags(r.path()).unwrap(), Vec::<String>::new());
-
-        restore_tag(r.path(), "v1", &annotated).unwrap();
-        assert_eq!(rev_of(r.path(), "refs/tags/v1"), annotated);
-        assert_eq!(
-            git(r.path(), &["cat-file", "-t", "refs/tags/v1"]).trim(),
-            "tag"
-        );
-        assert!(restore_tag(r.path(), "v1", &annotated).is_err());
     }
 
     #[test]

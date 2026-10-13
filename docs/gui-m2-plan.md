@@ -65,7 +65,7 @@ Each slice ends green (`cargo test`, clippy, `fmt --check`) and is one commit.
 | 1 | `rvw-git::index`: status, unstaged and staged diffs, stage and unstage paths, apply to the index, write and read tree | temp-repo tests |
 | 2 | `rvw-view::patch`: patch for a hunk or chosen lines, both directions | tests that apply the patch with git |
 | 3 | `rvw-git::commits`: commit, amend, HEAD pushed or not, discard and restore | temp-repo tests |
-| 4 | `rvw-view::undo`: the log, its labels and the precondition check (replaced by 4b) | unit and temp-repo tests |
+| 4 | `rvw-view::undo`, removed when checkpoints replaced it | — |
 | 4b | `rvw-git::checkpoint`, then the GUI swap and removing `undo` | temp-repo tests incl. worktrees and gc |
 | 5 | `rvw-view::commit_screen`: lists, counts, commit label, open comments per hunk | unit tests |
 | 6 | Changes screen: lists, diff, stage file, hunk and line, commit, amend, recent actions with undo | manual run |

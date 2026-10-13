@@ -80,17 +80,6 @@ pub fn store(dir: &Path, commit: &str, message: &str) -> Result<(), GitError> {
     run(dir, &[], &["stash", "store", "-m", message, commit]).map(|_| ())
 }
 
-/// Pops the top stash, but only when it is `commit`; this undoes a push.
-pub fn pop_top(dir: &Path, commit: &str) -> Result<(), GitError> {
-    if top_commit(dir)?.as_deref() != Some(commit) {
-        return Err(GitError {
-            args: owned_args(&["stash", "pop"]),
-            stderr: "the stash list changed".to_owned(),
-        });
-    }
-    with_index(dir, "pop", None)
-}
-
 /// The commit `refs/stash` points at; None when there is no stash.
 fn top_commit(dir: &Path) -> Result<Option<String>, GitError> {
     let ran = gitx::exec(dir, &[], &["rev-parse", "-q", "--verify", "refs/stash"])?;
@@ -279,36 +268,5 @@ mod tests {
         let r = committed();
         let err = store(r.path(), "--bogus", "m").unwrap_err();
         assert_eq!(err.stderr, "invalid commit '--bogus'");
-    }
-
-    #[test]
-    fn pop_top_restores_the_top_change_and_empties_the_list() {
-        let r = committed();
-        write(r.path(), "a.txt", "changed\n");
-        let entry = push(r.path(), "try", false).unwrap().unwrap();
-        assert_eq!(fs::read_to_string(r.path().join("a.txt")).unwrap(), "a\n");
-
-        pop_top(r.path(), &entry.commit).unwrap();
-        assert_eq!(
-            fs::read_to_string(r.path().join("a.txt")).unwrap(),
-            "changed\n"
-        );
-        assert!(list(r.path()).unwrap().is_empty());
-    }
-
-    #[test]
-    fn pop_top_with_a_commit_that_is_not_the_top_errors_and_changes_nothing() {
-        let r = committed();
-        write(r.path(), "a.txt", "first\n");
-        let older = push(r.path(), "older", false).unwrap().unwrap();
-        write(r.path(), "a.txt", "second\n");
-        push(r.path(), "newer", false).unwrap().unwrap();
-        let before = list(r.path()).unwrap();
-        assert_eq!(before.len(), 2);
-
-        let err = pop_top(r.path(), &older.commit).unwrap_err();
-        assert_eq!(err.stderr, "the stash list changed");
-        assert_eq!(list(r.path()).unwrap(), before);
-        assert_eq!(fs::read_to_string(r.path().join("a.txt")).unwrap(), "a\n");
     }
 }
