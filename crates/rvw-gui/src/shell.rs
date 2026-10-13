@@ -22,13 +22,14 @@ use crate::frame::{self, Panels};
 use crate::highlights::Highlighter;
 use crate::key_strip::key_strip;
 use crate::outcome_screen::{self, Outcome};
+use crate::palette_overlay::OpenPalette;
 use crate::queue_screen;
 use crate::review_screen::{self, Selected};
 use crate::seen::Seen;
-use crate::submit_dialog::{self, OpenSubmit, SubmitDialog};
-use crate::text_area::{TextArea, TextAreaEvent};
+use crate::submit_dialog::{OpenSubmit, SubmitDialog};
+use crate::text_area::TextArea;
 use crate::theme;
-use crate::verdict::Verdict;
+use crate::tools::Tools;
 
 pub struct Shell {
     pub(crate) snapshot: Snapshot,
@@ -49,11 +50,13 @@ pub struct Shell {
     /// The open comment composer, if any.
     pub(crate) composer: Option<Composer>,
     /// The open submit dialog, if any.
-    submit: Option<SubmitDialog>,
+    pub(crate) submit: Option<SubmitDialog>,
     /// The repository's files, listed the first time a view needs them.
     pub(crate) listing: Option<Result<FileList, String>>,
     /// The open find-a-file overlay, if any.
     pub(crate) finder: Option<Finder>,
+    /// The compare menu, branch picker, action palette and diff mode.
+    pub(crate) tools: Tools,
     /// The virtualised diff of the open file; see `diff_list`.
     pub(crate) diff_list: Option<DiffList>,
     /// Bumped whenever the open file or its snapshot is replaced, so the diff
@@ -105,6 +108,7 @@ impl Shell {
             submit: None,
             listing: None,
             finder: None,
+            tools: Tools::default(),
             diff_list: None,
             diff_generation: 0,
             highlights: Highlighter::default(),
@@ -183,6 +187,7 @@ impl Shell {
             &self.identity.workspace,
             &self.identity.lane,
             acknowledged,
+            self.tools.compare,
         )?;
         self.queue = snapshot.view(&self.filter);
         self.snapshot = snapshot;
@@ -213,6 +218,9 @@ impl Shell {
             if event.keystroke.key == "escape" {
                 self.close_submit(cx);
             }
+            return;
+        }
+        if self.tools_key(event, cx) {
             return;
         }
         if self.finder.is_some() {
@@ -270,71 +278,6 @@ impl Shell {
         self.apply(filter, cx);
     }
 
-    /// Opens the submit dialog with the verdict the drafts suggest: request
-    /// changes with drafts, comment without. Does nothing while the dialog or
-    /// the finder is open.
-    pub fn open_submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.submit.is_some() || self.finder.is_some() {
-            return;
-        }
-        self.removal = None;
-        let drafts = submit_dialog::draft_rows(&self.snapshot).len();
-        let summary = cx.new(|cx| TextArea::new("Summary for the agent", cx).with_lines(2, 6));
-        let events = cx.subscribe(
-            &summary,
-            |this: &mut Self, _, event: &TextAreaEvent, cx: &mut Context<Self>| {
-                if *event == TextAreaEvent::Cancel {
-                    this.close_submit(cx);
-                }
-            },
-        );
-        summary.update(cx, |area, cx| area.focus(window, cx));
-        self.submit = Some(SubmitDialog::new(
-            Verdict::for_drafts(drafts),
-            summary,
-            events,
-        ));
-        cx.notify();
-    }
-
-    pub fn close_submit(&mut self, cx: &mut Context<Self>) {
-        self.submit = None;
-        cx.notify();
-    }
-
-    pub fn pick_verdict(&mut self, verdict: Verdict, cx: &mut Context<Self>) {
-        if let Some(dialog) = self.submit.as_mut() {
-            dialog.verdict = verdict;
-        }
-        cx.notify();
-    }
-
-    /// Submits the drafts as one review. On success the dialog closes and the
-    /// snapshot reloads; a refused submit shows its message in the dialog.
-    pub fn send_submit(&mut self, cx: &mut Context<Self>) {
-        let Some(dialog) = self.submit.as_ref() else {
-            return;
-        };
-        let summary = dialog.summary.read(cx).text().to_owned();
-        let decision = dialog.verdict.decision();
-        let ids = submit_dialog::draft_rows(&self.snapshot)
-            .into_iter()
-            .map(|row| row.id)
-            .collect();
-        match data::submit_review(&self.service, &self.identity, decision, &summary, ids) {
-            Ok(_) => {
-                self.submit = None;
-                self.reload(cx);
-            }
-            Err(message) => {
-                if let Some(dialog) = self.submit.as_mut() {
-                    dialog.error = Some(message);
-                }
-                cx.notify();
-            }
-        }
-    }
-
     fn apply(&mut self, filter: Filter, cx: &mut Context<Self>) {
         self.queue = self.snapshot.view(&filter);
         self.filter = filter;
@@ -358,6 +301,7 @@ impl Render for Shell {
         if self.composer.is_none()
             && self.submit.is_none()
             && self.finder.is_none()
+            && !self.tools.field_open()
             && !self.focus.is_focused(window)
         {
             self.focus.focus(window);
@@ -371,6 +315,7 @@ impl Render for Shell {
                     &self.snapshot,
                     self.selected.as_ref(),
                     self.diff_list.as_ref(),
+                    self.split_available().then_some(self.tools.split),
                     cx,
                 ),
                 right: crate::draft_panel::right(&self.snapshot, self.removal.as_ref(), cx),
@@ -394,13 +339,13 @@ impl Render for Shell {
             (Screen::Outcome, None) => Screen::Queue,
             (screen, _) => screen,
         };
-        let key_screen = if self.finder.is_some() {
+        let key_screen = if self.finder.is_some() || self.tools.open() {
             Screen::Search
         } else {
             self.screen
         };
         let window = frame::window(
-            frame::top_bar(&self.snapshot),
+            frame::top_bar(&self.snapshot, self.tools.compare_menu.as_ref(), cx),
             frame::rail(rail_screen, cx),
             panels,
             key_strip(key_screen, &self.snapshot.queue.counters),
@@ -425,15 +370,19 @@ impl Render for Shell {
             .on_action(cx.listener(|this: &mut Self, _: &OpenFinder, window, cx| {
                 this.open_finder(window, cx);
             }))
+            .on_action(cx.listener(|this: &mut Self, _: &OpenPalette, window, cx| {
+                this.open_palette(window, cx);
+            }))
             .child(window)
             .children(self.submit.as_ref().map(|dialog| {
-                submit_dialog::overlay(dialog, &self.snapshot, &self.identity.lane, cx)
+                crate::submit_dialog::overlay(dialog, &self.snapshot, &self.identity.lane, cx)
             }))
             .children(
                 self.finder
                     .as_ref()
                     .map(|finder| finder::overlay(finder, cx)),
             )
+            .children(self.tool_overlays(cx))
     }
 }
 

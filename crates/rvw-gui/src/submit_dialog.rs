@@ -13,7 +13,7 @@ use rvw_view::queue::{Filter, Row, State};
 use crate::data::Snapshot;
 use crate::queue_screen::noun;
 use crate::shell::Shell;
-use crate::text_area::TextArea;
+use crate::text_area::{TextArea, TextAreaEvent};
 use crate::theme;
 use crate::verdict::Verdict;
 
@@ -42,6 +42,74 @@ impl SubmitDialog {
             summary,
             error: None,
             _events: events,
+        }
+    }
+}
+
+impl Shell {
+    /// Opens the submit dialog with the verdict the drafts suggest: request
+    /// changes with drafts, comment without. Does nothing while the dialog or
+    /// the finder is open.
+    pub fn open_submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.submit.is_some() || self.finder.is_some() {
+            return;
+        }
+        self.tools.close_all();
+        self.removal = None;
+        let drafts = draft_rows(&self.snapshot).len();
+        let summary = cx.new(|cx| TextArea::new("Summary for the agent", cx).with_lines(2, 6));
+        let events = cx.subscribe(
+            &summary,
+            |this: &mut Self, _, event: &TextAreaEvent, cx: &mut Context<Self>| {
+                if *event == TextAreaEvent::Cancel {
+                    this.close_submit(cx);
+                }
+            },
+        );
+        summary.update(cx, |area, cx| area.focus(window, cx));
+        self.submit = Some(SubmitDialog::new(
+            Verdict::for_drafts(drafts),
+            summary,
+            events,
+        ));
+        cx.notify();
+    }
+
+    pub fn close_submit(&mut self, cx: &mut Context<Self>) {
+        self.submit = None;
+        cx.notify();
+    }
+
+    pub fn pick_verdict(&mut self, verdict: Verdict, cx: &mut Context<Self>) {
+        if let Some(dialog) = self.submit.as_mut() {
+            dialog.verdict = verdict;
+        }
+        cx.notify();
+    }
+
+    /// Submits the drafts as one review. On success the dialog closes and the
+    /// snapshot reloads; a refused submit shows its message in the dialog.
+    pub fn send_submit(&mut self, cx: &mut Context<Self>) {
+        let Some(dialog) = self.submit.as_ref() else {
+            return;
+        };
+        let summary = dialog.summary.read(cx).text().to_owned();
+        let decision = dialog.verdict.decision();
+        let ids = draft_rows(&self.snapshot)
+            .into_iter()
+            .map(|row| row.id)
+            .collect();
+        match crate::data::submit_review(&self.service, &self.identity, decision, &summary, ids) {
+            Ok(_) => {
+                self.submit = None;
+                self.reload(cx);
+            }
+            Err(message) => {
+                if let Some(dialog) = self.submit.as_mut() {
+                    dialog.error = Some(message);
+                }
+                cx.notify();
+            }
         }
     }
 }

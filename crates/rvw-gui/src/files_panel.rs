@@ -268,6 +268,11 @@ impl Shell {
         scroll.scroll_to_item(*row, ScrollStrategy::Center);
     }
 
+    /// Whether a keyboard step has any file to reach.
+    pub(crate) fn has_file_rows(&self) -> bool {
+        !self.file_rows().is_empty()
+    }
+
     /// The files a keyboard step can reach, in display order, each with its
     /// row's index in the rendered list.
     fn file_rows(&self) -> Vec<(usize, String)> {

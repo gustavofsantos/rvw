@@ -105,10 +105,18 @@ pub fn row(
                 .map_or(&[][..], Vec::as_slice);
             line_view(line, spans, selected, on_down).into_any_element()
         }
-        DiffRow::Thread { comment_index } => model.comments.get(comment_index).map_or_else(
-            || div().into_any_element(),
-            |comment| padded(thread(comment, px(62.), shell)),
-        ),
+        DiffRow::Pair { left, right } => {
+            crate::split_view::pair(model, left, right, selection, shell)
+        }
+        DiffRow::Thread { comment_index } => {
+            // Under a split row the thread spans both columns, so it starts
+            // at the page margin; under a unified line it lines up with code.
+            let indent = if model.split { px(24.) } else { px(62.) };
+            model.comments.get(comment_index).map_or_else(
+                || div().into_any_element(),
+                |comment| padded(thread(comment, indent, shell)),
+            )
+        }
         DiffRow::Composer | DiffRow::OutsideComposer => {
             let Some(slot) = model.composer.as_ref() else {
                 return div().into_any_element();
@@ -210,7 +218,7 @@ fn line_view(
 
 /// The text of a line with its syntax colours. A line with nothing to colour
 /// stays a plain string, which is the cheap path for most lines.
-fn code_text(text: &str, spans: &[Span]) -> AnyElement {
+pub(crate) fn code_text(text: &str, spans: &[Span]) -> AnyElement {
     let runs = highlights::runs(spans);
     if runs.is_empty() {
         text.to_owned().into_any_element()

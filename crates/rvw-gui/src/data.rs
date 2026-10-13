@@ -10,7 +10,7 @@ use rvw_core::operations::{
 use rvw_core::types::Comment;
 use rvw_core::Service;
 use rvw_git::gitx;
-use rvw_view::changes::{self, ChangedFile};
+use rvw_view::changes::{self, ChangedFile, Compare};
 use rvw_view::diff::{self, FileDiff};
 use rvw_view::queue::{self, Facets, Filter, Queue};
 
@@ -31,6 +31,8 @@ pub struct Snapshot {
     /// What the changes are compared with, for display: `main` or `HEAD`.
     /// Empty when there is no comparison.
     pub base_name: String,
+    /// The comparison the changes were read with; `None` when none resolved.
+    pub compare: Option<Compare>,
     /// Why the changes cannot be shown, when they cannot.
     pub changes_note: Option<String>,
 }
@@ -56,6 +58,9 @@ impl Snapshot {
 /// every lane. A done comment whose id is in `acknowledged` counts as closed,
 /// not waiting on the reviewer.
 ///
+/// `compare` is the comparison to use; `None` takes the default branch and
+/// falls back to the uncommitted changes.
+///
 /// A missing comparison is not an error: the changes stay empty and the note
 /// says why, so the queue still opens.
 ///
@@ -67,6 +72,7 @@ pub fn load(
     workspace: &str,
     lane: &str,
     acknowledged: HashSet<String>,
+    compare: Option<Compare>,
 ) -> Result<Snapshot, String> {
     let list = service
         .list(QueryInput {
@@ -103,8 +109,7 @@ pub fn load(
         Some(found) => (usize::try_from(found.count).unwrap_or(0), found.lanes),
         None => (0, Vec::new()),
     };
-    let (changes, base_id, base_name, changes_note) =
-        read_changes(Path::new(workspace), &list.comments);
+    let read = read_changes(Path::new(workspace), &list.comments, compare);
 
     Ok(Snapshot {
         workspace: workspace.to_owned(),
@@ -120,31 +125,48 @@ pub fn load(
             elsewhere,
             elsewhere_lanes,
         },
-        changes,
-        base_id,
-        base_name,
-        changes_note,
+        changes: read.changes,
+        base_id: read.base_id,
+        base_name: read.base_name,
+        compare: read.compare,
+        changes_note: read.note,
     })
 }
 
-/// The changed files against the resolved base, with the base's id and name.
-/// The last element is the note explaining why there are no changes to show.
-fn read_changes(
-    dir: &Path,
-    comments: &[Comment],
-) -> (Vec<ChangedFile>, String, String, Option<String>) {
-    let base = match changes::resolve_base(dir) {
-        Ok(base) => base,
-        Err(message) => return (Vec::new(), String::new(), String::new(), Some(message)),
+/// What reading the changes found.
+struct ReadChanges {
+    changes: Vec<ChangedFile>,
+    base_id: String,
+    base_name: String,
+    compare: Option<Compare>,
+    /// Why there are no changes to show, when there are none to show.
+    note: Option<String>,
+}
+
+/// The changed files against the base `wanted` resolves to.
+fn read_changes(dir: &Path, comments: &[Comment], wanted: Option<Compare>) -> ReadChanges {
+    let (compare, base) = match changes::resolve(dir, wanted) {
+        Ok(found) => found,
+        Err(message) => {
+            return ReadChanges {
+                changes: Vec::new(),
+                base_id: String::new(),
+                base_name: String::new(),
+                compare: None,
+                note: Some(message),
+            }
+        }
     };
-    match gitx::changed_files(dir, &base.id) {
-        Ok(found) => (
-            changes::changed_files(&found, comments),
-            base.id,
-            base.name,
-            None,
-        ),
-        Err(error) => (Vec::new(), base.id, base.name, Some(error.stderr)),
+    let (changes, note) = match gitx::changed_files(dir, &base.id) {
+        Ok(found) => (changes::changed_files(&found, comments), None),
+        Err(error) => (Vec::new(), Some(error.stderr)),
+    };
+    ReadChanges {
+        changes,
+        base_id: base.id,
+        base_name: base.name,
+        compare: Some(compare),
+        note,
     }
 }
 
@@ -448,12 +470,12 @@ pub(crate) mod tests {
             })
             .expect("resolve");
 
-        let unseen = load(&service, &workspace, "", HashSet::new()).expect("load");
+        let unseen = load(&service, &workspace, "", HashSet::new(), None).expect("load");
         assert_eq!(unseen.queue.counters.waiting_on_you, 1);
         assert_eq!(unseen.queue.counters.closed, 0);
 
         let seen = HashSet::from(["r1".to_owned()]);
-        let seen_snapshot = load(&service, &workspace, "", seen).expect("load");
+        let seen_snapshot = load(&service, &workspace, "", seen, None).expect("load");
         assert_eq!(seen_snapshot.queue.counters.waiting_on_you, 0);
         assert_eq!(seen_snapshot.queue.counters.closed, 1);
     }

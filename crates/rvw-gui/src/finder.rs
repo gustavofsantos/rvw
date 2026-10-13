@@ -39,6 +39,7 @@ impl Shell {
         if self.finder.is_some() {
             return;
         }
+        self.tools.close_all();
         self.ensure_listing();
         let input = cx.new(|cx| TextInput::new("Find a file", cx));
         let events = cx.subscribe(

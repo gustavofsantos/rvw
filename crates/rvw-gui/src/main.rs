@@ -1,6 +1,8 @@
 //! rvw-gui: the native review window: the queue and the review screens.
 
 mod assets;
+mod branch_picker;
+mod compare_picker;
 mod composer;
 mod data;
 mod diff_list;
@@ -15,16 +17,19 @@ mod key_strip;
 mod outcome_flow;
 mod outcome_screen;
 mod outcome_story;
+mod palette_overlay;
 mod queue_screen;
 mod review_screen;
 mod seen;
 mod shell;
+mod split_view;
 mod submit_dialog;
 mod text_area;
 mod text_area_element;
 mod text_area_math;
 mod text_input;
 mod theme;
+mod tools;
 mod verdict;
 
 use std::path::PathBuf;
@@ -71,7 +76,13 @@ fn run() -> Result<(), String> {
     let service = rvw_core::Service::new(Box::new(store));
 
     let seen = Seen::load(&db);
-    let snapshot = data::load(&service, &workspace, &args.lane, seen.ids_for(&workspace))?;
+    let snapshot = data::load(
+        &service,
+        &workspace,
+        &args.lane,
+        seen.ids_for(&workspace),
+        None,
+    )?;
     let identity = Identity {
         workspace,
         author: args.author,
@@ -111,6 +122,7 @@ fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identit
             text_area::bind_keys(cx);
             submit_dialog::bind_keys(cx);
             finder::bind_keys(cx);
+            palette_overlay::bind_keys(cx);
             let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),

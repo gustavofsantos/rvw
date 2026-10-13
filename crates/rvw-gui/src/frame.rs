@@ -6,6 +6,7 @@ use gpui::prelude::*;
 use gpui::{div, px, svg, ClickEvent, Context, Div, FontWeight, Pixels, Rgba, Stateful, Window};
 use rvw_view::keys::Screen;
 
+use crate::compare_picker::{self, CompareMenu};
 use crate::data::Snapshot;
 use crate::shell::Shell;
 use crate::theme;
@@ -39,7 +40,7 @@ pub fn window(top: Div, rail: Div, panels: Panels, keys: Div) -> Div {
         .child(keys)
 }
 
-pub fn top_bar(snapshot: &Snapshot) -> Div {
+pub fn top_bar(snapshot: &Snapshot, menu: Option<&CompareMenu>, cx: &Context<Shell>) -> Div {
     let counters = snapshot.queue.counters;
     div()
         .flex()
@@ -62,11 +63,8 @@ pub fn top_bar(snapshot: &Snapshot) -> Div {
                 .text_color(theme::muted())
                 .child(snapshot.workspace.clone()),
         )
-        .child(
-            div()
-                .text_color(theme::muted())
-                .child(format!("branch {}", snapshot.branch)),
-        )
+        .child(branch_chip(&snapshot.branch, cx))
+        .child(compare_picker::chip(snapshot, menu, cx))
         .child(div().flex_1())
         .child(waiting_counter(counters.waiting_on_you))
         .child(counter(
@@ -77,6 +75,26 @@ pub fn top_bar(snapshot: &Snapshot) -> Div {
             format!("○ {} in draft", counters.draft),
             theme::pending(),
         ))
+}
+
+/// The branch name; a click opens the branch picker, as the rail's B does.
+fn branch_chip(branch: &str, cx: &Context<Shell>) -> Stateful<Div> {
+    div()
+        .id("branch-chip")
+        .flex()
+        .items_center()
+        .h(px(24.))
+        .px(px(6.))
+        .rounded(theme::ROW_RADIUS)
+        .cursor_pointer()
+        .text_color(theme::muted())
+        .hover(|style| style.text_color(theme::ink()).bg(theme::hairline()))
+        .on_click(cx.listener(
+            |this: &mut Shell, _: &ClickEvent, window: &mut Window, cx: &mut Context<Shell>| {
+                this.open_branches(window, cx);
+            },
+        ))
+        .child(format!("branch {branch}"))
 }
 
 /// Orange is the only "needs you" signal, so the dot is orange and the text is
@@ -98,14 +116,23 @@ fn counter(label: String, color: Rgba) -> Div {
     div().text_color(color).child(label)
 }
 
-/// The rail's four icons. Queue and Review open their screens; History and
-/// Branches are drawn but not wired yet. The ids are the old letters.
+/// What a rail icon does.
+#[derive(Clone, Copy)]
+enum RailTarget {
+    Show(Screen),
+    Branches,
+    None,
+}
+
+/// The rail's four icons. Queue and Review open their screens, Branches the
+/// branch picker; History is drawn but not wired yet. The ids are the old
+/// letters.
 pub fn rail(screen: Screen, cx: &mut Context<Shell>) -> Div {
     let items = [
-        ("Q", "icons/queue.svg", Some(Screen::Queue)),
-        ("R", "icons/review.svg", Some(Screen::Diff)),
-        ("H", "icons/history.svg", None),
-        ("B", "icons/branches.svg", None),
+        ("Q", "icons/queue.svg", RailTarget::Show(Screen::Queue)),
+        ("R", "icons/review.svg", RailTarget::Show(Screen::Diff)),
+        ("H", "icons/history.svg", RailTarget::None),
+        ("B", "icons/branches.svg", RailTarget::Branches),
     ];
     div()
         .flex()
@@ -119,8 +146,9 @@ pub fn rail(screen: Screen, cx: &mut Context<Shell>) -> Div {
         .border_r_1()
         .border_color(theme::hairline())
         .children(items.map(|(id, icon, target)| {
-            let active = target == Some(screen);
-            let mut item = div()
+            let active = matches!(target, RailTarget::Show(s) if s == screen);
+            let live = !matches!(target, RailTarget::None);
+            div()
                 .id(id)
                 .flex()
                 .items_center()
@@ -128,22 +156,26 @@ pub fn rail(screen: Screen, cx: &mut Context<Shell>) -> Div {
                 .size(px(36.))
                 .rounded(theme::CONTROL_RADIUS)
                 .when(active, |d| d.bg(theme::selected_panel()))
+                .when(live && !active, |d| {
+                    d.cursor_pointer().hover(|s| s.bg(theme::hairline()))
+                })
+                .when(live, |d| {
+                    d.on_click(cx.listener(
+                        move |this: &mut Shell,
+                              _: &ClickEvent,
+                              window: &mut Window,
+                              cx: &mut Context<Shell>| match target {
+                            RailTarget::Show(screen) => this.show(screen, cx),
+                            RailTarget::Branches => this.open_branches(window, cx),
+                            RailTarget::None => {}
+                        },
+                    ))
+                })
                 .child(svg().path(icon).size(px(18.)).text_color(if active {
                     theme::ink()
                 } else {
                     theme::faint()
-                }));
-            if let Some(target) = target {
-                item = item.on_click(cx.listener(
-                    move |this: &mut Shell,
-                          _: &ClickEvent,
-                          _: &mut Window,
-                          cx: &mut Context<Shell>| {
-                        this.show(target, cx);
-                    },
-                ));
-            }
-            item
+                }))
         }))
 }
 

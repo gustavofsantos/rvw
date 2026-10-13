@@ -246,6 +246,7 @@ pub fn centre(
     snapshot: &Snapshot,
     selected: Option<&Selected>,
     diff_list: Option<&DiffList>,
+    split: Option<bool>,
     cx: &Context<Shell>,
 ) -> Stateful<Div> {
     div()
@@ -255,14 +256,14 @@ pub fn centre(
         .flex_1()
         .min_w(px(0.))
         .bg(theme::paper())
-        .child(file_header(selected, cx))
+        .child(file_header(selected, split, cx))
         .children(selected.filter(|s| s.outside).map(context_banner))
         .child(diff_body(snapshot, selected, diff_list, cx))
 }
 
 /// The file's path, its added and removed line counts when it has a diff, and
 /// the selection's range with the Comment affordance.
-fn file_header(selected: Option<&Selected>, cx: &Context<Shell>) -> Div {
+fn file_header(selected: Option<&Selected>, split: Option<bool>, cx: &Context<Shell>) -> Div {
     let path = selected.map_or("", |s| s.path.as_str()).to_owned();
     let mut header = div()
         .flex()
@@ -303,6 +304,9 @@ fn file_header(selected: Option<&Selected>, cx: &Context<Shell>) -> Div {
                 )
                 .child(comment_button(cx));
         }
+    }
+    if let Some(split) = split {
+        header = header.child(crate::split_view::toggle(split, cx));
     }
     header
 }

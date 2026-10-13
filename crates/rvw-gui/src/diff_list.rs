@@ -38,6 +38,8 @@ pub struct Model {
     /// The comments of the open file; thread rows index into this.
     pub comments: Vec<Comment>,
     pub rows: Vec<DiffRow>,
+    /// The rows are the split view's pairs.
+    pub split: bool,
     /// The file is outside the change; the composer's caption says so.
     pub outside_change: bool,
     pub composer: Option<ComposerSlot>,
@@ -55,6 +57,7 @@ struct Key {
     /// The composer's field; another field is another composer.
     composer_input: Option<EntityId>,
     error: bool,
+    split: bool,
 }
 
 pub struct DiffList {
@@ -85,6 +88,7 @@ fn layout(
     path: &str,
     composer_after: Option<Pos>,
     outside_edit: Option<&str>,
+    split: bool,
 ) -> (Vec<Comment>, Vec<DiffRow>) {
     let comments: Vec<Comment> = all
         .iter()
@@ -101,8 +105,32 @@ fn layout(
     }
     let composer_outside =
         outside_edit.and_then(|id| comments.iter().position(|comment| comment.id == id));
-    let rows = diffrows::rows(diff, &under, composer_after, &outside, composer_outside);
+    let build = if split {
+        diffrows::split_rows
+    } else {
+        diffrows::rows
+    };
+    let rows = build(diff, &under, composer_after, &outside, composer_outside);
     (comments, rows)
+}
+
+/// Where a rebuilt list of the same file starts: the old position when the
+/// mode is unchanged, else the first row of the hunk that was at the top.
+fn scroll_offset(old: &DiffList, model: &Model) -> gpui::ListOffset {
+    let top = old.state.logical_scroll_top();
+    let last = model.rows.len().saturating_sub(1);
+    if old.model.split == model.split {
+        return gpui::ListOffset {
+            item_ix: top.item_ix.min(last),
+            offset_in_item: top.offset_in_item,
+        };
+    }
+    let row = diffrows::hunk_of_row(&old.model.rows, top.item_ix)
+        .and_then(|hunk| diffrows::first_row_of_hunk(&model.rows, hunk));
+    gpui::ListOffset {
+        item_ix: row.unwrap_or(0).min(last),
+        offset_in_item: px(0.),
+    }
 }
 
 impl Shell {
@@ -110,6 +138,7 @@ impl Shell {
     /// only when the key changed. Called by every render; a selection change
     /// or a caret blink finds the key equal and costs one comparison.
     pub(crate) fn sync_diff_list(&mut self, window: &Window) {
+        let split = self.split_active();
         let Some(selected) = self.selected.as_ref() else {
             self.diff_list = None;
             return;
@@ -145,6 +174,7 @@ impl Shell {
                 .composer
                 .as_ref()
                 .is_some_and(|composer| composer.error.is_some()),
+            split,
         };
         if let Some(current) = self.diff_list.as_ref() {
             if current.key == key && current.path == selected.path {
@@ -160,6 +190,7 @@ impl Shell {
             &selected.path,
             composer_after,
             outside_edit,
+            split,
         );
         let composer_row = rows
             .iter()
@@ -168,6 +199,7 @@ impl Shell {
             diff: Rc::clone(diff),
             comments,
             rows,
+            split,
             outside_change: selected.outside,
             composer: self.composer.as_ref().map(|composer| ComposerSlot {
                 input: composer.input.clone(),
@@ -182,16 +214,14 @@ impl Shell {
             && previous
                 .as_ref()
                 .is_none_or(|list| list.key.composer_input != key.composer_input);
-        // The same file keeps its scroll position through a rebuild; a new
-        // file starts at its top.
+        // The same file keeps its scroll position through a rebuild, or, when
+        // the mode changed, the place of the hunk at its top; a new file
+        // starts at its top.
         let state = match previous {
             Some(list) if list.path == selected.path => {
-                let top = list.state.logical_scroll_top();
+                let offset = scroll_offset(&list, &model);
                 list.state.reset(model.rows.len());
-                list.state.scroll_to(gpui::ListOffset {
-                    item_ix: top.item_ix.min(model.rows.len().saturating_sub(1)),
-                    offset_in_item: top.offset_in_item,
-                });
+                list.state.scroll_to(offset);
                 list.state
             }
             _ => ListState::new(model.rows.len(), ListAlignment::Top, px(OVERDRAW)),
