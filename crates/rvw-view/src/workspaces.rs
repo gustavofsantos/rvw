@@ -3,6 +3,7 @@
 //! the caller reads the summaries and drops the ones whose directory is gone.
 
 use rvw_core::operations::WorkspaceSummary;
+use rvw_git::worktree::Worktree;
 
 /// One workspace the picker lists.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,6 +18,9 @@ pub struct Item {
     pub pulled: i64,
     /// The window shows this workspace.
     pub current: bool,
+    /// The branch of the repository's worktree at this path, or "detached";
+    /// None when the path is not a worktree.
+    pub worktree_branch: Option<String>,
 }
 
 /// The picker's items: `current` first, then by work waiting (pending, then
@@ -32,6 +36,7 @@ pub fn items(found: &[WorkspaceSummary], current: &str, home: Option<&str>) -> V
             pending: row.pending,
             pulled: row.pulled,
             current: row.workspace == current,
+            worktree_branch: None,
         })
         .collect();
     if !items.iter().any(|item| item.current) {
@@ -41,6 +46,7 @@ pub fn items(found: &[WorkspaceSummary], current: &str, home: Option<&str>) -> V
             pending: 0,
             pulled: 0,
             current: true,
+            worktree_branch: None,
         });
     }
     items.sort_by(|a, b| {
@@ -50,6 +56,40 @@ pub fn items(found: &[WorkspaceSummary], current: &str, home: Option<&str>) -> V
             .then_with(|| a.label.cmp(&b.label))
     });
     items
+}
+
+/// `items` with the repository's worktrees first, in git's order. A worktree
+/// that is the open one, or whose directory is gone (prunable), gets no item of
+/// its own. A worktree already in `items` stays where it is and is marked with
+/// its branch, so it is not listed twice. The other items follow, unchanged.
+#[must_use]
+pub fn with_worktrees(items: Vec<Item>, worktrees: &[Worktree], home: Option<&str>) -> Vec<Item> {
+    let mut items = items;
+    let mut added: Vec<Item> = Vec::new();
+    for worktree in worktrees {
+        let path = worktree.path.to_string_lossy().into_owned();
+        let branch = worktree
+            .branch
+            .clone()
+            .unwrap_or_else(|| "detached".to_owned());
+        if let Some(item) = items.iter_mut().find(|item| item.path == path) {
+            item.worktree_branch = Some(branch);
+            continue;
+        }
+        if worktree.current || worktree.prunable || added.iter().any(|item| item.path == path) {
+            continue;
+        }
+        added.push(Item {
+            label: label(&path, home),
+            path,
+            pending: 0,
+            pulled: 0,
+            current: false,
+            worktree_branch: Some(branch),
+        });
+    }
+    added.extend(items);
+    added
 }
 
 /// `path` with a leading `home` written `~`.
@@ -122,5 +162,102 @@ mod tests {
         assert_eq!(label("/srv/rvw", Some("/home/me")), "/srv/rvw");
         assert_eq!(label("/srv/rvw", None), "/srv/rvw");
         assert_eq!(label("/srv/rvw", Some("")), "/srv/rvw");
+    }
+
+    fn worktree(path: &str, branch: Option<&str>, main: bool, current: bool) -> Worktree {
+        Worktree {
+            path: path.into(),
+            head: None,
+            branch: branch.map(str::to_owned),
+            main,
+            current,
+            locked: false,
+            prunable: false,
+        }
+    }
+
+    fn plain(path: &str) -> Item {
+        Item {
+            path: path.to_owned(),
+            label: path.to_owned(),
+            pending: 0,
+            pulled: 0,
+            current: false,
+            worktree_branch: None,
+        }
+    }
+
+    #[test]
+    fn new_worktrees_come_first_in_git_order_then_the_existing_items() {
+        let items = vec![
+            Item {
+                current: true,
+                ..plain("/w/open")
+            },
+            plain("/w/busy"),
+        ];
+        let worktrees = [
+            worktree("/w/main", Some("main"), true, false),
+            worktree("/w/open", Some("open"), false, true),
+            worktree("/w/feat", Some("feat"), false, false),
+        ];
+        let got = with_worktrees(items, &worktrees, None);
+        let paths: Vec<&str> = got.iter().map(|item| item.path.as_str()).collect();
+        assert_eq!(paths, ["/w/main", "/w/feat", "/w/open", "/w/busy"]);
+        assert_eq!(got[0].worktree_branch.as_deref(), Some("main"));
+        assert_eq!(got[1].worktree_branch.as_deref(), Some("feat"));
+        assert!(got[2].current);
+        assert_eq!(got[3].worktree_branch, None);
+    }
+
+    #[test]
+    fn a_worktree_already_listed_is_marked_and_not_duplicated() {
+        let items = vec![
+            plain("/w/quiet"),
+            Item {
+                pending: 2,
+                ..plain("/w/busy")
+            },
+        ];
+        let worktrees = [
+            worktree("/w/main", Some("main"), true, false),
+            worktree("/w/busy", Some("busy"), false, false),
+        ];
+        let got = with_worktrees(items, &worktrees, None);
+        let paths: Vec<&str> = got.iter().map(|item| item.path.as_str()).collect();
+        assert_eq!(paths, ["/w/main", "/w/quiet", "/w/busy"]);
+        assert_eq!(got[2].worktree_branch.as_deref(), Some("busy"));
+        assert_eq!(got[2].pending, 2);
+        assert_eq!(got[1].worktree_branch, None);
+    }
+
+    #[test]
+    fn the_open_and_prunable_worktrees_get_no_item() {
+        let mut gone = worktree("/w/gone", Some("gone"), false, false);
+        gone.prunable = true;
+        let worktrees = [worktree("/w/open", Some("open"), true, true), gone];
+        assert!(with_worktrees(Vec::new(), &worktrees, None).is_empty());
+    }
+
+    #[test]
+    fn a_detached_worktree_is_marked_detached_and_a_branch_by_name() {
+        let worktrees = [
+            worktree("/home/me/src/a", None, false, false),
+            worktree("/home/me/src/b", Some("feat/x"), false, false),
+        ];
+        let got = with_worktrees(Vec::new(), &worktrees, Some("/home/me"));
+        assert_eq!(labels(&got), ["~/src/a", "~/src/b"]);
+        assert_eq!(got[0].worktree_branch.as_deref(), Some("detached"));
+        assert_eq!(got[1].worktree_branch.as_deref(), Some("feat/x"));
+    }
+
+    #[test]
+    fn a_path_listed_twice_by_git_gets_one_item() {
+        let worktrees = [
+            worktree("/w/main", Some("main"), true, false),
+            worktree("/w/feat", Some("feat"), false, false),
+            worktree("/w/feat", Some("feat"), false, false),
+        ];
+        assert_eq!(with_worktrees(Vec::new(), &worktrees, None).len(), 2);
     }
 }
