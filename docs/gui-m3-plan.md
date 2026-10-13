@@ -132,6 +132,9 @@ up.
 
 Open, in priority order for the first person who runs it:
 
+0. First run by the user (2026-10-13): everything works, but the window is
+   laggy. Items 3 and 4 below are the first suspects; measure before fixing.
+
 1. Look at the History screen, the blame, the compare panel, the conflict
    panel and the history edit card: layout, focus, keys.
 2. Edit history on a real branch: reword with an agent editing, then drop a
