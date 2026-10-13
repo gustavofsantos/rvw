@@ -628,6 +628,10 @@ impl Render for Shell {
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key))
             .on_action(cx.listener(|this: &mut Self, _: &OpenSubmit, window, cx| {
+                // The history edit card is modal.
+                if this.rewrite.is_some() {
+                    return;
+                }
                 // ⇧⌘R opens the dialog, and submits it when it is already open.
                 if this.submit.is_some() {
                     this.send_submit(cx);
@@ -636,17 +640,33 @@ impl Render for Shell {
                 }
             }))
             .on_action(cx.listener(|this: &mut Self, _: &OpenFinder, window, cx| {
+                // The history edit card is modal.
+                if this.rewrite.is_some() {
+                    return;
+                }
                 this.open_finder(window, cx);
             }))
             .on_action(cx.listener(|this: &mut Self, _: &OpenPalette, window, cx| {
+                // The history edit card is modal.
+                if this.rewrite.is_some() {
+                    return;
+                }
                 this.open_palette(window, cx);
             }))
             .on_action(
                 cx.listener(|this: &mut Self, _: &OpenWorkspaces, window, cx| {
+                    // The history edit card is modal.
+                    if this.rewrite.is_some() {
+                        return;
+                    }
                     this.open_workspaces(window, cx);
                 }),
             )
             .on_action(cx.listener(|this: &mut Self, _: &CommitChanges, _, cx| {
+                // The history edit card is modal.
+                if this.rewrite.is_some() {
+                    return;
+                }
                 this.commit_changes(cx);
             }))
             .on_action(cx.listener(|this: &mut Self, _: &RestoreLatest, _, cx| {

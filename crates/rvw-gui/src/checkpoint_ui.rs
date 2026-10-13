@@ -104,6 +104,7 @@ impl Shell {
             || self.tools.field_open()
             || self.git.ask.is_some()
             || self.git.confirm.is_some()
+            || self.rewrite.is_some()
     }
 
     /// Opens the confirmation on the row `index`, closing the other pickers.
