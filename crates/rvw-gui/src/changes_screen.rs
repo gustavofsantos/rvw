@@ -11,6 +11,7 @@ use gpui::{
     Stateful, Window,
 };
 use rvw_core::types::Comment;
+use rvw_git::merge::Operation;
 use rvw_view::commit_screen::{
     before_commit, commit_label, hunk_open_comments, Entry, LineChoice, Side,
 };
@@ -20,6 +21,7 @@ use rvw_view::selection::Pos;
 use crate::changes_state::{ChangesState, DiffRow, ListRow, OpenChange};
 use crate::code_scroll;
 use crate::git_tools::RepoFacts;
+use crate::history_actions::operation_name;
 use crate::queue_screen::noun;
 use crate::review_screen::LINE_HEIGHT;
 use crate::shell::Shell;
@@ -537,6 +539,7 @@ pub fn right(
         .h_full()
         .p(theme::PANEL_PADDING)
         .gap(px(18.))
+        .children(operation_block(facts, cx))
         .child(
             div()
                 .text_size(px(22.))
@@ -569,6 +572,117 @@ pub fn right(
         .child(commit_button(state, cx))
         .child(div().h(px(1.)).bg(theme::hairline()))
         .child(crate::checkpoint_ui::list(facts, cx))
+}
+
+/// The merge, cherry-pick, revert or rebase stopped in the worktree, at the top
+/// of the right panel. A merge or cherry-pick lists its conflicts and offers
+/// the merge tool, or Finish once none is left, and Abort. A revert or rebase
+/// is named only: rvw did not start it, so it is finished in a terminal.
+/// `None` when no operation is stopped.
+fn operation_block(facts: &RepoFacts, cx: &Context<Shell>) -> Option<Div> {
+    let operation = facts.operation?;
+    let name = operation_name(operation);
+    let title = match operation {
+        Operation::Merge | Operation::CherryPick => {
+            format!("{} in progress", capitalised(name))
+        }
+        Operation::Revert | Operation::Rebase => format!("A {name} is in progress"),
+    };
+    let mut block = div()
+        .flex()
+        .flex_col()
+        .gap(px(8.))
+        .pb(px(12.))
+        .border_b_1()
+        .border_color(theme::hairline())
+        .child(
+            div()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(theme::ink())
+                .child(title),
+        );
+    match operation {
+        Operation::Revert | Operation::Rebase => {
+            block = block.child(muted_line("rvw did not start it; finish it in a terminal."));
+        }
+        Operation::Merge | Operation::CherryPick if facts.conflicted.is_empty() => {
+            block = block
+                .child(muted_line("No conflicts left. Finish to commit it."))
+                .child(
+                    div()
+                        .flex()
+                        .gap(px(8.))
+                        .child(
+                            button("changes-operation-finish", "Finish").on_click(cx.listener(
+                                |this: &mut Shell,
+                                 _: &ClickEvent,
+                                 window: &mut Window,
+                                 cx: &mut Context<Shell>| {
+                                    this.finish_operation(cx);
+                                    this.focus_shell(window);
+                                },
+                            )),
+                        )
+                        .child(abort_button(cx)),
+                );
+        }
+        Operation::Merge | Operation::CherryPick => {
+            let mut files = div().flex().flex_col().child(muted_line("Conflicts:"));
+            for path in &facts.conflicted {
+                files = files.child(
+                    div()
+                        .font_family(theme::code_font())
+                        .text_size(px(theme::CODE_FONT_SIZE))
+                        .text_color(theme::rejected())
+                        .child(path.clone()),
+                );
+            }
+            block = block.child(files).child(
+                div()
+                    .flex()
+                    .gap(px(8.))
+                    .child(
+                        button("changes-operation-mergetool", "Open merge tool").on_click(
+                            cx.listener(
+                                |this: &mut Shell,
+                                 _: &ClickEvent,
+                                 window: &mut Window,
+                                 cx: &mut Context<Shell>| {
+                                    this.open_merge_tool(cx);
+                                    this.focus_shell(window);
+                                },
+                            ),
+                        ),
+                    )
+                    .child(abort_button(cx)),
+            );
+        }
+    }
+    Some(block)
+}
+
+/// The Abort control of a stopped merge or cherry-pick.
+fn abort_button(cx: &Context<Shell>) -> Stateful<Div> {
+    button("changes-operation-abort", "Abort").on_click(cx.listener(
+        |this: &mut Shell, _: &ClickEvent, window: &mut Window, cx: &mut Context<Shell>| {
+            this.abort_operation(cx);
+            this.focus_shell(window);
+        },
+    ))
+}
+
+/// A dim line of body text in the right panel.
+fn muted_line(text: &str) -> Div {
+    div().text_color(theme::muted()).child(text.to_owned())
+}
+
+/// The text with its first letter in upper case: "merge" becomes "Merge".
+fn capitalised(text: &str) -> String {
+    let mut chars = text.chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
 }
 
 /// One notice about open comments on staged files. It never blocks a commit.

@@ -30,6 +30,7 @@ use crate::finder::{self, Finder, OpenFinder};
 use crate::frame::{self, Panels};
 use crate::git_tools::{GitTools, RepoFacts};
 use crate::highlights::Highlighter;
+use crate::history_state::HistoryState;
 use crate::key_strip::key_strip;
 use crate::live::{self, Fingerprint};
 use crate::outcome_screen::{self, Outcome};
@@ -105,6 +106,10 @@ pub struct Shell {
     /// Repository facts, the git prompts and pickers, and the restore
     /// confirmation.
     pub(crate) git: GitTools,
+    /// The History screen: the commit list, the selected commit and search.
+    pub(crate) history: HistoryState,
+    /// The open history edit card, if any.
+    pub(crate) rewrite: Option<crate::rewrite_card::RewriteCard>,
     /// Holds the keys (C) when no field has focus.
     focus: FocusHandle,
     /// The database the queue lives in. The live poller fingerprints it
@@ -181,6 +186,8 @@ impl Shell {
             changes_scroll: UniformListScrollHandle::new(),
             files_scroll: UniformListScrollHandle::new(),
             changes: ChangesState::default(),
+            history: HistoryState::default(),
+            rewrite: None,
             git: GitTools {
                 facts,
                 ..GitTools::default()
@@ -199,6 +206,9 @@ impl Shell {
         }
         if screen == Screen::Changes {
             self.enter_changes(cx);
+        }
+        if screen == Screen::History && self.screen != Screen::History {
+            self.enter_history(cx);
         }
         self.screen = screen;
         self.outcome_pending = None;
@@ -461,7 +471,10 @@ impl Shell {
             }
             return;
         }
-        if self.restore_key(event, cx) || self.git_ask_key(event, cx) {
+        if self.rewrite_key(event, window, cx)
+            || self.restore_key(event, cx)
+            || self.git_ask_key(event, cx)
+        {
             return;
         }
         if self.tools_key(event, cx) {
@@ -488,6 +501,16 @@ impl Shell {
                 "j" | "down" => self.step_change(1, cx),
                 "k" | "up" => self.step_change(-1, cx),
                 "s" => self.move_chosen(cx),
+                _ => {}
+            }
+            return;
+        }
+        if self.screen == Screen::History {
+            match event.keystroke.key.as_str() {
+                "j" | "down" => self.step_commit(1, cx),
+                "k" | "up" => self.step_commit(-1, cx),
+                "/" => self.focus_search(window, cx),
+                "escape" => self.close_commit_file(cx),
                 _ => {}
             }
             return;
@@ -561,6 +584,7 @@ impl Render for Shell {
             && self.finder.is_none()
             && !self.tools.field_open()
             && self.git.ask.is_none()
+            && self.rewrite.as_ref().is_none_or(|card| !card.editing())
             && !self.message_focused(window, cx);
         if (no_field || self.git.confirm.is_some()) && !self.focus.is_focused(window) {
             self.focus.focus(window);
@@ -604,6 +628,10 @@ impl Render for Shell {
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key))
             .on_action(cx.listener(|this: &mut Self, _: &OpenSubmit, window, cx| {
+                // The history edit card is modal.
+                if this.rewrite.is_some() {
+                    return;
+                }
                 // ⇧⌘R opens the dialog, and submits it when it is already open.
                 if this.submit.is_some() {
                     this.send_submit(cx);
@@ -612,17 +640,33 @@ impl Render for Shell {
                 }
             }))
             .on_action(cx.listener(|this: &mut Self, _: &OpenFinder, window, cx| {
+                // The history edit card is modal.
+                if this.rewrite.is_some() {
+                    return;
+                }
                 this.open_finder(window, cx);
             }))
             .on_action(cx.listener(|this: &mut Self, _: &OpenPalette, window, cx| {
+                // The history edit card is modal.
+                if this.rewrite.is_some() {
+                    return;
+                }
                 this.open_palette(window, cx);
             }))
             .on_action(
                 cx.listener(|this: &mut Self, _: &OpenWorkspaces, window, cx| {
+                    // The history edit card is modal.
+                    if this.rewrite.is_some() {
+                        return;
+                    }
                     this.open_workspaces(window, cx);
                 }),
             )
             .on_action(cx.listener(|this: &mut Self, _: &CommitChanges, _, cx| {
+                // The history edit card is modal.
+                if this.rewrite.is_some() {
+                    return;
+                }
                 this.commit_changes(cx);
             }))
             .on_action(cx.listener(|this: &mut Self, _: &RestoreLatest, _, cx| {
@@ -638,6 +682,7 @@ impl Render for Shell {
                     .map(|finder| finder::overlay(finder, cx)),
             )
             .children(self.tool_overlays(cx))
+            .children(self.rewrite_overlay(cx))
             .children(resize_layer)
     }
 }
@@ -694,6 +739,11 @@ impl Shell {
                     &self.snapshot.comments,
                     cx,
                 ),
+            },
+            (Screen::History, _) => Panels {
+                left: crate::history_screen::left(&self.history, cx),
+                centre: crate::history_screen::centre(&self.history, cx),
+                right: crate::history_screen::right(&self.history, cx),
             },
             (Screen::Outcome, Some(open)) => Panels {
                 left: outcome_screen::left(open, &self.snapshot, cx),

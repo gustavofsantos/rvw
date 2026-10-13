@@ -100,11 +100,38 @@ pub(crate) fn exec_env(
     args: &[&str],
     env: &[(&str, &str)],
 ) -> Result<Ran, GitError> {
+    exec_stop(dir, stdin, args, env, None)
+}
+
+/// As [`run`], also killed when `stop` is set: a read the caller no longer
+/// wants, such as a search the next keystroke replaced.
+pub(crate) fn run_stop(dir: &Path, args: &[&str], stop: &AtomicBool) -> Result<String, GitError> {
+    let ran = exec_stop(dir, &[], args, &[], Some(stop))?;
+    if ran.code == Some(0) {
+        Ok(ran.stdout)
+    } else {
+        Err(GitError {
+            args: owned_args(args),
+            stderr: ran.stderr,
+        })
+    }
+}
+
+/// As [`exec_env`], with an optional flag of the caller's own that cancels
+/// this one process as the process-wide flag does.
+pub(crate) fn exec_stop(
+    dir: &Path,
+    stdin: &[u8],
+    args: &[&str],
+    env: &[(&str, &str)],
+    stop: Option<&AtomicBool>,
+) -> Result<Ran, GitError> {
     let fail = |stderr: String| GitError {
         args: owned_args(args),
         stderr,
     };
-    if cancelled() {
+    let stopped = || cancelled() || stop.is_some_and(|s| s.load(Ordering::Relaxed));
+    if stopped() {
         return Err(fail("context canceled".to_owned()));
     }
     // No credential prompt can open on a terminal nobody sees, and a status
@@ -161,7 +188,7 @@ pub(crate) fn exec_env(
             Ok(None) => {}
             Err(e) => return Err(fail(os_error_text(&e))),
         }
-        if !killed && cancelled() {
+        if !killed && stopped() {
             let _ = child.kill();
             killed = true;
         }

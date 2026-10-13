@@ -51,7 +51,7 @@ pub struct WorkspacePicker {
 }
 
 /// The home directory, which labels write `~`.
-fn home() -> Option<String> {
+pub(crate) fn home() -> Option<String> {
     std::env::home_dir().map(|home| home.to_string_lossy().into_owned())
 }
 
@@ -74,7 +74,15 @@ impl Shell {
             .into_iter()
             .filter(|row| Path::new(&row.workspace).join(".git").exists())
             .collect();
-        let items = workspaces::items(&found, &self.identity.workspace, home().as_deref());
+        // The repository's worktrees come first: each is a workspace of its own.
+        // One fast git call; a failure leaves them out.
+        let home = home();
+        let worktrees = rvw_git::worktree::list(self.repo_path()).unwrap_or_default();
+        let items = workspaces::with_worktrees(
+            workspaces::items(&found, &self.identity.workspace, home.as_deref()),
+            &worktrees,
+            home.as_deref(),
+        );
         let input = cx.new(|cx| TextInput::new("Open a workspace", cx));
         let events = cx.subscribe_in(
             &input,
@@ -167,7 +175,12 @@ impl Shell {
     /// Reads the repository `dir` is in off the UI thread, then rebuilds the
     /// window for it with the same author and lane. A directory outside git,
     /// or a queue that cannot be read, stays an error in the picker.
-    fn switch_workspace(&mut self, dir: &Path, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn switch_workspace(
+        &mut self,
+        dir: &Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let workspace = match rvw_git::workspace::resolve(dir) {
             Ok(root) => root.to_string_lossy().into_owned(),
             Err(message) => return self.workspace_error(message, cx),
@@ -220,7 +233,7 @@ impl Shell {
     /// What rebuilding the window would throw away, as the reason to refuse:
     /// a comment being written, a commit message, or a fetch, pull or push
     /// whose end the new window would not report.
-    fn switch_would_lose(&self, cx: &App) -> Option<&'static str> {
+    pub(crate) fn switch_would_lose(&self, cx: &App) -> Option<&'static str> {
         let message_typed = self
             .changes
             .message
@@ -237,10 +250,15 @@ impl Shell {
         }
     }
 
+    /// Shows a failure in the open picker, or on the Changes screen when the
+    /// picker was closed meanwhile (a worktree added from the palette).
     fn workspace_error(&mut self, message: String, cx: &mut Context<Self>) {
-        if let Some(picker) = self.tools.workspaces.as_mut() {
-            picker.opening = None;
-            picker.error = Some(message);
+        match self.tools.workspaces.as_mut() {
+            Some(picker) => {
+                picker.opening = None;
+                picker.error = Some(message);
+            }
+            None => self.changes.error = Some(message),
         }
         cx.notify();
     }
@@ -340,6 +358,15 @@ fn workspace_row(
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(theme::done())
                 .child("open"),
+        );
+    }
+    if let Some(branch) = item.worktree_branch.as_deref() {
+        label = label.child(
+            div()
+                .flex_none()
+                .text_size(px(theme::KEY_FONT_SIZE))
+                .text_color(theme::faint())
+                .child(format!("worktree · {branch}")),
         );
     }
     let mut counts = div()

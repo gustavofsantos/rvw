@@ -53,8 +53,12 @@ pub(crate) fn is_picker(action: Action) -> bool {
         Action::ApplyStash
             | Action::DropStash
             | Action::DeleteBranch
+            | Action::MergeBranch
             | Action::DeleteTag
             | Action::PushTag
+            | Action::BrowseCommitFiles
+            | Action::CompareWith
+            | Action::RemoveWorktree
     )
 }
 
@@ -73,8 +77,13 @@ fn placeholder(action: Action, branch: &str) -> String {
         Action::ApplyStash => "Apply which stash?".to_owned(),
         Action::DropStash => "Drop which stash?".to_owned(),
         Action::DeleteBranch => "Delete which branch?".to_owned(),
+        Action::MergeBranch => "Merge which branch into this one?".to_owned(),
         Action::DeleteTag => "Delete which tag?".to_owned(),
         Action::PushTag => "Push which tag?".to_owned(),
+        Action::BrowseCommitFiles => "Open which file, as it was in this commit?".to_owned(),
+        Action::CompareWith => "Compare the selected commit with which branch or tag?".to_owned(),
+        Action::NewWorktree => "Branch for the new worktree (an existing or a new one)".to_owned(),
+        Action::RemoveWorktree => "Remove which worktree?".to_owned(),
         _ => String::new(),
     }
 }
@@ -106,8 +115,8 @@ impl Shell {
         let events = cx.subscribe_in(
             &input,
             window,
-            |this: &mut Self, _, event: &TextInputEvent, _, cx| match event {
-                TextInputEvent::Submit => this.submit_git_ask(cx),
+            |this: &mut Self, _, event: &TextInputEvent, window, cx| match event {
+                TextInputEvent::Submit => this.submit_git_ask(window, cx),
                 TextInputEvent::Cancel => this.close_git_ask(cx),
             },
         );
@@ -174,11 +183,16 @@ impl Shell {
     }
 
     /// A click on row `row` of the open picker runs that row.
-    pub(crate) fn choose_git_row(&mut self, row: usize, cx: &mut Context<Self>) {
+    pub(crate) fn choose_git_row(
+        &mut self,
+        row: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(ask) = self.git.ask.as_mut() {
             ask.highlighted = row;
         }
-        self.submit_git_ask(cx);
+        self.submit_git_ask(window, cx);
     }
 
     /// The arrows, Enter and Escape while a prompt or picker is open. True
@@ -280,8 +294,8 @@ fn item_row(row: usize, hit: &Hit, highlighted: bool, cx: &Context<Shell>) -> St
         .when(highlighted, |d| d.bg(theme::hairline()))
         .cursor_pointer()
         .on_click(cx.listener(
-            move |this: &mut Shell, _: &ClickEvent, _: &mut Window, cx| {
-                this.choose_git_row(row, cx);
+            move |this: &mut Shell, _: &ClickEvent, window: &mut Window, cx| {
+                this.choose_git_row(row, window, cx);
             },
         ))
         .child(name)
@@ -305,7 +319,16 @@ mod tests {
     fn only_the_item_actions_are_pickers() {
         assert!(is_picker(Action::ApplyStash));
         assert!(is_picker(Action::PushTag));
+        assert!(is_picker(Action::MergeBranch));
         assert!(!is_picker(Action::NewBranch));
         assert!(!is_picker(Action::StashChanges));
+    }
+
+    #[test]
+    fn the_merge_picker_asks_which_branch_to_merge_into_this_one() {
+        assert_eq!(
+            placeholder(Action::MergeBranch, "main"),
+            "Merge which branch into this one?"
+        );
     }
 }

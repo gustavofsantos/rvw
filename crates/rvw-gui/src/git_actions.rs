@@ -28,7 +28,9 @@ impl Shell {
                 let items = stashes.iter().map(git_overlay::stash_item).collect();
                 self.open_git_ask(action, items, stashes, window, cx);
             }
-            Action::DeleteBranch => {
+            // A picker of the local branches, minus the current one: the one
+            // to delete, or the one to merge into this branch.
+            Action::DeleteBranch | Action::MergeBranch => {
                 let current = self.git.facts.branch.clone();
                 let items = self
                     .git
@@ -44,6 +46,12 @@ impl Shell {
                 let items = self.git.facts.tags.clone();
                 self.open_git_ask(action, items, Vec::new(), window, cx);
             }
+            Action::BrowseCommitFiles | Action::CompareWith => {
+                self.open_history_ask(action, window, cx);
+            }
+            Action::NewWorktree | Action::RemoveWorktree => {
+                self.open_worktree_ask(action, window, cx);
+            }
             Action::Fetch => self.fetch(cx),
             Action::Pull => self.pull(cx),
             Action::Push => self.push(cx),
@@ -54,7 +62,7 @@ impl Shell {
 
     /// Enter in the open prompt or picker: runs its action with the typed
     /// name or the chosen item. A failure stays in the overlay.
-    pub(crate) fn submit_git_ask(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn submit_git_ask(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(ask) = self.git.ask.as_ref() else {
             return;
         };
@@ -69,11 +77,24 @@ impl Shell {
             return;
         }
         let outcome = match action {
+            Action::BrowseCommitFiles | Action::CompareWith => {
+                self.submit_history_ask(action, &label, cx)
+            }
+            Action::NewWorktree | Action::RemoveWorktree => {
+                self.submit_worktree_ask(action, &typed, &label, window, cx);
+                return;
+            }
             Action::PushTag => {
                 match self.push_tag(&label, cx) {
                     Ok(()) => self.close_git_ask(cx),
                     Err(message) => self.git_ask_error(message, cx),
                 }
+                return;
+            }
+            // merge_branch reports its own result, so no finish or error here.
+            Action::MergeBranch => {
+                self.close_git_ask(cx);
+                self.merge_branch(&label, cx);
                 return;
             }
             Action::StashChanges => self.stash_changes(&typed, cx),
@@ -103,7 +124,7 @@ impl Shell {
 
     /// Shows a failure in the open overlay, or on the Changes screen when the
     /// action had none.
-    fn git_ask_error(&mut self, message: String, cx: &mut Context<Self>) {
+    pub(crate) fn git_ask_error(&mut self, message: String, cx: &mut Context<Self>) {
         match self.git.ask.as_mut() {
             Some(ask) => ask.error = Some(message),
             None => self.changes.error = Some(message),
