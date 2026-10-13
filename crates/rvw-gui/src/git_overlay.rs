@@ -204,7 +204,7 @@ impl Shell {
 
 /// The open prompt or picker over the window.
 pub fn overlay(ask: &GitAsk, cx: &Context<Shell>) -> Div {
-    let mut body = div().flex().flex_col().flex_1().min_h(px(0.));
+    let mut body = div().flex().flex_col();
     if let Some(error) = ask.error.as_deref() {
         body = body.child(
             div()
@@ -234,13 +234,12 @@ fn picker_list(ask: &GitAsk, cx: &Context<Shell>) -> Div {
     }
     // The rows are the scrolled element's own children: `scroll_to_item`
     // finds the highlighted one by its index among them.
-    div().flex().flex_col().flex_1().min_h(px(0.)).child(
+    div().flex().flex_col().child(
         div()
             .id("git-picker-results")
             .flex()
             .flex_col()
-            .flex_1()
-            .min_h(px(0.))
+            .max_h(px(560.))
             .py(px(6.))
             .overflow_y_scroll()
             .track_scroll(&ask.scroll)

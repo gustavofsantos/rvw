@@ -157,7 +157,7 @@ fn first_line(text: &str) -> String {
 }
 
 pub fn overlay(picker: &BranchPicker, cx: &Context<Shell>) -> Div {
-    let mut body = div().flex().flex_col().flex_1().min_h(px(0.));
+    let mut body = div().flex().flex_col();
     if let Some(error) = picker.error.as_deref() {
         body = body.child(
             div()
@@ -192,13 +192,12 @@ pub fn overlay(picker: &BranchPicker, cx: &Context<Shell>) -> Div {
                     None => div().into_any_element(),
                 })
                 .collect();
-            div().flex().flex_col().flex_1().min_h(px(0.)).child(
+            div().flex().flex_col().child(
                 div()
                     .id("branch-results")
                     .flex()
                     .flex_col()
-                    .flex_1()
-                    .min_h(px(0.))
+                    .max_h(px(560.))
                     .py(px(6.))
                     .overflow_y_scroll()
                     .track_scroll(&picker.scroll)

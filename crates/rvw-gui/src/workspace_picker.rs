@@ -175,6 +175,9 @@ impl Shell {
             self.close_workspaces(cx);
             return;
         }
+        if let Some(reason) = self.switch_would_lose(cx) {
+            return self.workspace_error(reason.to_owned(), cx);
+        }
         if let Some(picker) = self.tools.workspaces.as_mut() {
             picker.opening = Some(workspaces::label(&workspace, home().as_deref()));
             picker.error = None;
@@ -210,6 +213,26 @@ impl Shell {
             .ok();
         })
         .detach();
+    }
+
+    /// What rebuilding the window would throw away, as the reason to refuse:
+    /// a comment being written, a commit message, or a fetch, pull or push
+    /// whose end the new window would not report.
+    fn switch_would_lose(&self, cx: &App) -> Option<&'static str> {
+        let message_typed = self
+            .changes
+            .message
+            .as_ref()
+            .is_some_and(|message| !message.read(cx).text().trim().is_empty());
+        if self.composer.is_some() {
+            Some("Finish or close the comment you are writing first.")
+        } else if message_typed {
+            Some("Commit or clear the commit message first.")
+        } else if self.git.busy.is_some() {
+            Some("Wait for the fetch, pull or push to finish.")
+        } else {
+            None
+        }
     }
 
     fn workspace_error(&mut self, message: String, cx: &mut Context<Self>) {
@@ -270,21 +293,14 @@ pub fn overlay(picker: &WorkspacePicker, cx: &Context<Shell>) -> Div {
         .id("workspace-results")
         .flex()
         .flex_col()
-        .flex_1()
-        .min_h(px(0.))
+        .max_h(px(560.))
         .py(px(6.))
         .overflow_y_scroll()
         .track_scroll(&picker.scroll)
         .children(rows);
     tools::overlay(tools::card(
         div().child(picker.input.clone()),
-        div()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_h(px(0.))
-            .child(notices)
-            .child(list),
+        div().flex().flex_col().child(notices).child(list),
         &["\u{2191}\u{2193} move", "\u{21b5} open", "esc close"],
     ))
 }
