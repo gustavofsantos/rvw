@@ -20,6 +20,7 @@ use gpui::{
 use rvw_core::types::Comment;
 use rvw_view::diff::FileDiff;
 use rvw_view::diffrows::{self, DiffRow};
+use rvw_view::queue;
 use rvw_view::selection::{self, Pos, Selection};
 
 use crate::diff_view;
@@ -144,12 +145,14 @@ impl DiffList {
     }
 }
 
-/// The file's comments and the rows of its diff. `outside_edit` is the id of
-/// a comment with no line in view that the composer edits.
+/// The file's comments and the rows of its diff. Done and rejected comments
+/// are left out unless `show_resolved`. `outside_edit` is the id of a comment
+/// with no line in view that the composer edits.
 fn layout(
     diff: &FileDiff,
     all: &[Comment],
     path: &str,
+    show_resolved: bool,
     composer_after: Option<Pos>,
     outside_edit: Option<&str>,
     split: bool,
@@ -157,6 +160,7 @@ fn layout(
     let comments: Vec<Comment> = all
         .iter()
         .filter(|comment| comment.file == path)
+        .filter(|comment| show_resolved || !queue::is_resolved(comment))
         .cloned()
         .collect();
     let mut under: BTreeMap<Pos, Vec<usize>> = BTreeMap::new();
@@ -252,6 +256,7 @@ impl Shell {
             diff,
             &self.snapshot.comments,
             &selected.path,
+            self.show_resolved,
             composer_after,
             outside_edit,
             split,

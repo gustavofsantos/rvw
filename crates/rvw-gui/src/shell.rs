@@ -75,6 +75,9 @@ pub struct Shell {
     /// Bumped whenever the open file or its snapshot is replaced, so the diff
     /// list knows its rows are stale.
     pub(crate) diff_generation: u64,
+    /// Done and rejected comments are drawn in the diff too. Off by default,
+    /// so a file with many decided comments stays readable; for the session.
+    pub(crate) show_resolved: bool,
     /// The view the reviewer chose for a file this session; see `file_view`.
     pub(crate) file_modes: BTreeMap<String, ViewMode>,
     /// The press-drag selection in progress; see `diff_list::drag`.
@@ -157,6 +160,7 @@ impl Shell {
             tools: Tools::default(),
             diff_list: None,
             diff_generation: 0,
+            show_resolved: false,
             file_modes: BTreeMap::new(),
             drag: DragState::default(),
             highlights: Highlighter::default(),
@@ -195,6 +199,13 @@ impl Shell {
         self.diff_generation = self.diff_generation.wrapping_add(1);
         self.composer = None;
         self.removal = None;
+        cx.notify();
+    }
+
+    /// Shows or hides the done and rejected comments in the diff.
+    pub fn toggle_resolved(&mut self, cx: &mut Context<Self>) {
+        self.show_resolved = !self.show_resolved;
+        self.diff_generation = self.diff_generation.wrapping_add(1);
         cx.notify();
     }
 
@@ -559,6 +570,7 @@ impl Shell {
                     self.selected.as_ref(),
                     self.diff_list.as_ref(),
                     self.split_available().then_some(self.tools.split),
+                    self.show_resolved,
                     cx,
                 ),
                 right: crate::draft_panel::right(&self.snapshot, self.removal.as_ref(), cx),

@@ -154,3 +154,8 @@ background `#1a1918`, ink `#d2cfc5`), and a compact layout for narrow windows.
   restores it exactly, every time. Restoring moves the branch back; the newer
   commits stay in the checkpoint taken before the restore. Decided by the
   user.
+- **Decided comments are hidden in the diff** (2026-10-13). On a project with
+  many comments, done and rejected threads filled the file and made it hard
+  to read. The diff draws only open comments; the file header says
+  "N resolved hidden · Show" and shows them for the session. The queue and
+  the outcome screen still list every comment. Decided by the user.

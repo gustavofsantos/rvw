@@ -15,6 +15,7 @@ use gpui::{
 use rvw_view::changes::ChangedFile;
 use rvw_view::diff::FileDiff;
 use rvw_view::keys::Screen;
+use rvw_view::queue;
 use rvw_view::selection::Selection;
 use rvw_view::viewmode::ViewMode;
 
@@ -255,8 +256,16 @@ pub fn centre(
     selected: Option<&Selected>,
     diff_list: Option<&DiffList>,
     split: Option<bool>,
+    show_resolved: bool,
     cx: &Context<Shell>,
 ) -> Stateful<Div> {
+    let resolved = selected.map_or(0, |selected| {
+        snapshot
+            .comments
+            .iter()
+            .filter(|comment| comment.file == selected.path && queue::is_resolved(comment))
+            .count()
+    });
     div()
         .id("review-centre")
         .flex()
@@ -264,14 +273,20 @@ pub fn centre(
         .flex_1()
         .min_w(px(0.))
         .bg(theme::paper())
-        .child(file_header(selected, split, cx))
+        .child(file_header(selected, split, (resolved, show_resolved), cx))
         .children(selected.and_then(context_banner))
         .child(diff_body(snapshot, selected, diff_list, cx))
 }
 
-/// The file's path, its added and removed line counts when it has a diff, and
-/// the selection's range with the Comment affordance.
-fn file_header(selected: Option<&Selected>, split: Option<bool>, cx: &Context<Shell>) -> Div {
+/// The file's path, its added and removed line counts when it has a diff, the
+/// selection's range with the Comment affordance, and the switch for the
+/// file's `resolved` (count, shown) comments.
+fn file_header(
+    selected: Option<&Selected>,
+    split: Option<bool>,
+    resolved: (usize, bool),
+    cx: &Context<Shell>,
+) -> Div {
     let path = selected.map_or("", |s| s.path.as_str()).to_owned();
     let mut header = div()
         .flex()
@@ -313,6 +328,9 @@ fn file_header(selected: Option<&Selected>, split: Option<bool>, cx: &Context<Sh
                 .child(comment_button(cx));
         }
     }
+    if resolved.0 > 0 {
+        header = header.child(resolved_toggle(resolved.0, resolved.1, cx));
+    }
     if selected.changed {
         header = header.child(crate::file_view::mode_toggle(selected.mode, cx));
     }
@@ -320,6 +338,36 @@ fn file_header(selected: Option<&Selected>, split: Option<bool>, cx: &Context<Sh
         header = header.child(crate::split_view::toggle(split, cx));
     }
     header
+}
+
+/// "12 resolved hidden · Show", or "12 resolved · Hide" once shown: the done
+/// and rejected comments of the file, which the diff leaves out by default.
+fn resolved_toggle(count: usize, shown: bool, cx: &Context<Shell>) -> Stateful<Div> {
+    let (state, action) = if shown {
+        ("", "Hide")
+    } else {
+        (" hidden", "Show")
+    };
+    div()
+        .id("resolved-toggle")
+        .flex()
+        .flex_none()
+        .gap(px(6.))
+        .font_family(theme::ui_font())
+        .text_color(theme::faint())
+        .cursor_pointer()
+        .child(format!("{count} resolved{state} ·"))
+        .child(
+            div()
+                .text_color(theme::muted())
+                .hover(|style| style.text_color(theme::ink()))
+                .child(action),
+        )
+        .on_click(cx.listener(
+            |this: &mut Shell, _: &ClickEvent, _: &mut Window, cx: &mut Context<Shell>| {
+                this.toggle_resolved(cx);
+            },
+        ))
 }
 
 /// The notice above a file outside the change: a comment there travels with

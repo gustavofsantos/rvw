@@ -101,6 +101,13 @@ pub struct Queue {
     pub counters: Counters,
 }
 
+/// Whether the agent has decided the comment: done or rejected. The diff
+/// hides these inline unless the reviewer asks to see them.
+#[must_use]
+pub fn is_resolved(comment: &Comment) -> bool {
+    matches!(comment.status, Status::Done | Status::Rejected)
+}
+
 /// Whether the reviewer can still edit or delete the comment: pending and not
 /// part of a submitted review.
 #[must_use]
@@ -332,6 +339,16 @@ mod tests {
         assert!(!is_draft(&in_review(comment("r1", Status::Pending), "rv1")));
         for status in [Status::Pulled, Status::Done, Status::Rejected] {
             assert!(!is_draft(&comment("r1", status)));
+        }
+    }
+
+    #[test]
+    fn only_a_done_or_rejected_comment_is_resolved() {
+        for status in [Status::Done, Status::Rejected] {
+            assert!(is_resolved(&comment("r1", status)));
+        }
+        for status in [Status::Pending, Status::Pulled] {
+            assert!(!is_resolved(&comment("r1", status)));
         }
     }
 
