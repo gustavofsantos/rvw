@@ -90,6 +90,7 @@ impl Shell {
         service: Service,
         identity: Identity,
         seen: Seen,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let queue = snapshot.queue.clone();
@@ -102,6 +103,13 @@ impl Shell {
             .changes
             .first()
             .map(|file| Selected::load(&snapshot, &file.path));
+        // A change of the OS light/dark setting repaints with the other palette.
+        cx.observe_window_appearance(window, |_, window, cx| {
+            if theme::follow(window.appearance()) {
+                cx.notify();
+            }
+        })
+        .detach();
         Self {
             snapshot,
             service,

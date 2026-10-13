@@ -5,8 +5,8 @@
 use std::ops::Range;
 
 use gpui::{
-    actions, div, fill, point, prelude::*, px, relative, rgba, size, App, Bounds, ClipboardItem,
-    Context, CursorStyle, ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter,
+    actions, div, fill, point, prelude::*, px, relative, size, App, Bounds, ClipboardItem, Context,
+    CursorStyle, ElementId, ElementInputHandler, Entity, EntityInputHandler, EventEmitter,
     FocusHandle, Focusable, GlobalElementId, KeyBinding, LayoutId, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, Rgba, ShapedLine, SharedString, Style,
     TextRun, UTF16Selection, UnderlineStyle, Window,
@@ -479,7 +479,7 @@ struct PrepaintState {
 /// A light blue-grey behind selected text. The theme has no selection colour,
 /// so it lives here.
 fn selection_color() -> Rgba {
-    rgba(0x006c_bc40)
+    crate::theme::text_selection()
 }
 
 impl IntoElement for TextElement {

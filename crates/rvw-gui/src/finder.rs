@@ -4,8 +4,8 @@
 
 use gpui::prelude::*;
 use gpui::{
-    actions, div, px, rgba, App, ClickEvent, Context, Div, Entity, FontWeight, KeyBinding,
-    SharedString, Stateful, Subscription, Window,
+    actions, div, px, App, ClickEvent, Context, Div, Entity, FontWeight, KeyBinding, SharedString,
+    Stateful, Subscription, Window,
 };
 use rvw_view::files::Marks;
 use rvw_view::finder::{self as picker, Hit};
@@ -135,7 +135,7 @@ pub fn overlay(finder: &Finder, cx: &Context<Shell>) -> Div {
         .justify_center()
         .pt(px(104.))
         .pb(px(24.))
-        .bg(rgba(0x1614_1433))
+        .bg(theme::scrim())
         .occlude()
         .child(card(finder, cx))
 }

@@ -5,10 +5,10 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use gpui::{
-    fill, point, px, relative, rgba, size, App, AvailableSpace, Bounds, Corners, Element,
-    ElementId, ElementInputHandler, Entity, Focusable, Font, GlobalElementId, Hsla, IntoElement,
-    LayoutId, PaintQuad, Pixels, Rgba, SharedString, Size, Style, TextAlign, TextRun,
-    UnderlineStyle, Window, WrappedLine,
+    fill, point, px, relative, size, App, AvailableSpace, Bounds, Corners, Element, ElementId,
+    ElementInputHandler, Entity, Focusable, Font, GlobalElementId, Hsla, IntoElement, LayoutId,
+    PaintQuad, Pixels, Rgba, SharedString, Size, Style, TextAlign, TextRun, UnderlineStyle, Window,
+    WrappedLine,
 };
 
 use crate::text_area::{TextArea, LINE_HEIGHT};
@@ -25,7 +25,7 @@ const CARET_WIDTH: f32 = 2.;
 const NEWLINE_WIDTH: f32 = 6.;
 
 fn selection_color() -> Rgba {
-    rgba(0x006c_bc40)
+    crate::theme::text_selection()
 }
 
 /// The font the text is shaped with, read from the inherited text style.

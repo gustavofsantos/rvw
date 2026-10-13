@@ -132,6 +132,7 @@ fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identit
         .run(move |cx: &mut App| {
             let installed = cx.text_system().all_font_names();
             theme::choose_fonts(&installed);
+            theme::follow(cx.window_appearance());
             text_input::bind_keys(cx);
             text_area::bind_keys(cx);
             submit_dialog::bind_keys(cx);
@@ -153,8 +154,9 @@ fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identit
                 app_id: Some("rvw".into()),
                 ..WindowOptions::default()
             };
-            let opened = cx.open_window(options, move |_window, cx| {
-                cx.new(|cx| Shell::new(snapshot, service, identity, seen, cx))
+            let opened = cx.open_window(options, move |window, cx| {
+                theme::follow(window.appearance());
+                cx.new(|cx| Shell::new(snapshot, service, identity, seen, window, cx))
             });
             if let Err(error) = opened {
                 eprintln!("rvw-gui: {error}");

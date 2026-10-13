@@ -5,7 +5,7 @@
 //! state, the keys that move through them, and the pieces of their cards.
 
 use gpui::prelude::*;
-use gpui::{div, px, rgba, AnyElement, Context, Div, KeyDownEvent};
+use gpui::{div, px, AnyElement, Context, Div, KeyDownEvent};
 use rvw_view::changes::Compare;
 use rvw_view::compare_menu;
 use rvw_view::keys::Screen;
@@ -156,7 +156,7 @@ pub fn overlay(card: Div) -> Div {
         .justify_center()
         .pt(px(104.))
         .pb(px(24.))
-        .bg(rgba(0x1614_1433))
+        .bg(theme::scrim())
         .occlude()
         .child(card)
 }

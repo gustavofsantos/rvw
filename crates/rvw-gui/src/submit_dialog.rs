@@ -5,8 +5,8 @@
 
 use gpui::prelude::*;
 use gpui::{
-    actions, div, px, rgba, App, BoxShadow, ClickEvent, Context, Div, Entity, FontWeight,
-    KeyBinding, SharedString, Stateful, Subscription, Window,
+    actions, div, px, App, BoxShadow, ClickEvent, Context, Div, Entity, FontWeight, KeyBinding,
+    SharedString, Stateful, Subscription, Window,
 };
 use rvw_view::queue::{Filter, Row, State};
 
@@ -140,7 +140,7 @@ pub fn overlay(dialog: &SubmitDialog, snapshot: &Snapshot, lane: &str, cx: &Cont
         .flex()
         .items_center()
         .justify_center()
-        .bg(rgba(0x1616_1429))
+        .bg(theme::scrim())
         .child(card(
             dialog,
             &rows,
@@ -166,7 +166,7 @@ fn card(
         .border_1()
         .border_color(theme::hairline_strong())
         .shadow(vec![BoxShadow {
-            color: rgba(0x1616_1426).into(),
+            color: theme::shadow().into(),
             offset: gpui::point(px(0.), px(12.)),
             blur_radius: px(40.),
             spread_radius: px(0.),

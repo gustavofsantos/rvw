@@ -4,9 +4,10 @@
 //! The palette is complete before every screen uses it, hence the allow.
 #![allow(dead_code)]
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 
-use gpui::{px, rgb, rgba, Pixels, Rgba, SharedString};
+use gpui::{px, rgb, rgba, Pixels, Rgba, SharedString, WindowAppearance};
 use rvw_view::highlight::Class;
 
 pub const WINDOW_RADIUS: Pixels = px(14.);
@@ -90,78 +91,110 @@ pub fn code_font() -> SharedString {
         .into()
 }
 
+static DARK: AtomicBool = AtomicBool::new(false);
+
+/// Follows the operating system: called at startup and whenever the window
+/// appearance changes. Returns whether the mode changed.
+pub fn follow(appearance: WindowAppearance) -> bool {
+    let dark = matches!(
+        appearance,
+        WindowAppearance::Dark | WindowAppearance::VibrantDark
+    );
+    DARK.swap(dark, Ordering::Relaxed) != dark
+}
+
+fn by_mode(light: Rgba, dark: Rgba) -> Rgba {
+    if DARK.load(Ordering::Relaxed) {
+        dark
+    } else {
+        light
+    }
+}
+
 pub fn canvas() -> Rgba {
-    rgb(0x00e6_e5df)
+    by_mode(rgb(0x00e6_e5df), rgb(0x0014_1413))
 }
 pub fn paper() -> Rgba {
-    rgb(0x00f7_f7f4)
+    by_mode(rgb(0x00f7_f7f4), rgb(0x001c_1c1a))
 }
 pub fn panel() -> Rgba {
-    rgb(0x00ee_ede7)
+    by_mode(rgb(0x00ee_ede7), rgb(0x0023_2321))
 }
 pub fn hairline() -> Rgba {
-    rgb(0x00e4_e3dc)
+    by_mode(rgb(0x00e4_e3dc), rgb(0x002c_2b28))
 }
 pub fn hairline_strong() -> Rgba {
-    rgb(0x00db_d9d2)
+    by_mode(rgb(0x00db_d9d2), rgb(0x0037_3632))
 }
 pub fn hairline_control() -> Rgba {
-    rgb(0x00c9_c7be)
+    by_mode(rgb(0x00c9_c7be), rgb(0x004a_4842))
 }
 /// The background of a selected diff line: the palette's blue at 20%, so it
 /// reads as a selection on paper and over the green and red diff tints.
 pub fn selected_line() -> Rgba {
-    rgba(0x006c_bc33)
+    by_mode(rgba(0x006c_bc33), rgba(0x4a9e_ff40))
 }
 pub fn selected_panel() -> Rgba {
-    rgb(0x00de_dcd4)
+    by_mode(rgb(0x00de_dcd4), rgb(0x0033_322d))
+}
+/// The background of selected text in a field.
+pub fn text_selection() -> Rgba {
+    by_mode(rgba(0x006c_bc40), rgba(0x4a9e_ff55))
+}
+/// The dim layer behind a dialog or overlay.
+pub fn scrim() -> Rgba {
+    by_mode(rgba(0x1614_1433), rgba(0x0000_0099))
+}
+/// The shadow under a dialog card.
+pub fn shadow() -> Rgba {
+    by_mode(rgba(0x1616_1426), rgba(0x0000_0099))
 }
 pub fn ink() -> Rgba {
-    rgb(0x0016_1614)
+    by_mode(rgb(0x0016_1614), rgb(0x00f1_f0ea))
 }
 pub fn text() -> Rgba {
-    rgb(0x0031_302d)
+    by_mode(rgb(0x0031_302d), rgb(0x00d8_d7d0))
 }
 pub fn muted() -> Rgba {
-    rgb(0x0069_6761)
+    by_mode(rgb(0x0069_6761), rgb(0x00a3_a199))
 }
 pub fn faint() -> Rgba {
-    rgb(0x008a_8882)
+    by_mode(rgb(0x008a_8882), rgb(0x007c_7a73))
 }
 pub fn pending() -> Rgba {
-    rgb(0x0084_6600)
+    by_mode(rgb(0x0084_6600), rgb(0x00d9_a900))
 }
 pub fn agent() -> Rgba {
-    rgb(0x0078_56c0)
+    by_mode(rgb(0x0078_56c0), rgb(0x00a8_8ff0))
 }
 pub fn done() -> Rgba {
-    rgb(0x0000_7b2f)
+    by_mode(rgb(0x0000_7b2f), rgb(0x0042_c274))
 }
 pub fn rejected() -> Rgba {
-    rgb(0x00ba_3e4b)
+    by_mode(rgb(0x00ba_3e4b), rgb(0x00f0_7480))
 }
 /// Orange means "you are needed". Nothing else is orange.
 pub fn needs_you() -> Rgba {
-    rgb(0x00f5_4e00)
+    by_mode(rgb(0x00f5_4e00), rgb(0x00ff_6a2a))
 }
 /// The tint behind an added diff line: the green at about 9% opacity.
 pub fn added_tint() -> Rgba {
-    rgba(0x007b_2f17)
+    by_mode(rgba(0x007b_2f17), rgba(0x42c2_7424))
 }
 /// The tint behind a removed diff line: the red at about 9% opacity.
 pub fn removed_tint() -> Rgba {
-    rgba(0xba3e_4b17)
+    by_mode(rgba(0xba3e_4b17), rgba(0xf074_8024))
 }
 
 /// The colour of a syntax class in a diff line. `None` is ink: functions,
 /// operators and punctuation stay quiet so colour marks meaning only.
 pub fn syntax(class: Class) -> Option<Rgba> {
     match class {
-        Class::Keyword => Some(rgb(0x0000_6cbc)),
-        Class::String | Class::Number => Some(rgb(0x00aa_5100)),
-        Class::Constant => Some(rgb(0x00a9_438d)),
-        Class::Type => Some(rgb(0x0000_7677)),
-        Class::Comment => Some(rgb(0x0069_6761)),
+        Class::Keyword => Some(by_mode(rgb(0x0000_6cbc), rgb(0x006c_b6ff))),
+        Class::String | Class::Number => Some(by_mode(rgb(0x00aa_5100), rgb(0x00e9_a15c))),
+        Class::Constant => Some(by_mode(rgb(0x00a9_438d), rgb(0x00d6_7fc0))),
+        Class::Type => Some(by_mode(rgb(0x0000_7677), rgb(0x004f_c4c4))),
+        Class::Comment => Some(muted()),
         Class::Function | Class::Operator | Class::Punctuation | Class::Plain => None,
     }
 }
@@ -202,6 +235,16 @@ mod tests {
             assert!(syntax(class).is_none());
         }
         assert_eq!(syntax(Class::Keyword), Some(rgb(0x0000_6cbc)));
+    }
+
+    #[test]
+    fn follow_reports_only_a_change_of_mode() {
+        assert!(!follow(WindowAppearance::Light));
+        assert!(follow(WindowAppearance::Dark));
+        assert!(!follow(WindowAppearance::VibrantDark));
+        assert_ne!(paper(), rgb(0x00f7_f7f4));
+        assert!(follow(WindowAppearance::Light));
+        assert_eq!(paper(), rgb(0x00f7_f7f4));
     }
 
     #[test]
