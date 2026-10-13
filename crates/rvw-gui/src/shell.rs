@@ -108,6 +108,8 @@ pub struct Shell {
     pub(crate) git: GitTools,
     /// The History screen: the commit list, the selected commit and search.
     pub(crate) history: HistoryState,
+    /// The open history edit card, if any.
+    pub(crate) rewrite: Option<crate::rewrite_card::RewriteCard>,
     /// Holds the keys (C) when no field has focus.
     focus: FocusHandle,
     /// The database the queue lives in. The live poller fingerprints it
@@ -185,6 +187,7 @@ impl Shell {
             files_scroll: UniformListScrollHandle::new(),
             changes: ChangesState::default(),
             history: HistoryState::default(),
+            rewrite: None,
             git: GitTools {
                 facts,
                 ..GitTools::default()
@@ -468,7 +471,10 @@ impl Shell {
             }
             return;
         }
-        if self.restore_key(event, cx) || self.git_ask_key(event, cx) {
+        if self.rewrite_key(event, window, cx)
+            || self.restore_key(event, cx)
+            || self.git_ask_key(event, cx)
+        {
             return;
         }
         if self.tools_key(event, cx) {
@@ -578,6 +584,7 @@ impl Render for Shell {
             && self.finder.is_none()
             && !self.tools.field_open()
             && self.git.ask.is_none()
+            && self.rewrite.as_ref().is_none_or(|card| !card.editing())
             && !self.message_focused(window, cx);
         if (no_field || self.git.confirm.is_some()) && !self.focus.is_focused(window) {
             self.focus.focus(window);
@@ -655,6 +662,7 @@ impl Render for Shell {
                     .map(|finder| finder::overlay(finder, cx)),
             )
             .children(self.tool_overlays(cx))
+            .children(self.rewrite_overlay(cx))
             .children(resize_layer)
     }
 }

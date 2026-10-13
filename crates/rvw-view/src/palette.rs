@@ -50,6 +50,14 @@ pub enum Action {
     FinishOperation,
     AbortOperation,
     OpenMergeTool,
+    BlameFile,
+    BrowseCommitFiles,
+    CompareWith,
+    EditHistory,
+    NewWorktree,
+    RemoveWorktree,
+    OpenTerminal,
+    OpenDiffTool,
 }
 
 /// The reason a network action waits while a fetch, pull or push is running.
@@ -60,7 +68,7 @@ const FINISH_OR_ABORT: &str = "Finish or abort the merge or cherry-pick first";
 
 impl Action {
     /// Every action, in palette order.
-    pub const ALL: [Action; 42] = [
+    pub const ALL: [Action; 50] = [
         Action::GoToQueue,
         Action::GoToReview,
         Action::GoToFiles,
@@ -103,6 +111,14 @@ impl Action {
         Action::FinishOperation,
         Action::AbortOperation,
         Action::OpenMergeTool,
+        Action::BlameFile,
+        Action::BrowseCommitFiles,
+        Action::CompareWith,
+        Action::EditHistory,
+        Action::NewWorktree,
+        Action::RemoveWorktree,
+        Action::OpenTerminal,
+        Action::OpenDiffTool,
     ];
 
     /// The name shown in the palette.
@@ -151,6 +167,14 @@ impl Action {
             Action::FinishOperation => "Finish the merge or cherry-pick",
             Action::AbortOperation => "Abort the merge or cherry-pick",
             Action::OpenMergeTool => "Open the merge tool",
+            Action::BlameFile => "Blame this file",
+            Action::BrowseCommitFiles => "Open a file as it was in the selected commit…",
+            Action::CompareWith => "Compare the selected commit with…",
+            Action::EditHistory => "Edit unpushed commits…",
+            Action::NewWorktree => "New worktree…",
+            Action::RemoveWorktree => "Remove a worktree…",
+            Action::OpenTerminal => "Open a terminal in this repository",
+            Action::OpenDiffTool => "Open this file in the diff tool",
         }
     }
 
@@ -180,6 +204,12 @@ impl Action {
             | Action::FinishOperation
             | Action::AbortOperation
             | Action::OpenMergeTool => "Git",
+            Action::BlameFile
+            | Action::BrowseCommitFiles
+            | Action::CompareWith
+            | Action::EditHistory => "History",
+            Action::NewWorktree | Action::RemoveWorktree => "Repository",
+            Action::OpenTerminal | Action::OpenDiffTool => "Tools",
             Action::StashChanges | Action::ApplyStash | Action::DropStash => "Stash",
             Action::NewBranch
             | Action::RenameBranch
@@ -311,6 +341,16 @@ pub fn unavailable(action: Action, state: &State) -> Option<&'static str> {
             (!state.operation_in_progress).then_some("No merge or cherry-pick in progress")
         }
         Action::OpenMergeTool => (state.conflicted == 0).then_some("No conflicted files"),
+        Action::BlameFile | Action::OpenDiffTool => {
+            (!state.has_open_file).then_some("Open a file first")
+        }
+        Action::BrowseCommitFiles | Action::CompareWith => (state.screen != Screen::History
+            || !state.has_selected_commit)
+            .then_some("Select a commit in the history first"),
+        Action::EditHistory => (!state.on_branch)
+            .then_some("HEAD is not on a branch")
+            .or_else(|| operation_reason(state)),
+        Action::NewWorktree | Action::RemoveWorktree | Action::OpenTerminal => None,
         Action::StageChosen => {
             (state.screen != Screen::Changes).then_some("Open the changes first")
         }
@@ -496,7 +536,7 @@ mod tests {
 
     #[test]
     fn all_has_forty_two_distinct_actions_with_titles_and_groups() {
-        assert_eq!(Action::ALL.len(), 42);
+        assert_eq!(Action::ALL.len(), 50);
         let mut seen = std::collections::HashSet::new();
         for action in Action::ALL {
             assert!(seen.insert(action), "duplicate {action:?}");
@@ -536,6 +576,14 @@ mod tests {
                 Action::FinishOperation,
                 Action::AbortOperation,
                 Action::OpenMergeTool,
+                Action::BlameFile,
+                Action::BrowseCommitFiles,
+                Action::CompareWith,
+                Action::EditHistory,
+                Action::NewWorktree,
+                Action::RemoveWorktree,
+                Action::OpenTerminal,
+                Action::OpenDiffTool,
             ]
         );
     }
@@ -585,6 +633,30 @@ mod tests {
                 "Git",
             ),
             (Action::OpenMergeTool, "Open the merge tool", "Git"),
+            (Action::BlameFile, "Blame this file", "History"),
+            (
+                Action::BrowseCommitFiles,
+                "Open a file as it was in the selected commit…",
+                "History",
+            ),
+            (
+                Action::CompareWith,
+                "Compare the selected commit with…",
+                "History",
+            ),
+            (Action::EditHistory, "Edit unpushed commits…", "History"),
+            (Action::NewWorktree, "New worktree…", "Repository"),
+            (Action::RemoveWorktree, "Remove a worktree…", "Repository"),
+            (
+                Action::OpenTerminal,
+                "Open a terminal in this repository",
+                "Tools",
+            ),
+            (
+                Action::OpenDiffTool,
+                "Open this file in the diff tool",
+                "Tools",
+            ),
         ];
         for (action, title, group) in table {
             assert_eq!(action.title(), title, "{action:?}");
@@ -1028,7 +1100,7 @@ mod tests {
     #[test]
     fn empty_query_lists_all_actions_in_order() {
         let got = entries("", &state(Screen::Diff));
-        assert_eq!(got.len(), 42);
+        assert_eq!(got.len(), 50);
         let order: Vec<Action> = got.iter().map(|e| e.action).collect();
         assert_eq!(order, Action::ALL);
         assert!(got.iter().all(|e| e.matches.is_empty() && e.score == 0));
@@ -1139,6 +1211,8 @@ mod tests {
                 "Repository",
                 "Repository",
                 "Repository",
+                "Repository",
+                "Repository",
                 "Git",
                 "Git",
                 "Git",
@@ -1161,10 +1235,16 @@ mod tests {
                 "Remote",
                 "Remote",
                 "History",
-                "History"
+                "History",
+                "History",
+                "History",
+                "History",
+                "History",
+                "Tools",
+                "Tools",
             ]
         );
-        assert_eq!(got.len(), 42);
+        assert_eq!(got.len(), 50);
     }
 
     #[test]
@@ -1228,5 +1308,36 @@ mod tests {
         let last = got.len() - 1;
         assert_eq!(step(&got, last, true), last);
         assert_eq!(first_available(&[]), 0);
+    }
+
+    #[test]
+    fn history_tools_need_a_file_or_a_selected_commit() {
+        let mut s = state(Screen::Diff);
+        assert_eq!(
+            unavailable(Action::BlameFile, &s),
+            Some("Open a file first")
+        );
+        assert_eq!(
+            unavailable(Action::OpenDiffTool, &s),
+            Some("Open a file first")
+        );
+        s.has_open_file = true;
+        assert_eq!(unavailable(Action::BlameFile, &s), None);
+        assert_eq!(
+            unavailable(Action::CompareWith, &s),
+            Some("Select a commit in the history first")
+        );
+        let mut s = state(Screen::History);
+        s.has_selected_commit = true;
+        assert_eq!(unavailable(Action::CompareWith, &s), None);
+        assert_eq!(unavailable(Action::BrowseCommitFiles, &s), None);
+        assert_eq!(unavailable(Action::NewWorktree, &s), None);
+        assert_eq!(
+            unavailable(Action::EditHistory, &s),
+            Some("HEAD is not on a branch")
+        );
+        s.on_branch = true;
+        s.operation_in_progress = true;
+        assert_eq!(unavailable(Action::EditHistory, &s), Some(FINISH_OR_ABORT));
     }
 }

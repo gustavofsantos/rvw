@@ -214,6 +214,22 @@ impl Shell {
             Action::FinishOperation => self.finish_operation(cx),
             Action::AbortOperation => self.abort_operation(cx),
             Action::OpenMergeTool => self.open_merge_tool(cx),
+            Action::BlameFile => {
+                if let Some(path) = self.open_file_path() {
+                    self.blame_file(&path, cx);
+                }
+            }
+            Action::BrowseCommitFiles
+            | Action::CompareWith
+            | Action::NewWorktree
+            | Action::RemoveWorktree => self.run_git_action(action, window, cx),
+            Action::EditHistory => self.open_rewrite(window, cx),
+            Action::OpenTerminal => self.open_terminal(cx),
+            Action::OpenDiffTool => {
+                if let Some(path) = self.open_file_path() {
+                    self.open_diff_tool(&path, cx);
+                }
+            }
             Action::StashChanges
             | Action::ApplyStash
             | Action::DropStash
