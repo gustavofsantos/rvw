@@ -1,15 +1,18 @@
-//! The index: what is staged and what is not, the two diffs that separate them, and the commands that move changes between them.
+//! The index: what is staged and what is not, the two diffs that separate them, and
+//! the commands that move changes between them.
 
 use std::fs;
 use std::path::Path;
 
 use crate::gitx::{self, GitError};
 
-/// One changed path as `git status` sees it. A letter is git's: M, A, D, R, C, T, U, or b'?' for untracked.
+/// One changed path as `git status` sees it. A letter is git's: M, A, D, R, C, T,
+/// U, or b'?' for untracked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileStatus {
     pub path: String,
-    /// The path before a rename or copy staged in the index. Unstaging only `path` leaves the deletion of this path staged, so both need unstaging.
+    /// The path before a rename or copy staged in the index. Unstaging only `path`
+    /// leaves the deletion of this path staged, so both need unstaging.
     pub orig_path: Option<String>,
     /// The change between HEAD and the index, if any.
     pub staged: Option<u8>,
@@ -17,7 +20,8 @@ pub struct FileStatus {
     pub unstaged: Option<u8>,
 }
 
-/// Every changed path in the repository at `dir`, sorted by path. Paths are relative to the top of the worktree.
+/// Every changed path in the repository at `dir`, sorted by path. Paths are
+/// relative to the top of the worktree.
 pub fn status(dir: &Path) -> Result<Vec<FileStatus>, GitError> {
     let out = gitx::run(
         dir,
@@ -111,7 +115,8 @@ fn letter(c: u8) -> Option<u8> {
     (c != b'.').then_some(c)
 }
 
-/// The patch from the index to the worktree for `path`, with git's prefixes. An untracked file is shown as entirely added.
+/// The patch from the index to the worktree for `path`, with git's prefixes. An
+/// untracked file is shown as entirely added.
 pub fn unstaged_diff(dir: &Path, path: &str) -> Result<String, GitError> {
     if is_untracked(dir, path)? {
         return untracked_diff(dir, path);
@@ -216,7 +221,8 @@ pub fn stage(dir: &Path, paths: &[&str]) -> Result<(), GitError> {
     gitx::run(dir, &[], &args).map(|_| ())
 }
 
-/// Moves each path's staged state back to HEAD, or removes it from the index when there is no commit yet. The worktree is not touched.
+/// Moves each path's staged state back to HEAD, or removes it from the index when
+/// there is no commit yet. The worktree is not touched.
 pub fn unstage(dir: &Path, paths: &[&str]) -> Result<(), GitError> {
     if paths.is_empty() {
         return Ok(());
@@ -235,7 +241,8 @@ fn has_head(dir: &Path) -> bool {
     gitx::run(dir, &[], &["rev-parse", "--verify", "--quiet", "HEAD"]).is_ok()
 }
 
-/// Applies `patch` to the index, or removes it when `reverse` is set. A patch that does not apply leaves the index unchanged.
+/// Applies `patch` to the index, or removes it when `reverse` is set. A patch that
+/// does not apply leaves the index unchanged.
 pub fn apply_to_index(dir: &Path, patch: &str, reverse: bool) -> Result<(), GitError> {
     if patch.trim().is_empty() {
         return Err(GitError {

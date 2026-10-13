@@ -1,4 +1,5 @@
-//! Commits and the worktree: commit, amend, move HEAD back, and discard a file's changes so they can be put back.
+//! Commits and the worktree: commit, amend, move HEAD back, and discard a file's
+//! changes so they can be put back.
 
 use std::fs;
 use std::io;
@@ -105,7 +106,8 @@ pub fn reset_soft(dir: &Path, rev: &str) -> Result<(), GitError> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Discarded {
     pub path: String,
-    /// The blob holding the file as it was; None when the file did not exist in the worktree (it was deleted).
+    /// The blob holding the file as it was; None when the file did not exist in the
+    /// worktree (it was deleted).
     pub blob: Option<String>,
     /// The file was executable.
     pub executable: bool,
@@ -113,7 +115,8 @@ pub struct Discarded {
     pub untracked: bool,
 }
 
-/// Saves the file as a blob, then puts the worktree file back to its staged version (or removes it when untracked).
+/// Saves the file as a blob, then puts the worktree file back to its staged version
+/// (or removes it when untracked).
 pub fn discard(dir: &Path, path: &str) -> Result<Discarded, GitError> {
     let untracked = !gitx::tracked(dir, path).unwrap_or(false);
     let full = dir.join(path);
