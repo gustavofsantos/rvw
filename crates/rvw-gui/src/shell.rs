@@ -16,7 +16,7 @@ use rvw_view::queue::{Filter, Queue, State};
 use rvw_view::selection::Pos;
 use rvw_view::viewmode::ViewMode;
 
-use crate::changes_state::{ChangesState, CommitChanges, UndoGit};
+use crate::changes_state::{ChangesState, CommitChanges, RestoreLatest};
 use crate::composer::Composer;
 use crate::data::{self, Identity, Snapshot};
 use crate::diff_list::drag::DragState;
@@ -25,6 +25,7 @@ use crate::draft_edit::Removal;
 use crate::files_panel::{self, FileList};
 use crate::finder::{self, Finder, OpenFinder};
 use crate::frame::{self, Panels};
+use crate::git_tools::{GitTools, RepoFacts};
 use crate::highlights::Highlighter;
 use crate::key_strip::key_strip;
 use crate::outcome_screen::{self, Outcome};
@@ -80,8 +81,11 @@ pub struct Shell {
     pub(crate) changes_scroll: UniformListScrollHandle,
     /// Keeps the Files tree's row in view when the keyboard moves.
     pub(crate) files_scroll: UniformListScrollHandle,
-    /// The Changes screen: staging, the commit box and the recent actions.
+    /// The Changes screen: staging, the commit box and the checkpoints.
     pub(crate) changes: ChangesState,
+    /// Repository facts, the git prompts and pickers, and the restore
+    /// confirmation.
+    pub(crate) git: GitTools,
     /// Holds the keys (C) when no field has focus.
     focus: FocusHandle,
 }
@@ -98,6 +102,7 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> Self {
         let queue = snapshot.queue.clone();
+        let facts = RepoFacts::read(std::path::Path::new(&identity.workspace));
         let screen = if snapshot.changes.is_empty() {
             Screen::Queue
         } else {
@@ -138,6 +143,10 @@ impl Shell {
             changes_scroll: UniformListScrollHandle::new(),
             files_scroll: UniformListScrollHandle::new(),
             changes: ChangesState::default(),
+            git: GitTools {
+                facts,
+                ..GitTools::default()
+            },
             focus: cx.focus_handle(),
         }
     }
@@ -241,6 +250,9 @@ impl Shell {
             }
             return;
         }
+        if self.restore_key(event, cx) || self.git_ask_key(event, cx) {
+            return;
+        }
         if self.tools_key(event, cx) {
             return;
         }
@@ -331,13 +343,15 @@ fn toggled<T: PartialEq>(current: Option<&T>, value: T) -> Option<T> {
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // With no field open, the shell holds the focus so that C reaches it.
-        if self.composer.is_none()
+        // The restore confirmation is modal and has no field, so it always
+        // takes the keyboard to the shell, from the commit message too.
+        let no_field = self.composer.is_none()
             && self.submit.is_none()
             && self.finder.is_none()
             && !self.tools.field_open()
-            && !self.message_focused(window, cx)
-            && !self.focus.is_focused(window)
-        {
+            && self.git.ask.is_none()
+            && !self.message_focused(window, cx);
+        if (no_field || self.git.confirm.is_some()) && !self.focus.is_focused(window) {
             self.focus.focus(window);
         }
         self.sync_highlights(cx);
@@ -357,7 +371,12 @@ impl Render for Shell {
             (Screen::Changes, _) => Panels {
                 left: crate::changes_screen::left(&self.changes, cx),
                 centre: crate::changes_screen::centre(&self.changes, cx),
-                right: crate::changes_screen::right(&self.changes, &self.snapshot.comments, cx),
+                right: crate::changes_screen::right(
+                    &self.changes,
+                    &self.git.facts,
+                    &self.snapshot.comments,
+                    cx,
+                ),
             },
             (Screen::Outcome, Some(open)) => Panels {
                 left: outcome_screen::left(open, &self.snapshot, cx),
@@ -385,7 +404,13 @@ impl Render for Shell {
         };
         let resize_layer = crate::window_chrome::resize_layer(window);
         let window = frame::window(
-            frame::top_bar(&self.snapshot, self.tools.compare_menu.as_ref(), window, cx),
+            frame::top_bar(
+                &self.snapshot,
+                &self.git,
+                self.tools.compare_menu.as_ref(),
+                window,
+                cx,
+            ),
             frame::rail(rail_screen, cx),
             panels,
             key_strip(&self.key_context(key_screen)),
@@ -416,8 +441,8 @@ impl Render for Shell {
             .on_action(cx.listener(|this: &mut Self, _: &CommitChanges, _, cx| {
                 this.commit_changes(cx);
             }))
-            .on_action(cx.listener(|this: &mut Self, _: &UndoGit, _, cx| {
-                this.undo_git(cx);
+            .on_action(cx.listener(|this: &mut Self, _: &RestoreLatest, _, cx| {
+                this.restore_latest(cx);
             }))
             .child(window)
             .children(self.submit.as_ref().map(|dialog| {
@@ -455,7 +480,7 @@ impl Shell {
             draft_count: self.snapshot.queue.counters.draft,
             comment_done: false,
             staged_count: self.changes.lists.staged.len(),
-            can_undo: self.changes.log.can_undo(),
+            can_undo: !self.git.facts.checkpoints.is_empty(),
             can_move: true,
             can_open_file: false,
         }

@@ -1,10 +1,9 @@
 //! The Changes screen: the staged and unstaged lists on the left, the open
 //! file's diff with its hunk and line staging in the centre, and the commit
-//! box with the recent actions on the right. Every fact comes from
-//! `ChangesState`; this file only lays it out.
+//! box with the checkpoints on the right. Every fact comes from
+//! `ChangesState` and the repository facts; this file only lays it out.
 
 use std::ops::Range;
-use std::time::SystemTime;
 
 use gpui::prelude::*;
 use gpui::{
@@ -17,17 +16,14 @@ use rvw_view::commit_screen::{
 };
 use rvw_view::diff::{Line, LineKind};
 use rvw_view::selection::Pos;
-use rvw_view::undo::ago;
 
 use crate::changes_state::{ChangesState, DiffRow, ListRow, OpenChange};
+use crate::git_tools::RepoFacts;
 use crate::queue_screen::noun;
 use crate::review_screen::LINE_HEIGHT;
 use crate::shell::Shell;
 use crate::text_area::TextArea;
 use crate::theme;
-
-/// The most recent actions the right panel lists.
-const RECENT_ACTIONS: usize = 8;
 
 /// The staged and unstaged lists, or why they cannot be shown.
 pub fn left(state: &ChangesState, cx: &Context<Shell>) -> Div {
@@ -514,8 +510,13 @@ fn line_text(line: &Line) -> Div {
 }
 
 /// The commit box: the message, amend, the notices about open comments, the
-/// errors, the commit button, and the recent actions with their undo.
-pub fn right(state: &ChangesState, comments: &[Comment], cx: &Context<Shell>) -> Div {
+/// errors, the commit button, and the checkpoints.
+pub fn right(
+    state: &ChangesState,
+    facts: &RepoFacts,
+    comments: &[Comment],
+    cx: &Context<Shell>,
+) -> Div {
     let mut column = div()
         .flex()
         .flex_col()
@@ -553,13 +554,7 @@ pub fn right(state: &ChangesState, comments: &[Comment], cx: &Context<Shell>) ->
         )
         .child(commit_button(state, cx))
         .child(div().h(px(1.)).bg(theme::hairline()))
-        .child(recent_actions(state, cx))
-        .child(
-            div()
-                .text_size(px(12.))
-                .text_color(theme::faint())
-                .child("Undo takes back the newest action while the repository is as it left it."),
-        )
+        .child(crate::checkpoint_ui::list(facts, cx))
 }
 
 /// One notice about open comments on staged files. It never blocks a commit.
@@ -658,84 +653,6 @@ fn commit_button(state: &ChangesState, cx: &Context<Shell>) -> Stateful<Div> {
             .bg(theme::selected_panel())
             .text_color(theme::faint())
     }
-}
-
-/// The heading of the recent actions with its Undo, then the newest actions.
-fn recent_actions(state: &ChangesState, cx: &Context<Shell>) -> Div {
-    let can_undo = state.log.can_undo();
-    let mut undo = div()
-        .id("changes-undo")
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(8.))
-        .child("Undo")
-        .child(key_cap("⌘Z"));
-    if can_undo {
-        undo = undo
-            .text_color(theme::ink())
-            .font_weight(FontWeight::MEDIUM)
-            .cursor_pointer()
-            .on_click(cx.listener(
-                |this: &mut Shell, _: &ClickEvent, window: &mut Window, cx: &mut Context<Shell>| {
-                    this.undo_git(cx);
-                    this.focus_shell(window);
-                },
-            ));
-    } else {
-        undo = undo.text_color(theme::faint());
-    }
-    let now = SystemTime::now();
-    let entries: Vec<Div> = state
-        .log
-        .newest_first()
-        .take(RECENT_ACTIONS)
-        .map(|action| log_row(&action.label, &ago(now, action.at)))
-        .collect();
-    let list = if entries.is_empty() {
-        div().text_color(theme::muted()).child("Nothing yet.")
-    } else {
-        div().flex().flex_col().gap(px(8.)).children(entries)
-    };
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(12.))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .child(
-                    div()
-                        .flex_1()
-                        .text_color(theme::muted())
-                        .child("Recent actions"),
-                )
-                .child(undo),
-        )
-        .child(list)
-}
-
-/// One recent action: its label, and how long ago it happened.
-fn log_row(label: &str, ago: &str) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .gap(px(10.))
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.))
-                .truncate()
-                .text_color(theme::text())
-                .child(label.to_owned()),
-        )
-        .child(
-            div()
-                .flex_none()
-                .text_color(theme::faint())
-                .child(ago.to_owned()),
-        )
 }
 
 /// A key's name in the key font, as the buttons show it.

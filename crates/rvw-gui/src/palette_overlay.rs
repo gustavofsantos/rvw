@@ -92,6 +92,14 @@ impl Shell {
                 .selected
                 .as_ref()
                 .is_some_and(|selected| selected.changed),
+            has_staged: !self.changes.lists.staged.is_empty(),
+            on_branch: self.git.facts.branch.is_some(),
+            has_upstream: self.git.facts.upstream.is_some(),
+            has_remote: self.git.facts.remote.is_some(),
+            has_stashes: !self.git.facts.stashes.is_empty(),
+            has_tags: !self.git.facts.tags.is_empty(),
+            has_checkpoints: !self.git.facts.checkpoints.is_empty(),
+            network_busy: self.git.busy.is_some(),
         }
     }
 
@@ -167,6 +175,24 @@ impl Shell {
             Action::ReloadQueue => {
                 self.reload_for_new_base(cx).ok();
             }
+            Action::GoToChanges => self.show(Screen::Changes, cx),
+            Action::StageChosen => self.move_chosen(cx),
+            Action::Commit => self.commit_changes(cx),
+            Action::SaveCheckpoint => self.save_checkpoint(cx),
+            Action::RestoreCheckpoint => self.open_checkpoints(window, cx),
+            Action::StashChanges
+            | Action::ApplyStash
+            | Action::DropStash
+            | Action::NewBranch
+            | Action::RenameBranch
+            | Action::DeleteBranch
+            | Action::NewTag
+            | Action::PushTag
+            | Action::DeleteTag
+            | Action::Fetch
+            | Action::Pull
+            | Action::Push
+            | Action::Publish => self.run_git_action(action, window, cx),
         }
         cx.notify();
     }

@@ -1,11 +1,11 @@
 //! The Changes screen's state and actions: the staged and unstaged lists, the
-//! open file's diff and the lines chosen in it, the commit message, and the
-//! recent-actions log that ⌘Z undoes. Each action is one `rvw_git` call; the
-//! screen's drawing is in `changes_screen`.
+//! open file's diff and the lines chosen in it, and the commit message. Every
+//! action that changes the repository first saves a checkpoint, and does not
+//! run when that fails. Each action is one `rvw_git` call; the screen's drawing
+//! is in `changes_screen`.
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::time::SystemTime;
 
 use gpui::{
     actions, App, AppContext, Context, Entity, KeyBinding, ScrollStrategy, Subscription,
@@ -17,19 +17,18 @@ use rvw_view::diff::{parse, FileDiff};
 use rvw_view::keys::Screen;
 use rvw_view::patch::{hunk_patch, lines_patch, Direction};
 use rvw_view::selection::Pos;
-use rvw_view::undo::{Action, Inverse, Log};
 
 use crate::shell::Shell;
 use crate::text_area::{TextArea, TextAreaEvent};
 
-actions!(rvw_changes, [CommitChanges, UndoGit]);
+actions!(rvw_changes, [CommitChanges, RestoreLatest]);
 
-/// ⇧⌘C commits from any screen with something staged; ⌘Z undoes the newest
-/// recent action when no text field takes it first.
+/// ⇧⌘C commits from any screen with something staged; ⌘Z opens the restore of
+/// the newest checkpoint when no text field takes it first.
 pub fn bind_keys(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("secondary-shift-c", CommitChanges, None),
-        KeyBinding::new("secondary-z", UndoGit, None),
+        KeyBinding::new("secondary-z", RestoreLatest, None),
     ]);
 }
 
@@ -79,9 +78,8 @@ pub struct ChangesState {
     pub has_head: bool,
     /// The last action's failure, shown above the commit button.
     pub error: Option<String>,
-    /// What the last undo did, e.g. "Undid: Staged service.rs".
+    /// What the last restore did, e.g. "Restored “Before staging x”.".
     pub notice: Option<String>,
-    pub log: Log,
     pub list_scroll: UniformListScrollHandle,
     pub diff_scroll: UniformListScrollHandle,
     pub(crate) message_events: Option<Subscription>,
@@ -94,8 +92,6 @@ const NO_COMMIT: &str = "There is no commit to amend yet";
 const WHOLE_FILE: &str = "This file can only be staged as a whole";
 const CHANGED: &str = "The file changed since it was shown; look again";
 const NO_REASON: &str = "git failed without saying why";
-/// The longest subject, in characters, shown in the recent-actions log.
-const SUBJECT_CHARS: usize = 50;
 
 impl Shell {
     /// Shows the Changes screen: makes the message field the first time and
@@ -202,7 +198,7 @@ impl Shell {
         let name = file_name(path);
         match side {
             Side::Unstaged => {
-                self.change_index(format!("Staged {name}"), cx, |dir| {
+                self.change_index(&format!("Before staging {name}"), cx, |dir| {
                     index::stage(dir, &[path])
                 });
             }
@@ -214,7 +210,7 @@ impl Shell {
                     .and_then(|(_, entry)| entry.orig_path.as_deref());
                 let paths = move_paths_of(side, path, orig);
                 let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
-                self.change_index(format!("Unstaged {name}"), cx, |dir| {
+                self.change_index(&format!("Before unstaging {name}"), cx, |dir| {
                     index::unstage(dir, &refs)
                 });
             }
@@ -235,10 +231,10 @@ impl Shell {
             .flat_map(|entry| move_paths_of(side, &entry.path, entry.orig_path.as_deref()))
             .collect();
         let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
-        let label = format!("{} {}", moved_verb(side), count_of(count, "file"));
+        let label = format!("Before {} {}", staging_verb(side), count_of(count, "file"));
         match side {
-            Side::Unstaged => self.change_index(label, cx, |dir| index::stage(dir, &refs)),
-            Side::Staged => self.change_index(label, cx, |dir| index::unstage(dir, &refs)),
+            Side::Unstaged => self.change_index(&label, cx, |dir| index::stage(dir, &refs)),
+            Side::Staged => self.change_index(&label, cx, |dir| index::unstage(dir, &refs)),
         }
     }
 
@@ -262,9 +258,13 @@ impl Shell {
                 return;
             }
         };
-        let label = format!("{} a hunk of {}", moved_verb(side), file_name(&path));
+        let label = format!(
+            "Before {} a hunk of {}",
+            staging_verb(side),
+            file_name(&path)
+        );
         let reverse = side == Side::Staged;
-        self.change_index(label, cx, |dir| {
+        self.change_index(&label, cx, |dir| {
             index::apply_to_index(dir, &patch_text, reverse)
         });
     }
@@ -303,13 +303,13 @@ impl Shell {
             }
         };
         let label = format!(
-            "{} {} of {}",
-            moved_verb(side),
+            "Before {} {} of {}",
+            staging_verb(side),
             count_of(count, "line"),
             file_name(&path)
         );
         let reverse = side == Side::Staged;
-        self.change_index(label, cx, |dir| {
+        self.change_index(&label, cx, |dir| {
             index::apply_to_index(dir, &patch_text, reverse)
         });
     }
@@ -319,14 +319,13 @@ impl Shell {
         if self.changes.lists.find(Side::Unstaged, path).is_none() {
             return;
         }
+        let label = format!("Before discarding changes to {}", file_name(path));
+        if !self.checkpoint_first(&label, cx) {
+            return;
+        }
         let dir = self.repo_dir();
         match commits::discard(&dir, path) {
-            Ok(saved) => {
-                self.changes.log.push(Action {
-                    label: format!("Discarded changes to {}", file_name(path)),
-                    at: SystemTime::now(),
-                    inverse: Inverse::Discard(saved),
-                });
+            Ok(_) => {
                 self.changes.error = None;
                 self.changes.notice = None;
                 self.reload_changes();
@@ -389,24 +388,6 @@ impl Shell {
             self.changes.amend = true;
             self.changes.error = None;
         }
-        cx.notify();
-    }
-
-    /// ⌘Z with no field focused: undoes the newest recent action.
-    pub fn undo_git(&mut self, cx: &mut Context<Self>) {
-        if self.other_field_open() {
-            return;
-        }
-        let dir = self.repo_dir();
-        match self.changes.log.undo(&dir) {
-            Ok(label) => {
-                self.changes.notice = Some(format!("Undid: {label}"));
-                self.changes.error = None;
-            }
-            Err(reason) => self.changes.error = Some(reason),
-        }
-        self.reload_changes();
-        let _ = self.refresh();
         cx.notify();
     }
 
@@ -497,28 +478,32 @@ impl Shell {
         }
     }
 
-    /// Runs one index change. `write_tree` before and after tells whether it
-    /// changed the index; only a change that succeeded is logged for undo.
+    /// Saves the checkpoint that an action takes first. False, with the error
+    /// shown, when it cannot be saved: the action must then not run.
+    fn checkpoint_first(&mut self, label: &str, cx: &mut Context<Self>) -> bool {
+        match self.checkpoint_before(label, &[], cx) {
+            Ok(()) => true,
+            Err(message) => {
+                self.changes.error = Some(message);
+                cx.notify();
+                false
+            }
+        }
+    }
+
+    /// Runs one index change after its checkpoint, labelled `label`.
     fn change_index(
         &mut self,
-        label: String,
+        label: &str,
         cx: &mut Context<Self>,
         act: impl FnOnce(&Path) -> Result<(), GitError>,
     ) {
+        if !self.checkpoint_first(label, cx) {
+            return;
+        }
         let dir = self.repo_dir();
-        let before = index::write_tree(&dir).ok();
-        let result = act(&dir);
-        let after = index::write_tree(&dir).ok();
-        match result {
+        match act(&dir) {
             Ok(()) => {
-                let changed = before.zip(after).filter(|(before, after)| before != after);
-                if let Some((before, after)) = changed {
-                    self.changes.log.push(Action {
-                        label,
-                        at: SystemTime::now(),
-                        inverse: Inverse::Index { before, after },
-                    });
-                }
                 self.changes.error = None;
                 self.changes.notice = None;
                 self.reload_changes();
@@ -541,29 +526,32 @@ impl Shell {
         }
     }
 
-    /// Makes the commit or amend, logs it for undo, and re-reads the review.
+    /// Checkpoints, makes the commit or amend, and re-reads the review and the
+    /// repository facts (ahead and behind, checkpoints).
     fn write_commit(&mut self, field: &Entity<TextArea>, message: &str, cx: &mut Context<Self>) {
-        let dir = self.repo_dir();
         let amend = self.changes.amend;
-        let before = commits::head(&dir);
+        let label = if amend {
+            "Before amending the last commit"
+        } else {
+            "Before committing"
+        };
+        if !self.checkpoint_first(label, cx) {
+            return;
+        }
+        let dir = self.repo_dir();
         let result = if amend {
             commits::amend(&dir, message)
         } else {
             commits::commit(&dir, message)
         };
         match result {
-            Ok(after) => {
-                let verb = if amend { "Amended" } else { "Committed" };
-                self.changes.log.push(Action {
-                    label: format!("{verb} “{}”", subject_of(message)),
-                    at: SystemTime::now(),
-                    inverse: Inverse::Head { before, after },
-                });
+            Ok(_) => {
                 field.update(cx, TextArea::clear);
                 self.changes.amend = false;
                 self.changes.error = None;
                 self.changes.notice = None;
                 self.reload_changes();
+                self.refresh_facts();
                 let _ = self.refresh();
             }
             Err(e) => self.changes.error = Some(one_line(&e.stderr)),
@@ -652,12 +640,12 @@ fn direction_of(side: Side) -> Direction {
     }
 }
 
-/// The past tense of moving a change off `side`: "Staged" leaves the unstaged
-/// list, "Unstaged" the staged one.
-fn moved_verb(side: Side) -> &'static str {
+/// The verb of moving a change off `side`, for a checkpoint's label: "staging"
+/// takes it off the unstaged list, "unstaging" off the staged one.
+fn staging_verb(side: Side) -> &'static str {
     match side {
-        Side::Unstaged => "Staged",
-        Side::Staged => "Unstaged",
+        Side::Unstaged => "staging",
+        Side::Staged => "unstaging",
     }
 }
 
@@ -677,16 +665,6 @@ fn sentence(text: &str) -> String {
     match chars.next() {
         Some(first) => first.to_uppercase().chain(chars).collect(),
         None => String::new(),
-    }
-}
-
-/// The first line of a commit message, cut to `SUBJECT_CHARS` characters
-/// with "…" added when it is longer.
-fn subject_of(message: &str) -> String {
-    let first = message.trim().lines().next().unwrap_or("");
-    match first.char_indices().nth(SUBJECT_CHARS) {
-        Some((cut, _)) => format!("{}…", &first[..cut]),
-        None => first.to_owned(),
     }
 }
 
@@ -748,31 +726,6 @@ mod tests {
     fn one_line_has_a_fixed_text_for_silence() {
         assert_eq!(one_line(""), NO_REASON);
         assert_eq!(one_line("  \n \n"), NO_REASON);
-    }
-
-    #[test]
-    fn subject_is_the_first_line_whole_when_short() {
-        assert_eq!(subject_of("Fix the thing\nbody"), "Fix the thing");
-        assert_eq!(subject_of("  padded  "), "padded");
-        assert_eq!(subject_of(""), "");
-    }
-
-    #[test]
-    fn subject_of_fifty_characters_is_not_cut() {
-        let fifty = "a".repeat(50);
-        assert_eq!(subject_of(&fifty), fifty);
-    }
-
-    #[test]
-    fn subject_longer_than_fifty_is_cut_with_an_ellipsis() {
-        let fifty_one = format!("{}b", "a".repeat(50));
-        assert_eq!(subject_of(&fifty_one), format!("{}…", "a".repeat(50)));
-    }
-
-    #[test]
-    fn subject_cut_counts_characters_not_bytes() {
-        let accented = "é".repeat(60);
-        assert_eq!(subject_of(&accented), format!("{}…", "é".repeat(50)));
     }
 
     #[test]

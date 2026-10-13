@@ -142,6 +142,12 @@ impl Shell {
         if let Some(palette) = self.tools.palette.as_ref() {
             out.push(crate::palette_overlay::overlay(palette, cx).into_any_element());
         }
+        if let Some(ask) = self.git.ask.as_ref() {
+            out.push(crate::git_overlay::overlay(ask, cx).into_any_element());
+        }
+        if let Some(card) = crate::checkpoint_ui::overlay(self, cx) {
+            out.push(card.into_any_element());
+        }
         out
     }
 }

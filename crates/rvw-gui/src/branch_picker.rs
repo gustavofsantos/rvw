@@ -119,9 +119,17 @@ impl Shell {
             self.close_branches(cx);
             return;
         }
-        let outcome = gitx::switch(Path::new(&self.snapshot.workspace), &name)
-            .map_err(|e| first_line(&e.stderr))
-            .and_then(|()| self.reload_for_new_base(cx));
+        // Switching changes the worktree, so it is checkpointed first.
+        let outcome = self
+            .checkpoint_before(&format!("Before switching to {name}"), &[], cx)
+            .and_then(|()| {
+                gitx::switch(Path::new(&self.snapshot.workspace), &name)
+                    .map_err(|e| first_line(&e.stderr))
+            })
+            .and_then(|()| {
+                self.refresh_facts();
+                self.reload_for_new_base(cx)
+            });
         match outcome {
             Ok(()) => self.close_branches(cx),
             Err(message) => {

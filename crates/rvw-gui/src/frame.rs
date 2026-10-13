@@ -8,6 +8,7 @@ use rvw_view::keys::Screen;
 
 use crate::compare_picker::{self, CompareMenu};
 use crate::data::Snapshot;
+use crate::git_tools::GitTools;
 use crate::shell::Shell;
 use crate::theme;
 use crate::window_chrome;
@@ -43,6 +44,7 @@ pub fn window(top: Div, rail: Div, panels: Panels, keys: Div) -> Div {
 
 pub fn top_bar(
     snapshot: &Snapshot,
+    git: &GitTools,
     menu: Option<&CompareMenu>,
     window: &Window,
     cx: &Context<Shell>,
@@ -70,6 +72,7 @@ pub fn top_bar(
                 .child(snapshot.workspace.clone()),
         )
         .child(window_chrome::no_drag(branch_chip(&snapshot.branch, cx)))
+        .children(git_status(git).map(window_chrome::no_drag))
         .child(window_chrome::no_drag(compare_picker::chip(
             snapshot, menu, cx,
         )))
@@ -91,6 +94,55 @@ pub fn top_bar(
         ))
         .children(window_chrome::controls(window));
     window_chrome::drag_region(bar, window)
+}
+
+/// What the repository's sync state says after the branch name: how far it is
+/// from its upstream, that it is not published, and the network command
+/// running or its last result. None when there is nothing to say.
+fn git_status(git: &GitTools) -> Option<Div> {
+    let facts = &git.facts;
+    let mut parts: Vec<Div> = Vec::new();
+    if let Some(text) = ahead_behind_text(facts.ahead_behind) {
+        parts.push(
+            div()
+                .font_family(theme::code_font())
+                .text_size(px(theme::CODE_FONT_SIZE))
+                .text_color(theme::muted())
+                .child(text),
+        );
+    }
+    if facts.upstream.is_none() && facts.branch.is_some() && facts.remote.is_some() {
+        parts.push(div().text_color(theme::faint()).child("not published"));
+    }
+    if let Some(busy) = git.busy.as_ref() {
+        parts.push(div().text_color(theme::muted()).child(busy.clone()));
+    } else if let Some(result) = git.network_result.as_ref() {
+        parts.push(
+            div()
+                .max_w(px(360.))
+                .truncate()
+                .text_color(theme::faint())
+                .child(result.clone()),
+        );
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    Some(div().flex().items_center().gap(px(12.)).children(parts))
+}
+
+/// "↑2 ↓3" for a branch two commits ahead and three behind its upstream. A
+/// zero side is left out; None when the branch is level or has no upstream.
+fn ahead_behind_text(ahead_behind: Option<(usize, usize)>) -> Option<String> {
+    let (ahead, behind) = ahead_behind?;
+    let mut parts = Vec::new();
+    if ahead > 0 {
+        parts.push(format!("\u{2191}{ahead}"));
+    }
+    if behind > 0 {
+        parts.push(format!("\u{2193}{behind}"));
+    }
+    (!parts.is_empty()).then(|| parts.join(" "))
 }
 
 /// The branch name; a click opens the branch picker, as the rail's B does.
@@ -213,5 +265,19 @@ fn side(width: Pixels, side: Side, content: Div) -> Div {
     match side {
         Side::Left => panel.border_r_1().border_color(theme::hairline()),
         Side::Right => panel.border_l_1().border_color(theme::hairline()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ahead_behind_text;
+
+    #[test]
+    fn ahead_and_behind_name_only_the_sides_that_differ() {
+        assert_eq!(ahead_behind_text(None), None);
+        assert_eq!(ahead_behind_text(Some((0, 0))), None);
+        assert_eq!(ahead_behind_text(Some((2, 0))).as_deref(), Some("↑2"));
+        assert_eq!(ahead_behind_text(Some((0, 3))).as_deref(), Some("↓3"));
+        assert_eq!(ahead_behind_text(Some((2, 3))).as_deref(), Some("↑2 ↓3"));
     }
 }
