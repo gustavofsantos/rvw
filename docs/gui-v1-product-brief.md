@@ -74,7 +74,7 @@ for *what is table stakes*; v1 takes the daily-driver subset.
 |---|---|---|---|
 | B1 | Inspect changes, stage and unstage by file, hunk and line | Working Copy: Inspecting, Staging | Line staging is the feature people stay for. |
 | B2 | Commit, quick amend, commit without the mouse | Committing, Tips | Commit templates included. |
-| B3 | Discard changes with undo, and **an Undo history for the last Git actions** | Undoing Changes, Undoing Things | Backed by reflog. Accountability users fear destructive actions most. |
+| B3 | Discard changes safely, and **checkpoints**: the whole worktree state saved before every Git action, restorable exactly | Undoing Changes, Undoing Things | rvw's own objects under per-worktree refs; the reflog misses the index and the worktree. Accountability users fear destructive actions most. |
 | B4 | Stash: list, apply, drop | Stashes & Snapshots | Snapshots (auto-stash before risky ops) is v1.1. |
 | B5 | Commit history: graph, details, historic file tree, file history, blame | Commit History | Read-only, plus P1 provenance markers. |
 | B6 | Search commits (message, author, content) and files; quick open | Searching, Tips | Speed is a feature. |
@@ -91,7 +91,7 @@ B14 rules:
 
 - Only commits not on any remote. Pushed history is never rewritten in v1.
 - Three operations: reword, squash, drop. No reorder, split, or edit-stop.
-- Each edit is one undoable step in the B3 history, and shows the before and
+- Each edit takes a B3 checkpoint first, and shows the before and
   after list before applying.
 - A conflict aborts the edit and restores the branch. No conflict UI.
 - Reviews follow rewritten commits through the content match of D2, so a
@@ -224,7 +224,7 @@ something not seen. `●` has it, `◐` partly, `○` does not.
 | Hunk and line staging | ● | ● | ● | ○ | ● M2 |
 | History graph, blame, file history | ● | ● | ● | ◐ web, read-only | ● M3 |
 | Search commits as you type | ● | ● | ● | ○ | ● M3 |
-| Undo history of Git actions | ● | ? | ● oplog | ○ | ● M2 |
+| Undo history of Git actions | ● | ? | ● oplog | ○ | ● checkpoints, M2 |
 | Worktrees | ● | ? | ◐ offers parallel branches instead | ○ | ● M3 |
 | Interactive rebase / history editing | ● | ● | ● direct commands | ○ | ◐ reword, squash, drop, unpushed only, M3 |
 | Conflict resolution UI | ● | ? | ● first class | ○ | ○ hand off |
@@ -269,7 +269,7 @@ something not seen. `●` has it, `◐` partly, `○` does not.
    agent-reported context (D5), which is thinner. If provenance depth turns
    out to matter in audits, reading local transcripts is the upgrade path.
 4. **Table stakes we were missing**, now added or flagged:
-   - An undo history (GitButler's oplog, Tower's Undoing Things). Already B3.
+   - A way back (GitButler's oplog, Tower's Undoing Things). B3, as checkpoints.
    - A command palette. Sublime Merge's keyboard-first experience depends on
      it. Add to M1.
    - History editing. Narrowed into M3 (B14): reword, squash and drop on

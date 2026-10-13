@@ -15,7 +15,7 @@ the agent's edits land live.
   tags), `remote` (fetch, pull, push). They are not `Service` operations: git
   is not review domain, and the CLI and MCP do not need them.
 - Pure logic lives in `rvw-view`, with unit tests: `patch` (a patch for a hunk
-  or for chosen lines), `undo` (the recent-actions log), `commit_screen` (the
+  or for chosen lines), `checkpoints` (the list and the restore confirmation), `commit_screen` (the
   Changes screen's lists, counts and notices).
 - `rvw-gui` draws the Changes screen and wires each action to one call.
 
@@ -27,15 +27,17 @@ the agent's edits land live.
 - **Line staging** builds a patch from the raw diff text and applies it with
   `git apply --cached` (`--reverse` to unstage) after `--check`. Untracked,
   binary, renamed and mode-changed files stage as whole files only.
-- **Undo is rvw's own log**, not the reflog: index and worktree changes never
-  reach the reflog. Each entry records the state before and after; undo
-  refuses when the repository is no longer in the "after" state, because an
-  agent may have moved it. The log lives for the session.
-  - stage, unstage: `write-tree` before and after, undo with `read-tree`.
-  - discard: the file is stored as a blob first, undo writes it back.
-  - commit, amend: the old HEAD, undo with `reset --soft`.
-  - stash drop: the stash commit, undo with `stash store`.
-  - branch delete: the branch's commit, undo recreates it.
+- **Checkpoints, not undo** (changed on 2026-10-13, at the user's request).
+  The first design undid the newest action and refused when the repository
+  had moved since. With an agent editing in parallel that refusal is the
+  common case, so undo was unpredictable. Now `rvw-git::checkpoint` saves the
+  whole worktree state (branch and commit, the index, every file not ignored)
+  as git objects under `refs/worktree/rvw/checkpoints/`, before every action
+  that changes the repository and on demand. Restoring always works: it saves
+  the current state first, then puts back the branch (moving it back over
+  newer commits, which the user chose), the index and the files. Refs and
+  stashes an action deletes are kept in the checkpoint before it and
+  recreated when missing. Checkpoints outlive the session.
 - **Amend** is offered only when HEAD is on no remote branch: amending a pushed
   commit would need a force push, and v1 has none.
 - **Commit** always reads the message from stdin (`commit -F -`), so no editor
@@ -50,7 +52,8 @@ the agent's edits land live.
   message.
 - **Open comments** that touch a hunk are shown on the Changes screen and never
   block. A recorded override belongs to the commit gate (C2, M4).
-- **Keys.** With a text field focused, `S` types and `⌘Z` is the field's undo.
+- **Keys.** With a text field focused, `S` types and `⌘Z` is the field's undo;
+  otherwise `⌘Z` opens the restore of the newest checkpoint.
 
 ## Slices
 
@@ -61,7 +64,8 @@ Each slice ends green (`cargo test`, clippy, `fmt --check`) and is one commit.
 | 1 | `rvw-git::index`: status, unstaged and staged diffs, stage and unstage paths, apply to the index, write and read tree | temp-repo tests |
 | 2 | `rvw-view::patch`: patch for a hunk or chosen lines, both directions | tests that apply the patch with git |
 | 3 | `rvw-git::commits`: commit, amend, HEAD pushed or not, discard and restore | temp-repo tests |
-| 4 | `rvw-view::undo`: the log, its labels and the precondition check | unit and temp-repo tests |
+| 4 | `rvw-view::undo`: the log, its labels and the precondition check (replaced by 4b) | unit and temp-repo tests |
+| 4b | `rvw-git::checkpoint`, then the GUI swap and removing `undo` | temp-repo tests incl. worktrees and gc |
 | 5 | `rvw-view::commit_screen`: lists, counts, commit label, open comments per hunk | unit tests |
 | 6 | Changes screen: lists, diff, stage file, hunk and line, commit, amend, recent actions with undo | manual run |
 | 7 | `rvw-git::stash` and stash actions | temp-repo tests; manual run |

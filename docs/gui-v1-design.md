@@ -57,7 +57,8 @@ Shape: window 14px, controls 8px, selected rows 6px. One shadow:
 5. **Violet is an agent. Orange is "you are needed". Nothing else is orange.**
 6. **Left to right:** where am I, what changed, what is asked.
 7. **Every action has a key.** ⌘K finds every action, ⌘P finds every file.
-8. **Nothing destructive without an undo entry.**
+8. **Nothing destructive without a checkpoint.** Every action that changes the
+   repository first saves one; any checkpoint can be restored.
 9. **A control that is not available stays in place, dim.** Hovering it says
    what unlocks it.
 
@@ -80,7 +81,7 @@ Thirteen keys, always in this order, in four groups:
 |---|---|
 | Move | `J K` move, `↵` open, `O` open file |
 | Review | `C` comment, `⌘↵` add, `⇧⌘R` submit, `A` accept, `R` reopen |
-| Git | `S` stage, `⇧⌘C` commit, `⌘Z` undo |
+| Git | `S` stage, `⇧⌘C` commit, `⌘Z` restore |
 | Find | `⌘P` find file, `⌘K` actions |
 
 Each key has a light: dim (not here), dark (available), orange (needs you now).
@@ -95,7 +96,7 @@ orange at a time. Each action has one key; a key never changes meaning.
 | 2 | Outcome of one comment | M1, M4 | Asked → code as reviewed → agent's note → resolution diff, with Accept and Reopen. |
 | 3 | Queue home | M1, M4 | Open work by review, filtered by state, lane, author; next-pull preview. |
 | 4 | Submit a review | M1 | Verdict, summary for the agent, comments, heads-up about comments still with an agent. |
-| 5 | Changes and commit | M2 | Staged and unstaged, hunk and line staging, commit box, recent actions with undo. |
+| 5 | Changes and commit | M2 | Staged and unstaged, hunk and line staging, commit box, checkpoints with restore. |
 | 6 | History with provenance | M3, M5 | Graph with human/agent and review status; the story of a commit. |
 | 7 | Files and context | M1 | Whole-repo tree; comment on a file outside the change as context. |
 | 8 | Find a file | M1 | ⌘P: fuzzy search, changed files first, preview, open beside the diff. |
@@ -115,8 +116,11 @@ orange at a time. Each action has one key; a key never changes meaning.
 - **Pulled means gone from the queue.** The queue shows what the agent holds so
   nothing is taken twice; the next-pull preview shows what a pull would take,
   per lane, and says when work waits in another lane.
-- **Undo is visible.** The recent-actions list on the commit screen is the
-  undo history. History edits show a before and after list.
+- **Going back is a checkpoint, not an undo.** The commit screen lists the
+  checkpoints, newest first. Restoring one always works and is shown first as
+  a before and after (files, staged state, branch and the commits that leave
+  it); it saves the current state as a checkpoint too, so it can be reversed.
+  ⌘Z opens the newest. History edits show a before and after list.
 
 ## Core changes the design needs
 
@@ -133,7 +137,7 @@ file and a line range.
 ## Not designed yet
 
 Empty and error states, the actions palette (⌘K), the narrow history edit
-(B14) and its confirmation, the undo-history list as its own view, worktree
+(B14) and its confirmation, the checkpoint list as its own view, worktree
 switching, a dark variant (the same tokens map onto cursorized dark:
 background `#1a1918`, ink `#d2cfc5`), and a compact layout for narrow windows.
 
@@ -143,3 +147,10 @@ background `#1a1918`, ink `#d2cfc5`), and a compact layout for narrow windows.
 - Unified diff drawn; split is a toggle to design before M1 ships.
 - Sound and motion layer: not in v1.
 - The name stays `rvw`.
+- **Checkpoints replace per-action undo** (2026-10-13). An undo that refuses
+  whenever the repository moved since the action fails exactly when an agent is
+  editing in parallel, so it is unpredictable. A checkpoint saves the whole
+  worktree state (branch and commit, index, every file not ignored) and
+  restores it exactly, every time. Restoring moves the branch back; the newer
+  commits stay in the checkpoint taken before the restore. Decided by the
+  user.
