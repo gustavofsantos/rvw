@@ -5,6 +5,7 @@
 // Query helpers return values that are plainly used; `# Errors` is given by
 // each error type's doc rather than repeated per function.
 
+pub mod checkpoint;
 pub mod commits;
 pub mod gitx;
 pub mod index;

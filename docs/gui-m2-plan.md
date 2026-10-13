@@ -32,7 +32,8 @@ the agent's edits land live.
   had moved since. With an agent editing in parallel that refusal is the
   common case, so undo was unpredictable. Now `rvw-git::checkpoint` saves the
   whole worktree state (branch and commit, the index, every file not ignored)
-  as git objects under `refs/worktree/rvw/checkpoints/`, before every action
+  as git objects under `refs/rvw/checkpoints/<worktree>/` (shared refs, so `gc`
+  in any worktree keeps them), before every action
   that changes the repository and on demand. Restoring always works: it saves
   the current state first, then puts back the branch (moving it back over
   newer commits, which the user chose), the index and the files. Refs and
