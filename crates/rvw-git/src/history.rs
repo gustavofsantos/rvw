@@ -17,14 +17,19 @@ pub struct LogEntry {
     pub email: String,
     /// Author time, seconds since the Unix epoch.
     pub time: i64,
-    /// Ref names pointing at the commit as `%D` prints them, e.g.
-    /// `["HEAD -> main", "origin/main", "tag: v1"]`.
+    /// Full ref names pointing at the commit as `%D` prints them with
+    /// [`DECORATE`], e.g. `["HEAD -> refs/heads/main",
+    /// "refs/remotes/origin/main", "tag: refs/tags/v1"]`.
     pub refs: Vec<String>,
     pub subject: String,
 }
 
 /// The `--format` that [`parse_log`] reads: fields split by 0x1f, records
 /// ended by 0x1e.
+/// Passed with every log format: full ref names in `%D`, so a branch named
+/// `feat/x` is told apart from a remote branch.
+pub(crate) const DECORATE: &str = "--decorate=full";
+
 pub(crate) const LOG_FORMAT: &str = "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%D%x1f%s%x1e";
 
 /// The `--format` of one commit in full: the seven [`LOG_FORMAT`] fields, then
@@ -96,6 +101,7 @@ pub fn log(dir: &Path, query: &LogQuery, stop: &AtomicBool) -> Result<Vec<LogEnt
         "log",
         "--no-color",
         "--topo-order",
+        DECORATE,
         LOG_FORMAT,
         skip.as_str(),
         max.as_str(),
@@ -155,7 +161,15 @@ pub struct CommitDetail {
 /// Fails when `rev` does not name a commit or starts with `-`.
 pub fn show(dir: &Path, rev: &str) -> Result<CommitDetail, GitError> {
     check_rev("show", rev)?;
-    let args = ["log", "-1", "--no-color", COMMIT_FORMAT, rev, "--"];
+    let args = [
+        "log",
+        "-1",
+        "--no-color",
+        DECORATE,
+        COMMIT_FORMAT,
+        rev,
+        "--",
+    ];
     let out = run(dir, &[], &args)?;
     let fields: Vec<&str> = out.splitn(11, '\x1f').collect();
     let [id, parents, author, email, time, refs, subject, committer, committer_email, committer_time, message]: [&str; 11] =
@@ -509,8 +523,11 @@ mod tests {
         git(dir.path(), &["tag", "v1"]);
         let stop = AtomicBool::new(false);
         let entries = log(dir.path(), &page(1), &stop).unwrap();
-        assert!(entries[0].refs.iter().any(|r| r == "HEAD -> main"));
-        assert!(entries[0].refs.iter().any(|r| r == "tag: v1"));
+        assert!(entries[0]
+            .refs
+            .iter()
+            .any(|r| r == "HEAD -> refs/heads/main"));
+        assert!(entries[0].refs.iter().any(|r| r == "tag: refs/tags/v1"));
     }
 
     #[test]

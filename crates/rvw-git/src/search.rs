@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
 use crate::gitx::{self, owned_args, run_stop, GitError};
-use crate::history::{parse_log, LogEntry, LOG_FORMAT};
+use crate::history::{parse_log, LogEntry, DECORATE, LOG_FORMAT};
 
 /// What a commit search matches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +56,7 @@ pub fn commits(dir: &Path, query: &Query, stop: &AtomicBool) -> Result<Vec<LogEn
     let mut args = vec![
         "log",
         "--topo-order",
+        DECORATE,
         LOG_FORMAT,
         skip.as_str(),
         "-n",
