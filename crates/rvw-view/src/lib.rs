@@ -4,6 +4,7 @@
 
 pub mod branches;
 pub mod changes;
+pub mod commit_screen;
 pub mod compare_menu;
 pub mod context;
 pub mod diff;
@@ -17,6 +18,7 @@ pub mod keys;
 pub mod nav;
 pub mod outcome;
 pub mod palette;
+pub mod patch;
 pub mod queue;
 pub mod selection;
 pub mod split;
