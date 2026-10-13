@@ -15,6 +15,7 @@ pub mod finder;
 pub mod fuzzy;
 pub mod graph;
 pub mod highlight;
+pub mod history;
 pub mod keys;
 pub mod nav;
 pub mod outcome;
