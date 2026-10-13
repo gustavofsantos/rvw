@@ -17,16 +17,29 @@ build:
 install:
 	RVW_VERSION='$(VERSION)' cargo install --path crates/rvw-cli --locked --force $(if $(PREFIX),--root '$(PREFIX)')
 
-# The desktop app with its icon and desktop entry. The entry's Exec is the
-# absolute path of the installed binary, as install.sh does.
+# The desktop app. GUI_ROOT/bin/rvw-gui is installed with cargo either way.
+# On Linux, its icon and a desktop entry whose Exec is the absolute path of the
+# installed binary, as install.sh does. On macOS, an app bundle, rvw.app, under
+# APPDIR.
 DATADIR ?= $(or $(XDG_DATA_HOME),$(HOME)/.local/share)
+APPDIR ?= $(HOME)/Applications
 GUI_ROOT := $(or $(PREFIX),$(CARGO_INSTALL_ROOT),$(HOME)/.cargo)
+APP := $(APPDIR)/rvw.app
 
 install-gui:
 	cargo install --path crates/rvw-gui --locked --force --root '$(GUI_ROOT)'
+ifeq ($(shell uname -s),Darwin)
+	rm -rf '$(APP)'
+	mkdir -p '$(APP)/Contents/MacOS' '$(APP)/Contents/Resources'
+	cp packaging/macos/Info.plist '$(APP)/Contents/Info.plist'
+	cp packaging/macos/rvw.icns '$(APP)/Contents/Resources/rvw.icns'
+	cp '$(GUI_ROOT)/bin/rvw-gui' '$(APP)/Contents/MacOS/rvw-gui'
+	codesign --force --sign - '$(APP)'
+else
 	install -Dm644 packaging/linux/rvw.svg '$(DATADIR)/icons/hicolor/scalable/apps/rvw.svg'
 	mkdir -p '$(DATADIR)/applications'
 	sed 's|^Exec=.*|Exec=$(GUI_ROOT)/bin/rvw-gui|' packaging/linux/rvw.desktop >'$(DATADIR)/applications/rvw.desktop'
+endif
 
 uninstall:
 	cargo uninstall rvw-cli $(if $(PREFIX),--root '$(PREFIX)')

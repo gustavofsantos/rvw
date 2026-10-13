@@ -60,8 +60,10 @@ to `~/.cargo/bin/rvw` (or `bin/rvw` under `PREFIX=/some/dir`) and stamped with
 
 On Linux the release archive and `install.sh` also install the desktop app
 (`rvw-gui`) with its icon and an application-menu entry under
-`~/.local/share`; from a checkout, `make install-gui` does the same. Launched
-from the menu, it opens the workspace with the most work waiting.
+`~/.local/share`; from a checkout, `make install-gui` does the same. On macOS,
+`make install-gui` builds it into `~/Applications/rvw.app` (`APPDIR=/some/dir`
+to change that); the Xcode Command Line Tools are enough. Launched from the
+menu or Finder, it opens the workspace with the most work waiting.
 
 ## Examples
 
