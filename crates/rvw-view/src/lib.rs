@@ -2,6 +2,7 @@
 //! windowing, no I/O beyond what the services already do. Everything here is
 //! testable without a screen.
 
+pub mod branches;
 pub mod changes;
 pub mod context;
 pub mod diff;
@@ -14,6 +15,8 @@ pub mod highlight;
 pub mod keys;
 pub mod nav;
 pub mod outcome;
+pub mod palette;
 pub mod queue;
 pub mod selection;
+pub mod split;
 pub mod tree;
