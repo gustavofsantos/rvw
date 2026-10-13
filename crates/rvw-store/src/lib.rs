@@ -326,6 +326,24 @@ mod tests {
     }
 
     #[test]
+    fn a_deleted_comment_does_not_free_its_id() {
+        let (_dir, store) = fresh();
+        store
+            .update(WS, &mut |tx: &mut dyn Tx| {
+                for _ in 0..2 {
+                    let seq = tx.next_comment_seq()?;
+                    tx.insert_comment(&comment(seq, None))?;
+                }
+                tx.delete_comment("r2")?;
+                assert!(tx.comment("r2")?.is_none());
+                assert_eq!(tx.next_comment_seq()?, 3);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(comments_of(&store, WS).len(), 1);
+    }
+
+    #[test]
     fn ids_are_monotonic_and_never_reused() {
         let (_dir, store) = fresh();
         store

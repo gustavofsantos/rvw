@@ -266,6 +266,15 @@ pub struct EditInput {
     pub comment: String,
 }
 
+/// Deletes a comment from the queue before it is handed over.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RemoveInput {
+    /// absolute workspace path
+    pub workspace: String,
+    /// comment id
+    pub id: String,
+}
+
 /// Lists workspaces in the store.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WorkspacesInput {

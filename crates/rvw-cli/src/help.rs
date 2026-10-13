@@ -151,11 +151,20 @@ pulled its text is what the agent was asked, so it can no longer be edited.";
 pub const EDIT_EXAMPLE: &str = "  rvw edit r3 --comment \"split this function\"
   pbpaste | rvw edit r3";
 
+pub const REMOVE_LONG: &str =
+    "Delete one review comment from the queue, for a note you wrote and want to
+retract. Only a pending comment that is not part of a submitted review can be
+removed: once it was pulled or decided it is on record, and once it is in a
+submitted review it travels with that review. Its id is not issued again.";
+
+pub const REMOVE_EXAMPLE: &str = "  rvw remove r3
+  rvw remove r3 --format json";
+
 pub const MCP_LONG: &str =
     "Serve the queue over the Model Context Protocol, for agents that prefer tool
 calls to shell commands. Every tool is one rvw operation: add, submit, list,
-list_reviews, count, pull, show_comment, show_review, resolve, edit and
-workspaces. Each call names its workspace, so one server serves every project.
+list_reviews, count, pull, show_comment, show_review, resolve, edit, remove
+and workspaces. Each call names its workspace, so one server serves every project.
 
 `rvw mcp config` prints how to register the server with Claude Code.";
 

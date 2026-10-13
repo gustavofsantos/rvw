@@ -756,6 +756,81 @@ SH
   [[ "$output" == *"no review 'r9'"* ]]
 }
 
+@test "remove: deletes a pending comment and prints what went" {
+  queue app.py 2-3 "retract me"
+  queue app.py 1 "keep me"
+  run "$RVW" remove r1
+  [ "$status" -eq 0 ]
+  [[ "$output" == "removed r1"*"retract me"* ]]
+
+  run "$RVW" list --format ids
+  [ "$output" = "r2" ]
+  run "$RVW" show r1
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no review 'r1'"* ]]
+}
+
+@test "remove: --format json prints the removed comment" {
+  queue app.py 2-3 "retract me"
+  run "$RVW" remove r1 --format json
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.id' <<<"$output")" = "r1" ]
+  [ "$(jq -r '.comment' <<<"$output")" = "retract me" ]
+  [ "$(jq -r '.status' <<<"$output")" = "pending" ]
+}
+
+@test "remove: refuses a comment that was pulled or decided" {
+  queue app.py 1 "as asked"
+  queue app.py 2 "withdrawn"
+  "$RVW" pull --id r1 >/dev/null
+  "$RVW" reject r2 --note "misread" >/dev/null
+
+  run "$RVW" remove r1
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: r1 is pulled — only a pending comment can be removed" ]
+
+  "$RVW" resolve r1 --note "did it" >/dev/null
+  run "$RVW" remove r1
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: r1 is done — only a pending comment can be removed" ]
+
+  run "$RVW" remove r2
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: r2 is rejected — only a pending comment can be removed" ]
+
+  run "$RVW" show r1 --format json
+  [ "$(jq -r '.comment.comment' <<<"$output")" = "as asked" ]
+}
+
+@test "remove: refuses a pending comment inside a submitted review" {
+  queue app.py 1 "part of a review"
+  "$RVW" submit --id r1 --decision comment --summary "s" >/dev/null
+
+  run "$RVW" remove r1
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: r1 belongs to review rv1 — only a comment outside a submitted review can be removed" ]
+  run "$RVW" show r1
+  [ "$status" -eq 0 ]
+}
+
+@test "remove: rejects an unknown id" {
+  run "$RVW" remove r9
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no review 'r9'"* ]]
+}
+
+@test "remove: ids are never reused, even after removing the last comment" {
+  queue app.py 1 "first"
+  queue app.py 2 "second"
+  "$RVW" remove r2 >/dev/null
+  run queue app.py 3 "third"
+  [ "$output" = "r3" ]
+  "$RVW" remove r1 >/dev/null
+  "$RVW" remove r3 >/dev/null
+  run queue app.py 4 "fourth"
+  [ "$output" = "r4" ]
+}
+
 # ── workspaces ────────────────────────────────────────────────────────────────
 
 @test "workspace: a subdirectory resolves to the git root, so one repo is one queue" {

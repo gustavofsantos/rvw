@@ -12,8 +12,8 @@ use crate::error::{Error, Result};
 use crate::evidence::{filetype_of, snapshot_diff};
 use crate::operations::{
     AddInput, CountOutput, EditInput, Elsewhere, Evidence, GetInput, ListOutput, PullInput,
-    PullOutput, QueryInput, ResolveInput, ReviewSheet, SheetState, SheetsInput, SheetsOutput,
-    SubmitInput, WorkspaceSummary, WorkspacesInput, WorkspacesOutput, SHEET_FILTERS,
+    PullOutput, QueryInput, RemoveInput, ResolveInput, ReviewSheet, SheetState, SheetsInput,
+    SheetsOutput, SubmitInput, WorkspaceSummary, WorkspacesInput, WorkspacesOutput, SHEET_FILTERS,
 };
 use crate::repository::{Repository, Tx};
 use crate::types::{
@@ -496,6 +496,29 @@ impl Service {
             c.comment = trim_newlines(&input.comment).to_string();
             c.edited_at = self.stamp();
             tx.update_comment(&c)?;
+            Ok(c)
+        })
+    }
+
+    /// Deletes a comment that is still in the reviewer's draft: pending and
+    /// not part of a submitted review. Returns it as it was. Its id is not
+    /// issued again.
+    pub fn remove(&self, input: RemoveInput) -> Result<Comment> {
+        self.write(&input.workspace, |tx| {
+            let c = find(tx, &input.id)?;
+            if c.status != Status::Pending {
+                return Err(Error::conflict(format!(
+                    "{} is {} — only a pending comment can be removed",
+                    c.id, c.status
+                )));
+            }
+            if !c.review_id.is_empty() {
+                return Err(Error::conflict(format!(
+                    "{} belongs to review {} — only a comment outside a submitted review can be removed",
+                    c.id, c.review_id
+                )));
+            }
+            tx.delete_comment(&c.id)?;
             Ok(c)
         })
     }
@@ -1075,6 +1098,11 @@ pub(crate) mod testing {
                 }
                 None => Err(Error::internal(format!("no comment {}", c.id))),
             }
+        }
+
+        fn delete_comment(&mut self, id: &str) -> Result<()> {
+            self.data.comments.retain(|c| c.id != id);
+            Ok(())
         }
 
         fn reviews(&mut self, statuses: &[ReviewStatus]) -> Result<Vec<Review>> {
@@ -1816,6 +1844,51 @@ mod tests {
             err.message,
             "r1 is pulled — only a pending comment can be edited"
         );
+    }
+
+    #[test]
+    fn remove_deletes_only_draft_comments_and_never_reuses_ids() {
+        let f = setup();
+        f.add_at(1, "retract", "", "");
+        f.add_at(2, "pulled", "", "");
+        f.add_at(3, "in review", "", "");
+        let rm = |id: &str| {
+            f.svc.remove(RemoveInput {
+                workspace: f.ws.clone(),
+                id: id.into(),
+            })
+        };
+        // A pending comment inside a submitted review stays.
+        f.svc
+            .submit(SubmitInput {
+                workspace: f.ws.clone(),
+                decision: "comment".into(),
+                summary: "s".into(),
+                comment_ids: vec!["r3".into()],
+                ..Default::default()
+            })
+            .expect("submit");
+        let err = rm("r3").unwrap_err();
+        assert_eq!(
+            err.message,
+            "r3 belongs to review rv1 — only a comment outside a submitted review can be removed"
+        );
+        let gone = rm("r1").expect("remove");
+        assert_eq!((gone.id.as_str(), gone.comment.as_str()), ("r1", "retract"));
+        assert_eq!(gone.status, Status::Pending);
+        assert!(rm("r1").is_err(), "already gone");
+        assert!(rm("r9").is_err());
+        f.pull("");
+        let err = rm("r2").unwrap_err();
+        assert_eq!(
+            err.message,
+            "r2 is pulled — only a pending comment can be removed"
+        );
+        // The next id moves on even when the last one is the one removed.
+        let next = f.add_at(1, "after", "", "");
+        assert_eq!(next.id, "r4");
+        rm("r4").expect("remove last");
+        assert_eq!(f.add_at(1, "again", "", "").id, "r5");
     }
 
     #[test]

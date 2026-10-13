@@ -14,8 +14,8 @@ use rmcp::model::{
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler};
 use rvw_core::operations::{
-    AddInput, EditInput, GetInput, PullInput, QueryInput, ResolveInput, SheetsInput, SubmitInput,
-    WorkspacesInput,
+    AddInput, EditInput, GetInput, PullInput, QueryInput, RemoveInput, ResolveInput, SheetsInput,
+    SubmitInput, WorkspacesInput,
 };
 use rvw_core::Service;
 use schemars::generate::SchemaSettings;
@@ -137,6 +137,7 @@ fn invoke(shared: &Shared, name: &str, args: Object) -> Result<Value, String> {
         "show_review" => ctx.show_review(args),
         "resolve" => ctx.resolve(args),
         "edit" => ctx.edit(args),
+        "remove" => ctx.remove(args),
         "workspaces" => ctx.workspaces(args),
         _ => Err(format!("unknown tool \"{name}\"")),
     }
@@ -222,6 +223,12 @@ impl Ctx<'_> {
         let mut input: EditInput = parse(args)?;
         self.scope(&mut input.workspace, None, None)?;
         reply(self.0.svc.edit(input))
+    }
+
+    fn remove(&self, args: Object) -> Result<Value, String> {
+        let mut input: RemoveInput = parse(args)?;
+        self.scope(&mut input.workspace, None, None)?;
+        reply(self.0.svc.remove(input))
     }
 
     fn workspaces(&self, args: Object) -> Result<Value, String> {
@@ -368,6 +375,11 @@ fn tool_definitions() -> Vec<Tool> {
             "Replace the text of a pending comment; a pulled or decided one is refused. File, range and code snapshot are unchanged.",
             false,
         ),
+        tool::<RemoveInput, Comment>(
+            "remove",
+            "Delete a pending comment that is not part of a submitted review, to retract a note from a draft. Returns the comment as it was; a pulled, decided or submitted one is refused.",
+            false,
+        ),
         tool::<WorkspacesInput, WorkspacesOutput>(
             "workspaces",
             "List every workspace in the store with its pending handoff count.",
@@ -426,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn registers_the_eleven_tools_in_name_order() {
+    fn registers_the_twelve_tools_in_name_order() {
         let dir = tempfile::tempdir().expect("tempdir");
         let names: Vec<String> = server(dir.path(), "", "")
             .0
@@ -443,6 +455,7 @@ mod tests {
                 "list",
                 "list_reviews",
                 "pull",
+                "remove",
                 "resolve",
                 "show_comment",
                 "show_review",
@@ -534,6 +547,36 @@ mod tests {
 
         let pending = invoke(&srv.0, "count", args(&json!({"workspace": root}))).expect("count");
         assert_eq!(pending["count"], 0);
+    }
+
+    #[test]
+    fn remove_retracts_a_draft_comment() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = repo(dir.path());
+        let srv = server(dir.path(), "", "");
+        invoke(
+            &srv.0,
+            "add",
+            args(&json!({"workspace": root, "file": "app.py", "start_line": 1, "comment": "oops"})),
+        )
+        .expect("add");
+        let gone = invoke(
+            &srv.0,
+            "remove",
+            args(&json!({"workspace": root, "id": "r1"})),
+        )
+        .expect("remove");
+        assert_eq!(gone["id"], "r1");
+        assert_eq!(gone["comment"], "oops");
+        let count = invoke(&srv.0, "count", args(&json!({"workspace": root}))).expect("count");
+        assert_eq!(count["count"], 0);
+        let err = invoke(
+            &srv.0,
+            "remove",
+            args(&json!({"workspace": root, "id": "r1"})),
+        )
+        .unwrap_err();
+        assert!(err.contains("r1"), "{err}");
     }
 
     #[test]

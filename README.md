@@ -69,6 +69,13 @@ rvw add --file src/api.py --lines 40-58 --comment "extract this branch"
 rvw add --file src/api.py --lines 12 --comment "typo" --lane refactor-auth
 ```
 
+Change your mind before the handoff:
+
+```sh
+rvw edit r2 --comment "typo in the docstring"
+rvw remove r2                  # only pending comments outside a submitted review
+```
+
 Or read the code and comment in a terminal UI, without an editor plugin:
 
 ```sh
@@ -191,7 +198,8 @@ Connect the MCP server as described in [MCP server](#mcp-server) below
 
 Agents that prefer tool calls to shell commands can use rvw as an MCP server.
 Every operation is a tool: `add`, `submit`, `list`, `list_reviews`, `count`,
-`pull`, `show_comment`, `show_review`, `resolve`, `edit` and `workspaces`, with
+`pull`, `show_comment`, `show_review`, `resolve`, `edit`, `remove` and
+`workspaces`, with
 typed JSON inputs and structured JSON results.
 
 `rvw mcp config` prints the command that registers the server with Claude Code,

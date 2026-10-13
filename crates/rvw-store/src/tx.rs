@@ -165,6 +165,17 @@ impl Tx for SqlTx<'_> {
             .map_err(internal)
     }
 
+    fn delete_comment(&mut self, id: &str) -> Result<()> {
+        let seq = comment_seq(id)?;
+        self.tx
+            .execute(
+                "DELETE FROM comments WHERE workspace_id = ? AND seq = ?",
+                params![self.ws_id, seq],
+            )
+            .map(drop)
+            .map_err(internal)
+    }
+
     fn reviews(&mut self, statuses: &[ReviewStatus]) -> Result<Vec<Review>> {
         let mut sql = format!("SELECT {REVIEW_COLUMNS} FROM reviews WHERE workspace_id = ?");
         let mut args = vec![Value::Integer(self.ws_id)];

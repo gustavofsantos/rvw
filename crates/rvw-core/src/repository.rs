@@ -30,6 +30,9 @@ pub trait Tx {
     fn insert_comment(&mut self, c: &Comment) -> Result<()>;
     /// Rewrites the mutable part of a comment: lifecycle and text.
     fn update_comment(&mut self, c: &Comment) -> Result<()>;
+    /// Deletes a comment row. Its id is never issued again: the sequence
+    /// only moves forward.
+    fn delete_comment(&mut self, id: &str) -> Result<()>;
 
     /// Empty `statuses` selects every status.
     fn reviews(&mut self, statuses: &[ReviewStatus]) -> Result<Vec<Review>>;

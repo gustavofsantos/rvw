@@ -5,8 +5,8 @@ use std::io::{IsTerminal, Read, Write};
 
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
 use rvw_core::operations::{
-    AddInput, EditInput, GetInput, PullInput, QueryInput, ResolveInput, SheetsInput, SubmitInput,
-    WorkspacesInput, SHEET_FILTERS,
+    AddInput, EditInput, GetInput, PullInput, QueryInput, RemoveInput, ResolveInput, SheetsInput,
+    SubmitInput, WorkspacesInput, SHEET_FILTERS,
 };
 use rvw_core::service::MAX_SOURCE;
 use rvw_core::types::{is_review_id, DECISIONS, OUTCOME_DONE, OUTCOME_REJECTED, STATUS_FILTERS};
@@ -207,6 +207,16 @@ pub fn root() -> Command {
     .arg(flag("comment", "new text (default: read stdin)"))
     .arg(format_flag("text", &["text", "json"]));
 
+    let remove = sub(
+        "remove",
+        "delete a queued review comment before it is handed over",
+        help::REMOVE_LONG,
+    )
+    .override_usage("rvw remove ID")
+    .after_help(help::REMOVE_EXAMPLE)
+    .arg(id_arg())
+    .arg(format_flag("text", &["text", "json"]));
+
     let resolve = sub(
         "resolve",
         "record that a comment was acted on",
@@ -337,7 +347,7 @@ pub fn root() -> Command {
                 .help("version for rvw"),
         )
         .subcommands([
-            add, submit, list, pull, show, edit, resolve, reject, count, workspaces, path, mcp,
+            add, submit, list, pull, show, edit, remove, resolve, reject, count, workspaces, path, mcp,
             tui, help_cmd,
         ])
 }
@@ -355,6 +365,7 @@ pub fn run(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
         Some(("pull", s)) => pull(app, s, out),
         Some(("show", s)) => show(app, s, out),
         Some(("edit", s)) => edit(app, s, out),
+        Some(("remove", s)) => remove(app, s, out),
         Some(("resolve", s)) => decide(app, s, OUTCOME_DONE, out),
         Some(("reject", s)) => decide(app, s, OUTCOME_REJECTED, out),
         Some(("workspaces", s)) => workspaces(app, s, out),
@@ -855,6 +866,24 @@ fn edit(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
         return json(&c);
     }
     w(writeln!(out, "{}", location_line(&c)))
+}
+
+fn remove(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
+    let id = one_id(m)?;
+    let format = s(m, "format");
+    one_of("--format", &format, &["text", "json"])?;
+    let input = get_input(app, id)?;
+    let svc = app.svc()?;
+    let c = svc
+        .remove(RemoveInput {
+            workspace: input.workspace,
+            id: input.id,
+        })
+        .map_err(core_err)?;
+    if format == "json" {
+        return json(&c);
+    }
+    w(writeln!(out, "removed {}", location_line(&c)))
 }
 
 // ── mcp / tui ────────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 ---
 name: rvw
 description: Work the local rvw code review queue. Use when the user asks to pull, check, address or work through review comments or feedback, mentions rvw, or asks you to review code and leave comments for another agent.
-allowed-tools: mcp__rvw__pull, mcp__rvw__list, mcp__rvw__list_reviews, mcp__rvw__count, mcp__rvw__show_comment, mcp__rvw__show_review, mcp__rvw__resolve, mcp__rvw__add, mcp__rvw__submit
+allowed-tools: mcp__rvw__pull, mcp__rvw__list, mcp__rvw__list_reviews, mcp__rvw__count, mcp__rvw__show_comment, mcp__rvw__show_review, mcp__rvw__resolve, mcp__rvw__add, mcp__rvw__submit, mcp__rvw__remove
 ---
 
 # rvw
@@ -82,6 +82,8 @@ When the user asks you to review code and hand it to another agent, call
 - `submit` without `comment_ids` takes this author's pending comments in this
   exact lane. `decision` is `comment`, `approve` or `request-changes`.
 - Set `no_comments: true` for a summary-only review.
+- Retract a draft comment with `remove` (`{"workspace": ..., "id": "r3"}`).
+  Only a pending comment outside a submitted review can be removed.
 
 ## Other tools
 
