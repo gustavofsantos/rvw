@@ -3,7 +3,9 @@
 //! One overlay draws both shapes; `git_actions` runs what they ask for.
 
 use gpui::prelude::*;
-use gpui::{div, px, ClickEvent, Context, Div, Entity, KeyDownEvent, SharedString, Stateful};
+use gpui::{
+    div, px, ClickEvent, Context, Div, Entity, KeyDownEvent, ScrollHandle, SharedString, Stateful,
+};
 use gpui::{Subscription, Window};
 use rvw_git::stash::StashEntry;
 use rvw_view::branches::{self, Hit};
@@ -31,6 +33,8 @@ pub struct GitAsk {
     pub(crate) highlighted: usize,
     /// Why Enter did not run, one line.
     pub(crate) error: Option<String>,
+    /// Keeps a picker's highlighted row in view when the arrows move it.
+    scroll: ScrollHandle,
     _events: Subscription,
     _typing: Subscription,
 }
@@ -119,6 +123,7 @@ impl Shell {
             hits: Vec::new(),
             highlighted: 0,
             error: None,
+            scroll: ScrollHandle::new(),
             _events: events,
             _typing: typing,
         });
@@ -150,6 +155,7 @@ impl Shell {
         ask.hits = branches::rank(&query, &ask.items);
         ask.highlighted = 0;
         ask.error = None;
+        ask.scroll.scroll_to_item(0);
         cx.notify();
     }
 
@@ -162,6 +168,7 @@ impl Shell {
             } else {
                 ask.highlighted.saturating_sub(1)
             };
+            ask.scroll.scroll_to_item(ask.highlighted);
         }
         cx.notify();
     }
@@ -197,7 +204,7 @@ impl Shell {
 
 /// The open prompt or picker over the window.
 pub fn overlay(ask: &GitAsk, cx: &Context<Shell>) -> Div {
-    let mut body = div().flex().flex_col();
+    let mut body = div().flex().flex_col().flex_1().min_h(px(0.));
     if let Some(error) = ask.error.as_deref() {
         body = body.child(
             div()
@@ -225,11 +232,24 @@ fn picker_list(ask: &GitAsk, cx: &Context<Shell>) -> Div {
     if ask.hits.is_empty() {
         return message("Nothing matches.");
     }
-    div().flex().flex_col().py(px(6.)).children(
-        ask.hits
-            .iter()
-            .enumerate()
-            .map(|(row, hit)| item_row(row, hit, row == ask.highlighted, cx)),
+    // The rows are the scrolled element's own children: `scroll_to_item`
+    // finds the highlighted one by its index among them.
+    div().flex().flex_col().flex_1().min_h(px(0.)).child(
+        div()
+            .id("git-picker-results")
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h(px(0.))
+            .py(px(6.))
+            .overflow_y_scroll()
+            .track_scroll(&ask.scroll)
+            .children(
+                ask.hits
+                    .iter()
+                    .enumerate()
+                    .map(|(row, hit)| item_row(row, hit, row == ask.highlighted, cx)),
+            ),
     )
 }
 

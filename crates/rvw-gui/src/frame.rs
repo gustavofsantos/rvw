@@ -64,13 +64,10 @@ pub fn top_bar(
                 .text_color(theme::ink())
                 .child("rvw"),
         )
-        .child(
-            div()
-                .font_family(theme::code_font())
-                .text_size(px(theme::CODE_FONT_SIZE))
-                .text_color(theme::muted())
-                .child(snapshot.workspace.clone()),
-        )
+        .child(window_chrome::no_drag(workspace_chip(
+            &snapshot.workspace,
+            cx,
+        )))
         .child(window_chrome::no_drag(branch_chip(&snapshot.branch, cx)))
         .children(git_status(git).map(window_chrome::no_drag))
         .child(window_chrome::no_drag(compare_picker::chip(
@@ -163,6 +160,30 @@ fn branch_chip(branch: &str, cx: &Context<Shell>) -> Stateful<Div> {
             },
         ))
         .child(format!("branch {branch}"))
+}
+
+/// The open workspace, with the home directory written `~`. A click opens
+/// the workspace picker.
+fn workspace_chip(workspace: &str, cx: &Context<Shell>) -> Stateful<Div> {
+    let home = std::env::home_dir().map(|home| home.to_string_lossy().into_owned());
+    div()
+        .id("workspace-chip")
+        .flex()
+        .items_center()
+        .h(px(24.))
+        .px(px(6.))
+        .rounded(theme::ROW_RADIUS)
+        .cursor_pointer()
+        .font_family(theme::code_font())
+        .text_size(px(theme::CODE_FONT_SIZE))
+        .text_color(theme::muted())
+        .hover(|style| style.text_color(theme::ink()).bg(theme::hairline()))
+        .on_click(cx.listener(
+            |this: &mut Shell, _: &ClickEvent, window: &mut Window, cx: &mut Context<Shell>| {
+                this.open_workspaces(window, cx);
+            },
+        ))
+        .child(rvw_view::workspaces::label(workspace, home.as_deref()))
 }
 
 /// Orange is the only "needs you" signal, so the dot is orange and the text is

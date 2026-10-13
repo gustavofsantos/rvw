@@ -82,7 +82,7 @@ Thirteen keys, always in this order, in four groups:
 | Move | `J K` move, `↵` open, `O` open file |
 | Review | `C` comment, `⌘↵` add, `⇧⌘R` submit, `A` accept, `R` reopen |
 | Git | `S` stage, `⇧⌘C` commit, `⌘Z` restore |
-| Find | `⌘P` find file, `⌘K` actions |
+| Find | `⌘P` find file, `⌘K` actions, `⌘O` open a workspace |
 
 Each key has a light: dim (not here), dark (available), orange (needs you now).
 State is also shown by label weight, not by color alone. At most one key is
@@ -99,7 +99,7 @@ orange at a time. Each action has one key; a key never changes meaning.
 | 5 | Changes and commit | M2 | Staged and unstaged, hunk and line staging, commit box, checkpoints with restore. |
 | 6 | History with provenance | M3, M5 | Graph with human/agent and review status; the story of a commit. |
 | 7 | Files and context | M1 | Whole-repo tree; comment on a file outside the change as context. |
-| 8 | Find a file | M1 | ⌘P: fuzzy search, changed files first, preview, open beside the diff. |
+| 8 | Find a file | M1 | ⌘P: fuzzy search once you type, changed files first, preview, open beside the diff. |
 | 9 | The key strip | all | The strip in three contexts. |
 
 ## Behaviour that is easy to get wrong
@@ -159,3 +159,12 @@ background `#1a1918`, ink `#d2cfc5`), and a compact layout for narrow windows.
   to read. The diff draws only open comments; the file header says
   "N resolved hidden · Show" and shows them for the session. The queue and
   the outcome screen still list every comment. Decided by the user.
+- **The window can change workspace** (2026-10-13). One window was fixed to
+  the repository it was launched in, and a launch from the Dock picks the
+  busiest queue, so there was no way to reach another one. ⌘O, the palette
+  or a click on the workspace in the top bar opens a picker of the
+  workspaces with a queue, and "Open a folder…" for any other repository.
+  Choosing one rebuilds the window for it. Asked for by the user.
+- **The file finder lists nothing until you type** (2026-10-13). With an
+  empty field it listed twelve files that did not fit or scroll, which
+  helped no one. Asked for by the user.

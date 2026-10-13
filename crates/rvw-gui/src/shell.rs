@@ -40,6 +40,7 @@ use crate::submit_dialog::{OpenSubmit, SubmitDialog};
 use crate::text_area::TextArea;
 use crate::theme;
 use crate::tools::Tools;
+use crate::workspace_picker::OpenWorkspaces;
 
 pub struct Shell {
     pub(crate) snapshot: Snapshot,
@@ -113,7 +114,7 @@ impl Shell {
     /// first file selected; otherwise on the queue.
     pub fn new(
         snapshot: Snapshot,
-        service: Service,
+        service: Arc<Service>,
         identity: Identity,
         seen: Seen,
         db_path: PathBuf,
@@ -141,7 +142,7 @@ impl Shell {
         live::start(cx);
         let mut shell = Self {
             snapshot,
-            service: Arc::new(service),
+            service,
             identity,
             seen,
             db_path,
@@ -512,6 +513,11 @@ impl Render for Shell {
             .on_action(cx.listener(|this: &mut Self, _: &OpenPalette, window, cx| {
                 this.open_palette(window, cx);
             }))
+            .on_action(
+                cx.listener(|this: &mut Self, _: &OpenWorkspaces, window, cx| {
+                    this.open_workspaces(window, cx);
+                }),
+            )
             .on_action(cx.listener(|this: &mut Self, _: &CommitChanges, _, cx| {
                 this.commit_changes(cx);
             }))

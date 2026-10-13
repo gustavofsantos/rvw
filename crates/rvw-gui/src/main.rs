@@ -40,6 +40,7 @@ mod theme;
 mod tools;
 mod verdict;
 mod window_chrome;
+mod workspace_picker;
 
 use std::path::PathBuf;
 
@@ -154,6 +155,7 @@ fn show_window(
             finder::bind_keys(cx);
             palette_overlay::bind_keys(cx);
             changes_state::bind_keys(cx);
+            workspace_picker::bind_keys(cx);
             quit_with_the_window(cx);
             let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
             let options = WindowOptions {
@@ -173,6 +175,7 @@ fn show_window(
             };
             let opened = cx.open_window(options, move |window, cx| {
                 theme::follow(window.appearance());
+                let service = std::sync::Arc::new(service);
                 cx.new(|cx| Shell::new(snapshot, service, identity, seen, db, window, cx))
             });
             if let Err(error) = opened {

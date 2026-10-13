@@ -117,6 +117,7 @@ impl Shell {
             found
         };
         open.highlighted = palette::first_available(&open.entries);
+        open.scroll.scroll_to_top_of_item(0);
         cx.notify();
     }
 
@@ -166,6 +167,7 @@ impl Shell {
             Action::CompareDefaultBranch => self.set_compare(Compare::Default, cx),
             Action::ComparePreviousCommit => self.set_compare(Compare::Prev, cx),
             Action::SwitchBranch => self.open_branches(window, cx),
+            Action::SwitchWorkspace => self.open_workspaces(window, cx),
             Action::ToggleSplit => {
                 let split = !self.tools.split;
                 self.set_split(split, cx);
@@ -216,16 +218,17 @@ fn child_index(entries: &[Entry], index: usize, grouped: bool) -> usize {
 }
 
 pub fn overlay(open: &Palette, cx: &Context<Shell>) -> Div {
-    let body = if open.entries.is_empty() {
-        div()
-            .px(px(24.))
-            .py(px(16.))
-            .text_color(theme::muted())
-            .child("No action matches.")
-    } else {
-        div().flex().flex_col().py(px(6.))
-    };
     let mut rows: Vec<gpui::AnyElement> = Vec::new();
+    if open.entries.is_empty() {
+        rows.push(
+            div()
+                .px(px(24.))
+                .py(px(16.))
+                .text_color(theme::muted())
+                .child("No action matches.")
+                .into_any_element(),
+        );
+    }
     let mut previous = None;
     for (index, entry) in open.entries.iter().enumerate() {
         if open.grouped && previous != Some(entry.group) {
@@ -234,12 +237,17 @@ pub fn overlay(open: &Palette, cx: &Context<Shell>) -> Div {
         }
         rows.push(entry_row(index, entry, index == open.highlighted, cx).into_any_element());
     }
+    // The rows are the scrolled element's own children: `scroll_to_item`
+    // finds the highlighted one by its index among them.
     let list = div()
         .id("palette-results")
+        .flex()
+        .flex_col()
+        .py(px(6.))
         .max_h(px(560.))
         .overflow_y_scroll()
         .track_scroll(&open.scroll)
-        .child(body.children(rows));
+        .children(rows);
     tools::overlay(tools::card(
         div().child(open.input.clone()),
         list,

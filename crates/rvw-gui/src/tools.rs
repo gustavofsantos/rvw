@@ -16,6 +16,7 @@ use crate::compare_picker::CompareMenu;
 use crate::palette_overlay::Palette;
 use crate::shell::Shell;
 use crate::theme;
+use crate::workspace_picker::WorkspacePicker;
 
 #[derive(Default)]
 pub struct Tools {
@@ -24,6 +25,7 @@ pub struct Tools {
     pub compare_menu: Option<CompareMenu>,
     pub branches: Option<BranchPicker>,
     pub palette: Option<Palette>,
+    pub workspaces: Option<WorkspacePicker>,
     /// The diff view shows two columns instead of one.
     pub split: bool,
 }
@@ -31,7 +33,7 @@ pub struct Tools {
 impl Tools {
     /// A picker with a text field is open, so the field holds the focus.
     pub fn field_open(&self) -> bool {
-        self.branches.is_some() || self.palette.is_some()
+        self.branches.is_some() || self.palette.is_some() || self.workspaces.is_some()
     }
 
     /// Any picker is open, for the key strip.
@@ -43,6 +45,7 @@ impl Tools {
         self.compare_menu = None;
         self.branches = None;
         self.palette = None;
+        self.workspaces = None;
     }
 }
 
@@ -67,6 +70,9 @@ impl Shell {
             true
         } else if self.tools.palette.is_some() {
             self.move_palette(delta, cx);
+            true
+        } else if self.tools.workspaces.is_some() {
+            self.move_workspace(delta, cx);
             true
         } else {
             false
@@ -142,6 +148,9 @@ impl Shell {
         if let Some(palette) = self.tools.palette.as_ref() {
             out.push(crate::palette_overlay::overlay(palette, cx).into_any_element());
         }
+        if let Some(picker) = self.tools.workspaces.as_ref() {
+            out.push(crate::workspace_picker::overlay(picker, cx).into_any_element());
+        }
         if let Some(ask) = self.git.ask.as_ref() {
             out.push(crate::git_overlay::overlay(ask, cx).into_any_element());
         }
@@ -183,6 +192,7 @@ pub fn card(input: Div, body: impl IntoElement, hints: &[&'static str]) -> Div {
         .child(
             div()
                 .flex()
+                .flex_none()
                 .items_center()
                 .h(px(52.))
                 .px(px(20.))
@@ -194,6 +204,7 @@ pub fn card(input: Div, body: impl IntoElement, hints: &[&'static str]) -> Div {
         .child(
             div()
                 .flex()
+                .flex_none()
                 .items_center()
                 .gap(px(16.))
                 .h(px(36.))

@@ -20,6 +20,7 @@ pub enum Action {
     CompareDefaultBranch,
     ComparePreviousCommit,
     SwitchBranch,
+    SwitchWorkspace,
     ToggleSplit,
     ToggleFullFile,
     ReloadQueue,
@@ -48,7 +49,7 @@ const WAIT_FOR_NETWORK: &str = "Wait for the running fetch, pull or push";
 
 impl Action {
     /// Every action, in palette order.
-    pub const ALL: [Action; 33] = [
+    pub const ALL: [Action; 34] = [
         Action::GoToQueue,
         Action::GoToReview,
         Action::GoToFiles,
@@ -61,6 +62,7 @@ impl Action {
         Action::CompareDefaultBranch,
         Action::ComparePreviousCommit,
         Action::SwitchBranch,
+        Action::SwitchWorkspace,
         Action::ToggleSplit,
         Action::ToggleFullFile,
         Action::ReloadQueue,
@@ -100,6 +102,7 @@ impl Action {
             Action::CompareDefaultBranch => "Compare with: the default branch",
             Action::ComparePreviousCommit => "Compare with: the previous commit",
             Action::SwitchBranch => "Switch branch",
+            Action::SwitchWorkspace => "Switch workspace…",
             Action::ToggleSplit => "Toggle split diff",
             Action::ToggleFullFile => "Toggle whole file and changes",
             Action::ReloadQueue => "Reload",
@@ -139,7 +142,7 @@ impl Action {
             | Action::ComparePreviousCommit
             | Action::ToggleSplit
             | Action::ToggleFullFile => "Diff",
-            Action::SwitchBranch | Action::ReloadQueue => "Repository",
+            Action::SwitchBranch | Action::SwitchWorkspace | Action::ReloadQueue => "Repository",
             Action::StageChosen
             | Action::Commit
             | Action::SaveCheckpoint
@@ -168,6 +171,7 @@ impl Action {
             Action::StageChosen => Some("S"),
             Action::Commit => Some("⇧⌘C"),
             Action::RestoreCheckpoint => Some("⌘Z"),
+            Action::SwitchWorkspace => Some("⌘O"),
             _ => None,
         }
     }
@@ -275,6 +279,7 @@ pub fn unavailable(action: Action, state: &State) -> Option<&'static str> {
         | Action::CompareDefaultBranch
         | Action::ComparePreviousCommit
         | Action::SwitchBranch
+        | Action::SwitchWorkspace
         | Action::ReloadQueue
         | Action::SaveCheckpoint
         | Action::StashChanges
@@ -420,8 +425,8 @@ mod tests {
     }
 
     #[test]
-    fn all_has_thirty_three_distinct_actions_with_titles_and_groups() {
-        assert_eq!(Action::ALL.len(), 33);
+    fn all_has_thirty_four_distinct_actions_with_titles_and_groups() {
+        assert_eq!(Action::ALL.len(), 34);
         let mut seen = std::collections::HashSet::new();
         for action in Action::ALL {
             assert!(seen.insert(action), "duplicate {action:?}");
@@ -433,7 +438,7 @@ mod tests {
     #[test]
     fn new_actions_are_listed_at_the_end_in_table_order() {
         assert_eq!(
-            Action::ALL[15..],
+            Action::ALL[16..],
             [
                 Action::GoToChanges,
                 Action::StageChosen,
@@ -793,6 +798,7 @@ mod tests {
                 Action::CompareDefaultBranch,
                 Action::ComparePreviousCommit,
                 Action::SwitchBranch,
+                Action::SwitchWorkspace,
                 Action::ReloadQueue,
             ] {
                 assert_eq!(unavailable(action, &state(screen)), None);
@@ -803,7 +809,7 @@ mod tests {
     #[test]
     fn empty_query_lists_all_actions_in_order() {
         let got = entries("", &state(Screen::Diff));
-        assert_eq!(got.len(), 33);
+        assert_eq!(got.len(), 34);
         let order: Vec<Action> = got.iter().map(|e| e.action).collect();
         assert_eq!(order, Action::ALL);
         assert!(got.iter().all(|e| e.matches.is_empty() && e.score == 0));
@@ -827,6 +833,12 @@ mod tests {
     fn branch_matches_switch_branch() {
         let got = entries("branch", &state(Screen::Diff));
         assert!(got.iter().any(|e| e.action == Action::SwitchBranch));
+    }
+
+    #[test]
+    fn workspace_matches_switch_workspace() {
+        let got = entries("workspace", &state(Screen::Queue));
+        assert_eq!(got.first().map(|e| e.action), Some(Action::SwitchWorkspace));
     }
 
     #[test]
@@ -905,6 +917,7 @@ mod tests {
                 "Diff",
                 "Repository",
                 "Repository",
+                "Repository",
                 "Git",
                 "Git",
                 "Git",
@@ -924,7 +937,7 @@ mod tests {
                 "Remote"
             ]
         );
-        assert_eq!(got.len(), 33);
+        assert_eq!(got.len(), 34);
     }
 
     #[test]

@@ -6,8 +6,8 @@ use std::path::Path;
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, ClickEvent, Context, Div, Entity, FontWeight, SharedString, Stateful, Subscription,
-    Window,
+    div, px, AnyElement, ClickEvent, Context, Div, Entity, FontWeight, ScrollHandle, SharedString,
+    Stateful, Subscription, Window,
 };
 use rvw_git::gitx::{self, BranchInfo};
 use rvw_view::branches::{self, Hit};
@@ -25,6 +25,8 @@ pub struct BranchPicker {
     highlighted: usize,
     /// Git's refusal of the last switch, first line.
     error: Option<String>,
+    /// Keeps the highlighted row in view when the arrows move it.
+    scroll: ScrollHandle,
     _events: Subscription,
     _typing: Subscription,
 }
@@ -57,6 +59,7 @@ impl Shell {
             hits: Vec::new(),
             highlighted: 0,
             error: None,
+            scroll: ScrollHandle::new(),
             _events: events,
             _typing: typing,
         });
@@ -80,6 +83,7 @@ impl Shell {
         picker.hits = branches::rank(&query, &names);
         picker.highlighted = 0;
         picker.error = None;
+        picker.scroll.scroll_to_item(0);
         cx.notify();
     }
 
@@ -91,6 +95,7 @@ impl Shell {
             } else {
                 picker.highlighted.saturating_sub(1)
             };
+            picker.scroll.scroll_to_item(picker.highlighted);
         }
         cx.notify();
     }
@@ -152,7 +157,7 @@ fn first_line(text: &str) -> String {
 }
 
 pub fn overlay(picker: &BranchPicker, cx: &Context<Shell>) -> Div {
-    let mut body = div().flex().flex_col();
+    let mut body = div().flex().flex_col().flex_1().min_h(px(0.));
     if let Some(error) = picker.error.as_deref() {
         body = body.child(
             div()
@@ -162,25 +167,45 @@ pub fn overlay(picker: &BranchPicker, cx: &Context<Shell>) -> Div {
                 .child(error.to_owned()),
         );
     }
-    let list =
-        match &picker.branches {
-            Err(message) => div()
-                .px(px(24.))
-                .py(px(16.))
-                .text_color(theme::rejected())
-                .child(message.clone()),
-            Ok(_) if picker.hits.is_empty() => div()
-                .px(px(24.))
-                .py(px(16.))
-                .text_color(theme::muted())
-                .child("No branch matches."),
-            Ok(list) => div().flex().flex_col().py(px(6.)).children(
-                picker.hits.iter().enumerate().filter_map(|(row, hit)| {
-                    let info = list.get(hit.index)?;
-                    Some(branch_row(row, hit, info, row == picker.highlighted, cx))
-                }),
-            ),
-        };
+    let list = match &picker.branches {
+        Err(message) => div()
+            .px(px(24.))
+            .py(px(16.))
+            .text_color(theme::rejected())
+            .child(message.clone()),
+        Ok(_) if picker.hits.is_empty() => div()
+            .px(px(24.))
+            .py(px(16.))
+            .text_color(theme::muted())
+            .child("No branch matches."),
+        Ok(list) => {
+            // The rows are the scrolled element's own children:
+            // `scroll_to_item` finds the highlighted one by its index.
+            let rows: Vec<AnyElement> = picker
+                .hits
+                .iter()
+                .enumerate()
+                .map(|(row, hit)| match list.get(hit.index) {
+                    Some(info) => {
+                        branch_row(row, hit, info, row == picker.highlighted, cx).into_any_element()
+                    }
+                    None => div().into_any_element(),
+                })
+                .collect();
+            div().flex().flex_col().flex_1().min_h(px(0.)).child(
+                div()
+                    .id("branch-results")
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h(px(0.))
+                    .py(px(6.))
+                    .overflow_y_scroll()
+                    .track_scroll(&picker.scroll)
+                    .children(rows),
+            )
+        }
+    };
     tools::overlay(tools::card(
         div().child(picker.input.clone()),
         body.child(list),
