@@ -131,9 +131,9 @@ Open, in priority order for the first person who runs it:
    repository (reported by the user, 2026-10-13), now reads the comment off
    the UI thread and no longer reloads everything to mark it seen. Other
    clicks and actions still read git on the UI thread.
+8. A checkpoint costs about 45 ms (unchanged) to 65 ms (new), measured with
+   200 checkpoints in a debug build; most of it is starting git processes.
 9. Fixed: a checkpoint could save a file's previous content when the file
    was rewritten at the same size within the second its index was written.
    The temporary index was a copy with a newer time, so git trusted the
    stale size and time; the copy now keeps the index's time.
-8. A checkpoint costs about 45 ms (unchanged) to 65 ms (new), measured with
-   200 checkpoints in a debug build; most of it is starting git processes.
