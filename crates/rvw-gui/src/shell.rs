@@ -4,6 +4,7 @@
 //! the common frame.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use gpui::prelude::*;
 use gpui::{
@@ -28,6 +29,7 @@ use crate::frame::{self, Panels};
 use crate::git_tools::{GitTools, RepoFacts};
 use crate::highlights::Highlighter;
 use crate::key_strip::key_strip;
+use crate::live::{self, Fingerprint};
 use crate::outcome_screen::{self, Outcome};
 use crate::palette_overlay::OpenPalette;
 use crate::queue_screen;
@@ -88,6 +90,12 @@ pub struct Shell {
     pub(crate) git: GitTools,
     /// Holds the keys (C) when no field has focus.
     focus: FocusHandle,
+    /// The database the queue lives in. The live poller fingerprints it
+    /// beside the repository; see `live`.
+    pub(crate) db_path: PathBuf,
+    /// The fingerprint the window last refreshed to; `None` until the first
+    /// poll records one. See `live`.
+    pub(crate) live_last: Option<Fingerprint>,
 }
 
 impl Shell {
@@ -98,6 +106,7 @@ impl Shell {
         service: Service,
         identity: Identity,
         seen: Seen,
+        db_path: PathBuf,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -119,11 +128,14 @@ impl Shell {
             }
         })
         .detach();
-        Self {
+        live::start(cx);
+        let mut shell = Self {
             snapshot,
             service,
             identity,
             seen,
+            db_path,
+            live_last: None,
             outcome: None,
             screen,
             filter: Filter::default(),
@@ -148,7 +160,11 @@ impl Shell {
                 ..GitTools::default()
             },
             focus: cx.focus_handle(),
-        }
+        };
+        // The staged list lights Commit on every screen, so it is read now,
+        // not when the Changes screen first opens.
+        shell.reload_changes();
+        shell
     }
 
     pub fn show(&mut self, screen: Screen, cx: &mut Context<Self>) {
@@ -224,6 +240,73 @@ impl Shell {
         });
         self.diff_generation = self.diff_generation.wrapping_add(1);
         Ok(())
+    }
+
+    /// Re-reads the snapshot like `refresh`, but keeps the open file's
+    /// selection and its diff list when the file reads the same: its diff,
+    /// view, and flags. The diff list is rebuilt only when the file's diff
+    /// changed or its comments did, since its rows hold the comments. While a
+    /// composer is open the file keeps its old diff, since the composer sits
+    /// under the selection; the result is `false` then, and the file is
+    /// re-read once the composer closes. A failed read changes nothing.
+    pub(crate) fn refresh_keeping(&mut self) -> Result<bool, String> {
+        let acknowledged = self.seen.ids_for(&self.identity.workspace);
+        let snapshot = data::load(
+            &self.service,
+            &self.identity.workspace,
+            &self.identity.lane,
+            acknowledged,
+            self.tools.compare,
+        )?;
+        let queue = snapshot.view(&self.filter);
+        let file_comments = |snapshot: &Snapshot, path: &str| {
+            snapshot
+                .comments
+                .iter()
+                .filter(|comment| comment.file == path)
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        let previous = self.selected.take();
+        let before = previous
+            .as_ref()
+            .map(|old| file_comments(&self.snapshot, &old.path));
+        self.snapshot = snapshot;
+        self.queue = queue;
+        let (Some(old), Some(before)) = (previous, before) else {
+            return Ok(true);
+        };
+        let fresh = self.load_selected(&old.path, old.mode);
+        let moved = file_comments(&self.snapshot, &old.path) != before;
+        let same_file = fresh.diff == old.diff
+            && fresh.mode == old.mode
+            && fresh.outside == old.outside
+            && fresh.cut == old.cut
+            && fresh.changed == old.changed;
+        if !same_file && self.composer.is_some() {
+            // The composer's place is its selection in this diff, so the
+            // diff stays until the composer closes.
+            self.selected = Some(old);
+            if moved {
+                self.diff_generation = self.diff_generation.wrapping_add(1);
+            }
+            return Ok(false);
+        }
+        if same_file {
+            // The same diff has the same lines, so the reviewer's selection
+            // still points at what it did.
+            self.selected = Some(Selected {
+                selection: old.selection,
+                ..fresh
+            });
+        } else {
+            // The lines moved or changed, so the selection is cleared.
+            self.selected = Some(fresh);
+        }
+        if !same_file || moved {
+            self.diff_generation = self.diff_generation.wrapping_add(1);
+        }
+        Ok(true)
     }
 
     /// Re-reads the snapshot after a write. A failed re-read keeps the
@@ -356,39 +439,7 @@ impl Render for Shell {
         }
         self.sync_highlights(cx);
         self.sync_diff_list(window);
-        let panels = match (self.screen, self.outcome.as_ref()) {
-            (Screen::Diff | Screen::Files, _) => Panels {
-                left: self.review_left(cx),
-                centre: review_screen::centre(
-                    &self.snapshot,
-                    self.selected.as_ref(),
-                    self.diff_list.as_ref(),
-                    self.split_available().then_some(self.tools.split),
-                    cx,
-                ),
-                right: crate::draft_panel::right(&self.snapshot, self.removal.as_ref(), cx),
-            },
-            (Screen::Changes, _) => Panels {
-                left: crate::changes_screen::left(&self.changes, cx),
-                centre: crate::changes_screen::centre(&self.changes, cx),
-                right: crate::changes_screen::right(
-                    &self.changes,
-                    &self.git.facts,
-                    &self.snapshot.comments,
-                    cx,
-                ),
-            },
-            (Screen::Outcome, Some(open)) => Panels {
-                left: outcome_screen::left(open, &self.snapshot, cx),
-                centre: outcome_screen::centre(open),
-                right: outcome_screen::right(open),
-            },
-            _ => Panels {
-                left: queue_screen::left(&self.snapshot, &self.filter, cx),
-                centre: queue_screen::centre(&self.snapshot, &self.queue, cx),
-                right: queue_screen::right(&self.snapshot.next_pull),
-            },
-        };
+        let panels = self.panels(cx);
         // The Files tab is part of the review screen, so R stays lit; the
         // outcome screen lights the screen it was opened from.
         let rail_screen = match (self.screen, self.outcome.as_ref()) {
@@ -483,6 +534,43 @@ impl Shell {
             can_undo: !self.git.facts.checkpoints.is_empty(),
             can_move: true,
             can_open_file: false,
+        }
+    }
+
+    /// The three panels of the screen shown.
+    fn panels(&self, cx: &mut Context<Self>) -> Panels {
+        match (self.screen, self.outcome.as_ref()) {
+            (Screen::Diff | Screen::Files, _) => Panels {
+                left: self.review_left(cx),
+                centre: review_screen::centre(
+                    &self.snapshot,
+                    self.selected.as_ref(),
+                    self.diff_list.as_ref(),
+                    self.split_available().then_some(self.tools.split),
+                    cx,
+                ),
+                right: crate::draft_panel::right(&self.snapshot, self.removal.as_ref(), cx),
+            },
+            (Screen::Changes, _) => Panels {
+                left: crate::changes_screen::left(&self.changes, cx),
+                centre: crate::changes_screen::centre(&self.changes, cx),
+                right: crate::changes_screen::right(
+                    &self.changes,
+                    &self.git.facts,
+                    &self.snapshot.comments,
+                    cx,
+                ),
+            },
+            (Screen::Outcome, Some(open)) => Panels {
+                left: outcome_screen::left(open, &self.snapshot, cx),
+                centre: outcome_screen::centre(open),
+                right: outcome_screen::right(open),
+            },
+            _ => Panels {
+                left: queue_screen::left(&self.snapshot, &self.filter, cx),
+                centre: queue_screen::centre(&self.snapshot, &self.queue, cx),
+                right: queue_screen::right(&self.snapshot.next_pull),
+            },
         }
     }
 

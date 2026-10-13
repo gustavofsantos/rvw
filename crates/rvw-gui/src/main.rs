@@ -21,6 +21,7 @@ mod git_overlay;
 mod git_tools;
 mod highlights;
 mod key_strip;
+mod live;
 mod outcome_flow;
 mod outcome_screen;
 mod outcome_story;
@@ -91,7 +92,7 @@ fn run() -> Result<(), String> {
         author: args.author,
         lane: args.lane,
     };
-    show_window(snapshot, service, identity, seen);
+    show_window(snapshot, service, identity, seen, db);
     Ok(())
 }
 
@@ -132,7 +133,13 @@ fn flag_value(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<Str
 
 /// Starts the application and opens the one window. Errors here happen after
 /// the database is open, so they are reported from inside the app callback.
-fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identity, seen: Seen) {
+fn show_window(
+    snapshot: Snapshot,
+    service: rvw_core::Service,
+    identity: Identity,
+    seen: Seen,
+    db: PathBuf,
+) {
     Application::new()
         .with_assets(assets::Assets)
         .run(move |cx: &mut App| {
@@ -163,7 +170,7 @@ fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identit
             };
             let opened = cx.open_window(options, move |window, cx| {
                 theme::follow(window.appearance());
-                cx.new(|cx| Shell::new(snapshot, service, identity, seen, window, cx))
+                cx.new(|cx| Shell::new(snapshot, service, identity, seen, db, window, cx))
             });
             if let Err(error) = opened {
                 eprintln!("rvw-gui: {error}");
