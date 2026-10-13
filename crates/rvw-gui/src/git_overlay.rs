@@ -53,6 +53,7 @@ pub(crate) fn is_picker(action: Action) -> bool {
         Action::ApplyStash
             | Action::DropStash
             | Action::DeleteBranch
+            | Action::MergeBranch
             | Action::DeleteTag
             | Action::PushTag
     )
@@ -73,6 +74,7 @@ fn placeholder(action: Action, branch: &str) -> String {
         Action::ApplyStash => "Apply which stash?".to_owned(),
         Action::DropStash => "Drop which stash?".to_owned(),
         Action::DeleteBranch => "Delete which branch?".to_owned(),
+        Action::MergeBranch => "Merge which branch into this one?".to_owned(),
         Action::DeleteTag => "Delete which tag?".to_owned(),
         Action::PushTag => "Push which tag?".to_owned(),
         _ => String::new(),
@@ -305,7 +307,16 @@ mod tests {
     fn only_the_item_actions_are_pickers() {
         assert!(is_picker(Action::ApplyStash));
         assert!(is_picker(Action::PushTag));
+        assert!(is_picker(Action::MergeBranch));
         assert!(!is_picker(Action::NewBranch));
         assert!(!is_picker(Action::StashChanges));
+    }
+
+    #[test]
+    fn the_merge_picker_asks_which_branch_to_merge_into_this_one() {
+        assert_eq!(
+            placeholder(Action::MergeBranch, "main"),
+            "Merge which branch into this one?"
+        );
     }
 }

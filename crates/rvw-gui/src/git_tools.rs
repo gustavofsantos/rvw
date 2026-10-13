@@ -8,7 +8,7 @@ use std::path::Path;
 use gpui::Context;
 use rvw_git::checkpoint::{self, Checkpoint, Kept};
 use rvw_git::stash::StashEntry;
-use rvw_git::{gitx, refs, remote, stash};
+use rvw_git::{gitx, merge, refs, remote, stash};
 
 use crate::checkpoint_ui::RestoreConfirm;
 use crate::git_overlay::GitAsk;
@@ -33,6 +33,10 @@ pub struct RepoFacts {
     pub stashes: Vec<StashEntry>,
     /// This worktree's checkpoints, newest first.
     pub checkpoints: Vec<Checkpoint>,
+    /// The merge, cherry-pick, revert or rebase stopped in this worktree.
+    pub operation: Option<rvw_git::merge::Operation>,
+    /// The files still in conflict in that operation.
+    pub conflicted: Vec<String>,
 }
 
 impl RepoFacts {
@@ -56,6 +60,8 @@ impl RepoFacts {
             tags: refs::tags(dir).unwrap_or_default(),
             stashes: stash::list(dir).unwrap_or_default(),
             checkpoints: checkpoint::list(dir).unwrap_or_default(),
+            operation: merge::in_progress(dir).ok().flatten(),
+            conflicted: merge::conflicted(dir).unwrap_or_default(),
             branch,
         }
     }

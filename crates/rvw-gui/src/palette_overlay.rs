@@ -8,6 +8,7 @@ use gpui::{
     actions, div, px, App, ClickEvent, Context, Div, Entity, KeyBinding, ScrollHandle,
     SharedString, Stateful, Subscription, Window,
 };
+use rvw_git::merge::Operation;
 use rvw_view::changes::Compare;
 use rvw_view::keys::Screen;
 use rvw_view::palette::{self, Action, Entry, State};
@@ -79,9 +80,26 @@ impl Shell {
         cx.notify();
     }
 
+    /// The path of the file the screen shows: the review's or the Changes
+    /// screen's. `None` on every other screen, or when no file is open.
+    fn open_file_path(&self) -> Option<String> {
+        match self.screen {
+            Screen::Diff | Screen::Files => self.selected.as_ref().map(|s| s.path.clone()),
+            Screen::Changes => self.changes.open.as_ref().map(|open| open.path.clone()),
+            _ => None,
+        }
+    }
+
     fn palette_state(&self) -> State {
         State {
             screen: self.screen,
+            has_open_file: self.open_file_path().is_some(),
+            has_selected_commit: self.history.history.selected_row().is_some(),
+            operation_in_progress: matches!(
+                self.git.facts.operation,
+                Some(Operation::Merge | Operation::CherryPick)
+            ),
+            conflicted: self.git.facts.conflicted.len(),
             draft_count: self.snapshot.queue.counters.draft,
             has_selection: self
                 .selected
@@ -182,12 +200,27 @@ impl Shell {
             Action::Commit => self.commit_changes(cx),
             Action::SaveCheckpoint => self.save_checkpoint(cx),
             Action::RestoreCheckpoint => self.open_checkpoints(window, cx),
+            Action::GoToHistory => self.show(Screen::History, cx),
+            Action::SearchCommits => {
+                self.show(Screen::History, cx);
+                self.focus_search(window, cx);
+            }
+            Action::FileHistory => {
+                if let Some(path) = self.open_file_path() {
+                    self.show_file_history(&path, cx);
+                }
+            }
+            Action::CherryPick => self.cherry_pick_selected(cx),
+            Action::FinishOperation => self.finish_operation(cx),
+            Action::AbortOperation => self.abort_operation(cx),
+            Action::OpenMergeTool => self.open_merge_tool(cx),
             Action::StashChanges
             | Action::ApplyStash
             | Action::DropStash
             | Action::NewBranch
             | Action::RenameBranch
             | Action::DeleteBranch
+            | Action::MergeBranch
             | Action::NewTag
             | Action::PushTag
             | Action::DeleteTag

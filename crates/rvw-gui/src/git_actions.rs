@@ -28,7 +28,9 @@ impl Shell {
                 let items = stashes.iter().map(git_overlay::stash_item).collect();
                 self.open_git_ask(action, items, stashes, window, cx);
             }
-            Action::DeleteBranch => {
+            // A picker of the local branches, minus the current one: the one
+            // to delete, or the one to merge into this branch.
+            Action::DeleteBranch | Action::MergeBranch => {
                 let current = self.git.facts.branch.clone();
                 let items = self
                     .git
@@ -74,6 +76,12 @@ impl Shell {
                     Ok(()) => self.close_git_ask(cx),
                     Err(message) => self.git_ask_error(message, cx),
                 }
+                return;
+            }
+            // merge_branch reports its own result, so no finish or error here.
+            Action::MergeBranch => {
+                self.close_git_ask(cx);
+                self.merge_branch(&label, cx);
                 return;
             }
             Action::StashChanges => self.stash_changes(&typed, cx),

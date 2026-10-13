@@ -42,14 +42,25 @@ pub enum Action {
     Pull,
     Push,
     Publish,
+    GoToHistory,
+    SearchCommits,
+    FileHistory,
+    CherryPick,
+    MergeBranch,
+    FinishOperation,
+    AbortOperation,
+    OpenMergeTool,
 }
 
 /// The reason a network action waits while a fetch, pull or push is running.
 const WAIT_FOR_NETWORK: &str = "Wait for the running fetch, pull or push";
 
+/// The reason a history action waits while a merge or cherry-pick is stopped.
+const FINISH_OR_ABORT: &str = "Finish or abort the merge or cherry-pick first";
+
 impl Action {
     /// Every action, in palette order.
-    pub const ALL: [Action; 34] = [
+    pub const ALL: [Action; 42] = [
         Action::GoToQueue,
         Action::GoToReview,
         Action::GoToFiles,
@@ -84,6 +95,14 @@ impl Action {
         Action::Pull,
         Action::Push,
         Action::Publish,
+        Action::GoToHistory,
+        Action::SearchCommits,
+        Action::FileHistory,
+        Action::CherryPick,
+        Action::MergeBranch,
+        Action::FinishOperation,
+        Action::AbortOperation,
+        Action::OpenMergeTool,
     ];
 
     /// The name shown in the palette.
@@ -124,6 +143,14 @@ impl Action {
             Action::Pull => "Pull (fast-forward only)",
             Action::Push => "Push",
             Action::Publish => "Publish this branch",
+            Action::GoToHistory => "Go to the history",
+            Action::SearchCommits => "Search commits",
+            Action::FileHistory => "History of this file",
+            Action::CherryPick => "Cherry-pick the selected commit",
+            Action::MergeBranch => "Merge a branch into this one…",
+            Action::FinishOperation => "Finish the merge or cherry-pick",
+            Action::AbortOperation => "Abort the merge or cherry-pick",
+            Action::OpenMergeTool => "Open the merge tool",
         }
     }
 
@@ -131,10 +158,13 @@ impl Action {
     #[must_use]
     pub fn group(self) -> &'static str {
         match self {
-            Action::GoToQueue | Action::GoToReview | Action::GoToFiles | Action::GoToChanges => {
-                "Go"
-            }
-            Action::FindFile => "Find",
+            Action::GoToQueue
+            | Action::GoToReview
+            | Action::GoToFiles
+            | Action::GoToChanges
+            | Action::GoToHistory => "Go",
+            Action::FindFile | Action::SearchCommits => "Find",
+            Action::FileHistory | Action::CherryPick => "History",
             Action::NextFile | Action::PreviousFile => "Move",
             Action::Comment | Action::SubmitReview => "Review",
             Action::CompareUncommitted
@@ -146,13 +176,17 @@ impl Action {
             Action::StageChosen
             | Action::Commit
             | Action::SaveCheckpoint
-            | Action::RestoreCheckpoint => "Git",
+            | Action::RestoreCheckpoint
+            | Action::FinishOperation
+            | Action::AbortOperation
+            | Action::OpenMergeTool => "Git",
             Action::StashChanges | Action::ApplyStash | Action::DropStash => "Stash",
             Action::NewBranch
             | Action::RenameBranch
             | Action::DeleteBranch
             | Action::NewTag
-            | Action::DeleteTag => "Branches",
+            | Action::DeleteTag
+            | Action::MergeBranch => "Branches",
             Action::PushTag | Action::Fetch | Action::Pull | Action::Push | Action::Publish => {
                 "Remote"
             }
@@ -206,6 +240,14 @@ pub struct State {
     pub has_checkpoints: bool,
     /// A fetch, pull or push is running.
     pub network_busy: bool,
+    /// A file is open in the review or the Changes screen.
+    pub has_open_file: bool,
+    /// The History screen has a commit selected.
+    pub has_selected_commit: bool,
+    /// A merge or cherry-pick is stopped, waiting to be finished or aborted.
+    pub operation_in_progress: bool,
+    /// Files still in conflict in the stopped merge or cherry-pick.
+    pub conflicted: usize,
 }
 
 /// Whether the screen shows a file: the diff or the file list.
@@ -216,6 +258,11 @@ fn on_diff_or_files(screen: Screen) -> bool {
 /// The wait reason while a fetch, pull or push runs, or `None` when idle.
 fn busy_reason(state: &State) -> Option<&'static str> {
     state.network_busy.then_some(WAIT_FOR_NETWORK)
+}
+
+/// The reason a merge or cherry-pick must finish first, or `None` when none is stopped.
+fn operation_reason(state: &State) -> Option<&'static str> {
+    state.operation_in_progress.then_some(FINISH_OR_ABORT)
 }
 
 /// Why an action is unavailable, or `None` when it is available.
@@ -246,6 +293,24 @@ pub fn unavailable(action: Action, state: &State) -> Option<&'static str> {
         Action::GoToChanges => {
             (state.screen == Screen::Changes).then_some("You are on the changes")
         }
+        Action::GoToHistory => {
+            (state.screen == Screen::History).then_some("You are on the history")
+        }
+        Action::FileHistory => (!state.has_open_file).then_some("Open a file first"),
+        Action::CherryPick => (state.screen != Screen::History || !state.has_selected_commit)
+            .then_some("Select a commit in the history first")
+            .or_else(|| (!state.on_branch).then_some("HEAD is not on a branch"))
+            .or_else(|| operation_reason(state)),
+        Action::MergeBranch => (!state.on_branch)
+            .then_some("HEAD is not on a branch")
+            .or_else(|| operation_reason(state)),
+        Action::FinishOperation => (!state.operation_in_progress)
+            .then_some("No merge or cherry-pick in progress")
+            .or_else(|| (state.conflicted > 0).then_some("Resolve and stage every conflict first")),
+        Action::AbortOperation => {
+            (!state.operation_in_progress).then_some("No merge or cherry-pick in progress")
+        }
+        Action::OpenMergeTool => (state.conflicted == 0).then_some("No conflicted files"),
         Action::StageChosen => {
             (state.screen != Screen::Changes).then_some("Open the changes first")
         }
@@ -285,7 +350,8 @@ pub fn unavailable(action: Action, state: &State) -> Option<&'static str> {
         | Action::StashChanges
         | Action::NewBranch
         | Action::DeleteBranch
-        | Action::NewTag => None,
+        | Action::NewTag
+        | Action::SearchCommits => None,
     }
 }
 
@@ -421,12 +487,16 @@ mod tests {
             has_tags: false,
             has_checkpoints: false,
             network_busy: false,
+            has_open_file: false,
+            has_selected_commit: false,
+            operation_in_progress: false,
+            conflicted: 0,
         }
     }
 
     #[test]
-    fn all_has_thirty_four_distinct_actions_with_titles_and_groups() {
-        assert_eq!(Action::ALL.len(), 34);
+    fn all_has_forty_two_distinct_actions_with_titles_and_groups() {
+        assert_eq!(Action::ALL.len(), 42);
         let mut seen = std::collections::HashSet::new();
         for action in Action::ALL {
             assert!(seen.insert(action), "duplicate {action:?}");
@@ -458,6 +528,14 @@ mod tests {
                 Action::Pull,
                 Action::Push,
                 Action::Publish,
+                Action::GoToHistory,
+                Action::SearchCommits,
+                Action::FileHistory,
+                Action::CherryPick,
+                Action::MergeBranch,
+                Action::FinishOperation,
+                Action::AbortOperation,
+                Action::OpenMergeTool,
             ]
         );
     }
@@ -483,6 +561,30 @@ mod tests {
             (Action::Pull, "Pull (fast-forward only)", "Remote"),
             (Action::Push, "Push", "Remote"),
             (Action::Publish, "Publish this branch", "Remote"),
+            (Action::GoToHistory, "Go to the history", "Go"),
+            (Action::SearchCommits, "Search commits", "Find"),
+            (Action::FileHistory, "History of this file", "History"),
+            (
+                Action::CherryPick,
+                "Cherry-pick the selected commit",
+                "History",
+            ),
+            (
+                Action::MergeBranch,
+                "Merge a branch into this one…",
+                "Branches",
+            ),
+            (
+                Action::FinishOperation,
+                "Finish the merge or cherry-pick",
+                "Git",
+            ),
+            (
+                Action::AbortOperation,
+                "Abort the merge or cherry-pick",
+                "Git",
+            ),
+            (Action::OpenMergeTool, "Open the merge tool", "Git"),
         ];
         for (action, title, group) in table {
             assert_eq!(action.title(), title, "{action:?}");
@@ -676,6 +778,122 @@ mod tests {
     }
 
     #[test]
+    fn going_to_the_history_is_off_on_the_history_screen() {
+        assert_eq!(
+            unavailable(Action::GoToHistory, &state(Screen::History)),
+            Some("You are on the history")
+        );
+        assert_eq!(unavailable(Action::GoToHistory, &state(Screen::Diff)), None);
+    }
+
+    #[test]
+    fn searching_commits_is_always_available() {
+        for screen in [
+            Screen::Queue,
+            Screen::Diff,
+            Screen::Files,
+            Screen::Changes,
+            Screen::History,
+        ] {
+            assert_eq!(unavailable(Action::SearchCommits, &state(screen)), None);
+        }
+    }
+
+    #[test]
+    fn file_history_needs_an_open_file() {
+        let mut s = state(Screen::Diff);
+        assert_eq!(
+            unavailable(Action::FileHistory, &s),
+            Some("Open a file first")
+        );
+        s.has_open_file = true;
+        assert_eq!(unavailable(Action::FileHistory, &s), None);
+    }
+
+    #[test]
+    fn cherry_pick_needs_a_selected_commit_then_a_branch_then_no_operation() {
+        let mut s = state(Screen::Diff);
+        assert_eq!(
+            unavailable(Action::CherryPick, &s),
+            Some("Select a commit in the history first")
+        );
+        // A selected commit on another screen does not count.
+        s.has_selected_commit = true;
+        assert_eq!(
+            unavailable(Action::CherryPick, &s),
+            Some("Select a commit in the history first")
+        );
+        let mut s = state(Screen::History);
+        s.has_selected_commit = true;
+        assert_eq!(
+            unavailable(Action::CherryPick, &s),
+            Some("HEAD is not on a branch")
+        );
+        s.on_branch = true;
+        assert_eq!(unavailable(Action::CherryPick, &s), None);
+        s.operation_in_progress = true;
+        assert_eq!(
+            unavailable(Action::CherryPick, &s),
+            Some("Finish or abort the merge or cherry-pick first")
+        );
+    }
+
+    #[test]
+    fn merge_branch_needs_a_branch_then_no_operation() {
+        let mut s = state(Screen::Queue);
+        assert_eq!(
+            unavailable(Action::MergeBranch, &s),
+            Some("HEAD is not on a branch")
+        );
+        s.on_branch = true;
+        assert_eq!(unavailable(Action::MergeBranch, &s), None);
+        s.operation_in_progress = true;
+        assert_eq!(
+            unavailable(Action::MergeBranch, &s),
+            Some("Finish or abort the merge or cherry-pick first")
+        );
+    }
+
+    #[test]
+    fn finishing_an_operation_needs_one_stopped_with_no_conflicts_left() {
+        let mut s = state(Screen::Changes);
+        assert_eq!(
+            unavailable(Action::FinishOperation, &s),
+            Some("No merge or cherry-pick in progress")
+        );
+        s.operation_in_progress = true;
+        s.conflicted = 2;
+        assert_eq!(
+            unavailable(Action::FinishOperation, &s),
+            Some("Resolve and stage every conflict first")
+        );
+        s.conflicted = 0;
+        assert_eq!(unavailable(Action::FinishOperation, &s), None);
+    }
+
+    #[test]
+    fn aborting_an_operation_needs_one_stopped() {
+        let mut s = state(Screen::Changes);
+        assert_eq!(
+            unavailable(Action::AbortOperation, &s),
+            Some("No merge or cherry-pick in progress")
+        );
+        s.operation_in_progress = true;
+        assert_eq!(unavailable(Action::AbortOperation, &s), None);
+    }
+
+    #[test]
+    fn the_merge_tool_needs_a_conflicted_file() {
+        let mut s = state(Screen::Changes);
+        assert_eq!(
+            unavailable(Action::OpenMergeTool, &s),
+            Some("No conflicted files")
+        );
+        s.conflicted = 1;
+        assert_eq!(unavailable(Action::OpenMergeTool, &s), None);
+    }
+
+    #[test]
     fn push_tag_needs_a_remote_then_a_tag_then_an_idle_network() {
         let mut s = state(Screen::Queue);
         assert_eq!(
@@ -800,6 +1018,7 @@ mod tests {
                 Action::SwitchBranch,
                 Action::SwitchWorkspace,
                 Action::ReloadQueue,
+                Action::SearchCommits,
             ] {
                 assert_eq!(unavailable(action, &state(screen)), None);
             }
@@ -809,7 +1028,7 @@ mod tests {
     #[test]
     fn empty_query_lists_all_actions_in_order() {
         let got = entries("", &state(Screen::Diff));
-        assert_eq!(got.len(), 34);
+        assert_eq!(got.len(), 42);
         let order: Vec<Action> = got.iter().map(|e| e.action).collect();
         assert_eq!(order, Action::ALL);
         assert!(got.iter().all(|e| e.matches.is_empty() && e.score == 0));
@@ -905,6 +1124,8 @@ mod tests {
                 "Go",
                 "Go",
                 "Go",
+                "Go",
+                "Find",
                 "Find",
                 "Move",
                 "Move",
@@ -922,6 +1143,9 @@ mod tests {
                 "Git",
                 "Git",
                 "Git",
+                "Git",
+                "Git",
+                "Git",
                 "Stash",
                 "Stash",
                 "Stash",
@@ -930,14 +1154,17 @@ mod tests {
                 "Branches",
                 "Branches",
                 "Branches",
+                "Branches",
                 "Remote",
                 "Remote",
                 "Remote",
                 "Remote",
-                "Remote"
+                "Remote",
+                "History",
+                "History"
             ]
         );
-        assert_eq!(got.len(), 34);
+        assert_eq!(got.len(), 42);
     }
 
     #[test]
@@ -970,7 +1197,8 @@ mod tests {
                 Action::RenameBranch,
                 Action::DeleteBranch,
                 Action::NewTag,
-                Action::DeleteTag
+                Action::DeleteTag,
+                Action::MergeBranch
             ]
         );
     }
