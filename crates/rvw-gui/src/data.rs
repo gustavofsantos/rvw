@@ -293,6 +293,20 @@ pub fn load_diff(workspace: &str, base_id: &str, path: &str) -> Result<FileDiff,
     Ok(diff::parse(&text))
 }
 
+/// The stored workspace with the most handoffs waiting, for a launch outside
+/// any repository. Workspaces whose directory is gone or no longer a
+/// repository are skipped.
+pub fn busiest_workspace(service: &Service) -> Option<String> {
+    let all = service
+        .workspaces(rvw_core::operations::WorkspacesInput { all: true })
+        .ok()?;
+    all.workspaces
+        .into_iter()
+        .filter(|row| rvw_git::workspace::resolve(std::path::Path::new(&row.workspace)).is_ok())
+        .max_by_key(|row| (row.pending, row.pulled))
+        .map(|row| row.workspace)
+}
+
 #[cfg(test)]
 #[path = "data_draft_tests.rs"]
 mod draft_tests;
@@ -388,6 +402,16 @@ pub(crate) mod tests {
             lane: "feat".into(),
         };
         (dir, service, identity)
+    }
+
+    #[test]
+    fn busiest_workspace_is_a_stored_workspace_that_still_exists() {
+        let (dir, service, identity) = workspace_with_store();
+        assert_eq!(busiest_workspace(&service), None);
+        add_comment(&service, &identity, "app.py", (1, 1), "first").expect("add");
+        assert_eq!(busiest_workspace(&service), Some(identity.workspace));
+        fs::remove_dir_all(dir.path().join("proj")).expect("remove workspace");
+        assert_eq!(busiest_workspace(&service), None);
     }
 
     #[test]

@@ -63,20 +63,14 @@ fn main() {
 fn run() -> Result<(), String> {
     let args = parse_args(std::env::args().skip(1))?;
 
-    let start = match args.workspace {
-        Some(dir) => dir,
-        None => std::env::current_dir().map_err(|e| e.to_string())?,
-    };
-    let workspace = rvw_git::workspace::resolve(&start)?
-        .to_string_lossy()
-        .into_owned();
-
     let db = match args.db {
         Some(path) => std::path::absolute(path).map_err(|e| e.to_string())?,
         None => rvw_store::default_path().map_err(|e| e.message)?,
     };
     let store = rvw_store::Store::open(&db).map_err(|e| e.message)?;
     let service = rvw_core::Service::new(Box::new(store));
+
+    let workspace = launch_workspace(args.workspace, &service)?;
 
     let seen = Seen::load(&db);
     let snapshot = data::load(
@@ -93,6 +87,23 @@ fn run() -> Result<(), String> {
     };
     show_window(snapshot, service, identity, seen);
     Ok(())
+}
+
+/// The workspace to open. `--workspace` is exact. Otherwise the working
+/// directory is it, as from a shell; a desktop launcher starts in $HOME, which
+/// is none, so that falls back to the queue with the most work.
+fn launch_workspace(flag: Option<PathBuf>, service: &rvw_core::Service) -> Result<String, String> {
+    if let Some(dir) = flag {
+        return resolve_workspace(&dir);
+    }
+    let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
+    resolve_workspace(&cwd).or_else(|not_found| data::busiest_workspace(service).ok_or(not_found))
+}
+
+fn resolve_workspace(dir: &std::path::Path) -> Result<String, String> {
+    Ok(rvw_git::workspace::resolve(dir)?
+        .to_string_lossy()
+        .into_owned())
 }
 
 fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
@@ -137,6 +148,9 @@ fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identit
                 // controls (window_chrome.rs); macOS keeps its native bar.
                 window_decorations: Some(WindowDecorations::Client),
                 window_min_size: Some(size(px(900.), px(600.))),
+                // Matches `StartupWMClass` and the icon name in
+                // packaging/linux/rvw.desktop, so the shell finds the icon.
+                app_id: Some("rvw".into()),
                 ..WindowOptions::default()
             };
             let opened = cx.open_window(options, move |_window, cx| {
