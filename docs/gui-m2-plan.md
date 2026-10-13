@@ -38,7 +38,9 @@ the agent's edits land live.
   the current state first, then puts back the branch (moving it back over
   newer commits, which the user chose), the index and the files. Refs and
   stashes an action deletes are kept in the checkpoint before it and
-  recreated when missing. Checkpoints outlive the session.
+  recreated when missing. Ignored files are not saved, except one a restore
+  would overwrite: the safety checkpoint keeps it and the confirmation names
+  it. Checkpoints outlive the session.
 - **Amend** is offered only when HEAD is on no remote branch: amending a pushed
   commit would need a force push, and v1 has none.
 - **Commit** always reads the message from stdin (`commit -F -`), so no editor
@@ -121,3 +123,8 @@ Open, in priority order for the first person who runs it:
 5. A palette action run from another screen reports on the Changes screen
    only.
 6. Refs of a removed linked worktree's checkpoints are never cleaned up.
+7. The live refresh re-reads git on the UI thread after each change; with an
+   agent editing nonstop that may stall the window for tens of milliseconds.
+   Move those reads to the background executor.
+8. A checkpoint costs about 45 ms (unchanged) to 65 ms (new), measured with
+   200 checkpoints in a debug build; most of it is starting git processes.

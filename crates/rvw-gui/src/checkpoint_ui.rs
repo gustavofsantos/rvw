@@ -449,6 +449,14 @@ fn preview_body(preview: &Preview) -> Div {
                 .child(format!("Brought back: {}", preview.recreated.join(", "))),
         );
     }
+    // Orange: an ignored file is not in any other checkpoint, so the user
+    // must see that this one replaces it.
+    if !preview.overwritten_ignored.is_empty() {
+        body = body.child(div().text_color(theme::needs_you()).child(format!(
+            "Ignored files it replaces (kept in the checkpoint saved first): {}",
+            preview.overwritten_ignored.join(", ")
+        )));
+    }
     body
 }
 

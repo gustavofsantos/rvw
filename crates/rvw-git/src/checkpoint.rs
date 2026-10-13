@@ -1,6 +1,8 @@
 //! Checkpoints: the whole state of a worktree (its branch and commit, the index,
 //! and every file that is not ignored) saved as git objects and put back exactly.
-//! Restoring first saves the current state, so a restore can be reversed too.
+//! Restoring first saves the current state, so a restore can be reversed too. Ignored
+//! files are not saved and not touched, except ones a restore overwrites: the safety
+//! checkpoint keeps those.
 //!
 //! Checkpoint refs live in the common namespace, `refs/rvw/checkpoints/`: under `main/`
 //! for the main worktree and `linked/<id>/` for a linked worktree, so each worktree
@@ -12,6 +14,7 @@
 //! deletes them with `git update-ref -d`. There is no orphan cleanup, and `prune` only
 //! runs in a worktree that still exists.
 
+use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -41,6 +44,39 @@ const IN_PROGRESS: [&str; 5] = [
     "rebase-merge",
     "rebase-apply",
 ];
+
+/// The directories of one worktree: its top, its own git directory (`.git/worktrees/<id>` for
+/// a linked worktree, where the index and the merge state live), and the common git directory
+/// that holds the objects and the refs. One git process answers for all three.
+struct Dirs {
+    top: PathBuf,
+    git: PathBuf,
+    common: PathBuf,
+}
+
+impl Dirs {
+    fn of(dir: &Path) -> Result<Self, GitError> {
+        let args = [
+            "rev-parse",
+            "--absolute-git-dir",
+            "--git-common-dir",
+            "--show-toplevel",
+        ];
+        let out = run(dir, &[], &args)?;
+        let mut lines = out.lines();
+        match (lines.next(), lines.next(), lines.next()) {
+            (Some(git), Some(common), Some(top)) => Ok(Self {
+                top: PathBuf::from(top),
+                git: PathBuf::from(git),
+                common: dir.join(common),
+            }),
+            _ => Err(GitError {
+                args: owned_args(&args),
+                stderr: format!("unexpected output: {out}"),
+            }),
+        }
+    }
+}
 
 /// Something the action after a checkpoint deletes, kept so restore can recreate it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,16 +118,32 @@ pub struct Preview {
     pub commits_left_out: usize,
     /// Kept refs and stashes that are missing now and will be recreated.
     pub recreated: Vec<String>,
+    /// Ignored files the restore overwrites; their current content is kept in the safety
+    /// checkpoint.
+    pub overwritten_ignored: Vec<String>,
 }
 
 /// Saves the current state as a checkpoint labelled `label`, keeping `kept`. When nothing
 /// differs from the newest checkpoint (same branch, head, both trees, and `kept` is empty),
 /// returns that one and writes nothing.
 pub fn create(dir: &Path, label: &str, kept: &[Kept]) -> Result<Checkpoint, GitError> {
-    refuse_in_progress(dir, "write-tree")?;
-    let (prefix, refs) = own_refs(dir)?;
-    let worktree_tree = working_tree(dir)?;
-    let index_tree = staged_tree(dir)?;
+    let dirs = Dirs::of(dir)?;
+    create_with(dir, &dirs, label, kept, &[])
+}
+
+/// `create`, also forcing the ignored `forced` paths into the worktree tree. Restore uses it
+/// so the safety checkpoint keeps the ignored files that the restore overwrites.
+fn create_with(
+    dir: &Path,
+    dirs: &Dirs,
+    label: &str,
+    kept: &[Kept],
+    forced: &[String],
+) -> Result<Checkpoint, GitError> {
+    refuse_in_progress(dirs, "write-tree")?;
+    let (prefix, refs) = own_refs(dir, dirs)?;
+    let worktree_tree = working_tree(dirs, forced)?;
+    let index_tree = staged_tree(dirs)?;
     let branch = current_branch(dir)?;
     let head = gitx::commit(dir, "HEAD");
 
@@ -180,15 +232,52 @@ pub fn create(dir: &Path, label: &str, kept: &[Kept]) -> Result<Checkpoint, GitE
 
 /// The worktree's checkpoints, newest first.
 pub fn list(dir: &Path) -> Result<Vec<Checkpoint>, GitError> {
-    let (_, refs) = own_refs(dir)?;
-    refs.iter().map(|(_, id)| read(dir, id)).collect()
+    let dirs = Dirs::of(dir)?;
+    let (_, refs) = own_refs(dir, &dirs)?;
+    let ids: Vec<&str> = refs.iter().map(|(_, id)| id.as_str()).collect();
+    read_all(dir, &ids)
+}
+
+/// Reads many checkpoints with one git process, in the order given: the list
+/// holds up to the pruning cap, and it is read on the UI thread.
+fn read_all(dir: &Path, ids: &[&str]) -> Result<Vec<Checkpoint>, GitError> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut args = vec![
+        "log",
+        "--no-walk=unsorted",
+        "--format=%H%x00%T%x00%ct%x00%B%x1e",
+    ];
+    args.extend_from_slice(ids);
+    let out = run(dir, &[], &args)?;
+    out.split('\x1e')
+        .map(|record| record.trim_start_matches('\n'))
+        .filter(|record| !record.is_empty())
+        .map(|record| {
+            let mut fields = record.splitn(4, '\0');
+            let (id, tree, at, body) = (
+                fields.next().unwrap_or_default(),
+                fields.next().unwrap_or_default(),
+                fields.next().unwrap_or_default(),
+                fields.next().unwrap_or_default(),
+            );
+            // The same shape `cat-file commit` gives, so one parser reads both.
+            let text = format!("tree {tree}\ncommitter rvw <rvw@localhost> {at} +0000\n\n{body}");
+            parse(id, &text).ok_or_else(|| GitError {
+                args: owned_args(&args),
+                stderr: format!("not a checkpoint: {id}"),
+            })
+        })
+        .collect()
 }
 
 /// What `restore` would change.
 pub fn preview(dir: &Path, checkpoint: &Checkpoint) -> Result<Preview, GitError> {
-    refuse_in_progress(dir, "write-tree")?;
-    let now_tree = working_tree(dir)?;
-    let index_now = staged_tree(dir)?;
+    let dirs = Dirs::of(dir)?;
+    refuse_in_progress(&dirs, "write-tree")?;
+    let now_tree = working_tree(&dirs, &[])?;
+    let index_now = staged_tree(&dirs)?;
     let files = name_status(dir, &now_tree, &checkpoint.worktree_tree)?;
     let recreated = missing(dir, &checkpoint.kept)?
         .into_iter()
@@ -204,14 +293,16 @@ pub fn preview(dir: &Path, checkpoint: &Checkpoint) -> Result<Preview, GitError>
         branch_then: checkpoint.branch.clone(),
         commits_left_out: commits_left_out(dir, checkpoint)?,
         recreated,
+        overwritten_ignored: overwritten(&dirs, checkpoint)?,
     })
 }
 
 /// Puts the worktree back exactly as `checkpoint` saved it, after saving the current state
 /// as "Before restoring “<label>”". Returns that safety checkpoint.
 pub fn restore(dir: &Path, checkpoint: &Checkpoint) -> Result<Checkpoint, GitError> {
-    refuse_in_progress(dir, "read-tree")?;
-    if git_path(dir, "index.lock")?.exists() {
+    let dirs = Dirs::of(dir)?;
+    refuse_in_progress(&dirs, "read-tree")?;
+    if dirs.git.join("index.lock").exists() {
         return Err(GitError {
             args: owned_args(&["read-tree"]),
             stderr: "git is busy in this repository; try again".to_owned(),
@@ -232,8 +323,10 @@ pub fn restore(dir: &Path, checkpoint: &Checkpoint) -> Result<Checkpoint, GitErr
         }
     }
 
+    // The ignored files the restore overwrites go into the safety checkpoint first.
+    let forced = overwritten(&dirs, checkpoint)?;
     let label = format!("Before restoring “{}”", checkpoint.label);
-    let safety = create(dir, &label, &[])?;
+    let safety = create_with(dir, &dirs, &label, &[], &forced)?;
     restore_head(dir, checkpoint)?;
     run(dir, &[], &["add", "-A"])?;
     run(
@@ -256,7 +349,8 @@ pub fn restore(dir: &Path, checkpoint: &Checkpoint) -> Result<Checkpoint, GitErr
 
 /// Deletes all but the newest `keep` checkpoints of this worktree.
 pub fn prune(dir: &Path, keep: usize) -> Result<(), GitError> {
-    let (_, refs) = own_refs(dir)?;
+    let dirs = Dirs::of(dir)?;
+    let (_, refs) = own_refs(dir, &dirs)?;
     for (name, _) in refs.into_iter().skip(keep) {
         run(dir, &[], &["update-ref", "-d", &name])?;
     }
@@ -264,8 +358,8 @@ pub fn prune(dir: &Path, keep: usize) -> Result<(), GitError> {
 }
 
 /// This worktree's ref prefix, and its checkpoint refs as (ref name, commit id), newest first.
-fn own_refs(dir: &Path) -> Result<(String, Vec<(String, String)>), GitError> {
-    let prefix = refs_prefix(dir)?;
+fn own_refs(dir: &Path, dirs: &Dirs) -> Result<(String, Vec<(String, String)>), GitError> {
+    let prefix = refs_prefix(dirs)?;
     let template = "--format=%(refname)%00%(objectname)";
     let args = ["for-each-ref", "--sort=-refname", template, prefix.as_str()];
     let out = run(dir, &[], &args)?;
@@ -281,20 +375,17 @@ fn own_refs(dir: &Path) -> Result<(String, Vec<(String, String)>), GitError> {
 
 /// The ref prefix of the worktree at `dir`: `main/` for the main worktree, and
 /// `linked/<id>/` for a linked one, where `<id>` is its name under `.git/worktrees/`.
-fn refs_prefix(dir: &Path) -> Result<String, GitError> {
-    let git_dir = run(dir, &[], &["rev-parse", "--absolute-git-dir"])?;
-    let common = run(dir, &[], &["rev-parse", "--git-common-dir"])?;
-    let git_dir = PathBuf::from(git_dir.trim_end_matches('\n'));
-    let common = dir.join(common.trim_end_matches('\n'));
-    if canonical(&git_dir)? == canonical(&common)? {
+fn refs_prefix(dirs: &Dirs) -> Result<String, GitError> {
+    if canonical(&dirs.git)? == canonical(&dirs.common)? {
         return Ok(format!("{ROOT}main/"));
     }
-    let id = git_dir
+    let id = dirs
+        .git
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| GitError {
             args: owned_args(&["rev-parse", "--absolute-git-dir"]),
-            stderr: format!("worktree name is not UTF-8: {}", git_dir.display()),
+            stderr: format!("worktree name is not UTF-8: {}", dirs.git.display()),
         })?;
     Ok(format!("{ROOT}linked/{id}/"))
 }
@@ -395,23 +486,23 @@ fn now_nanos() -> u64 {
         .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
 }
 
-/// The tree of the worktree as `git add -A` would stage it.
-fn working_tree(dir: &Path) -> Result<String, GitError> {
-    scratch_tree(dir, true)
+/// The tree of the worktree as `git add -A` would stage it, plus the ignored `forced` paths.
+fn working_tree(dirs: &Dirs, forced: &[String]) -> Result<String, GitError> {
+    scratch_tree(dirs, true, forced)
 }
 
-/// The tree of the real index. `write-tree` would rewrite the index file's
-/// cache tree, so this reads a copy instead and the real index is never written.
-fn staged_tree(dir: &Path) -> Result<String, GitError> {
-    scratch_tree(dir, false)
+/// The tree of the real index. `write-tree` would rewrite the index file's cache tree, so
+/// this reads a copy instead and the real index is never written.
+fn staged_tree(dirs: &Dirs) -> Result<String, GitError> {
+    scratch_tree(dirs, false, &[])
 }
 
-/// Writes a tree from a temporary copy of the real index, staging every
-/// non-ignored file first when `stage_all`. The copy is deleted afterwards.
-fn scratch_tree(dir: &Path, stage_all: bool) -> Result<String, GitError> {
-    let real = git_path(dir, "index")?;
-    let temp = git_path(dir, "rvw-checkpoint.index")?;
-    let result = write_scratch(dir, &real, &temp, stage_all);
+/// Writes a tree from a temporary copy of the real index, staging every non-ignored file
+/// first when `stage_all`. The copy is deleted afterwards.
+fn scratch_tree(dirs: &Dirs, stage_all: bool, forced: &[String]) -> Result<String, GitError> {
+    let real = dirs.git.join("index");
+    let temp = dirs.git.join("rvw-checkpoint.index");
+    let result = write_scratch(&dirs.top, &real, &temp, stage_all, forced);
     let cleanup = remove_if_exists(&temp).map_err(|e| io_error(&["write-tree"], &e));
     let tree = result?;
     cleanup?;
@@ -423,6 +514,7 @@ fn write_scratch(
     real: &Path,
     temp: &Path,
     stage_all: bool,
+    forced: &[String],
 ) -> Result<String, GitError> {
     // A stale file from an interrupted run must not be the starting point.
     remove_if_exists(temp).map_err(|e| io_error(&["write-tree"], &e))?;
@@ -436,6 +528,22 @@ fn write_scratch(
     let env = [("GIT_INDEX_FILE", temp)];
     if stage_all {
         run_env(dir, &[], &["add", "-A"], &env)?;
+        if !forced.is_empty() {
+            // Literal paths, NUL-separated on stdin, so no name is read as a pattern.
+            let mut stdin = Vec::new();
+            for path in forced {
+                stdin.extend_from_slice(path.as_bytes());
+                stdin.push(0);
+            }
+            let args = [
+                "--literal-pathspecs",
+                "add",
+                "-f",
+                "--pathspec-from-file=-",
+                "--pathspec-file-nul",
+            ];
+            run_env(dir, &stdin, &args, &env)?;
+        }
     }
     Ok(run_env(dir, &[], &["write-tree"], &env)?.trim().to_owned())
 }
@@ -454,18 +562,10 @@ fn io_error(args: &[&str], e: &io::Error) -> GitError {
     }
 }
 
-/// An absolute path inside the git directory of the worktree at `dir`, such as
-/// its index. Absolute, so it is valid as a `GIT_INDEX_FILE` for git run in `dir`.
-fn git_path(dir: &Path, name: &str) -> Result<PathBuf, GitError> {
-    let out = run(dir, &[], &["rev-parse", "--git-path", name])?;
-    let path = dir.join(out.trim_end_matches('\n'));
-    std::path::absolute(path).map_err(|e| io_error(&["rev-parse", "--git-path"], &e))
-}
-
 /// Refuses while a merge, cherry-pick, revert or rebase is half done.
-fn refuse_in_progress(dir: &Path, op: &str) -> Result<(), GitError> {
+fn refuse_in_progress(dirs: &Dirs, op: &str) -> Result<(), GitError> {
     for name in IN_PROGRESS {
-        if git_path(dir, name)?.exists() {
+        if dirs.git.join(name).exists() {
             return Err(GitError {
                 args: owned_args(&[op]),
                 stderr: "finish or abort the merge or rebase first".to_owned(),
@@ -473,6 +573,69 @@ fn refuse_in_progress(dir: &Path, op: &str) -> Result<(), GitError> {
         }
     }
     Ok(())
+}
+
+/// Ignored files that restoring `checkpoint` would overwrite: the checkpoint has a file at
+/// the same path, a directory of its files there, or a file above it. Git lists them from
+/// the worktree root, and only the ignored ones can be missing from the safety checkpoint.
+fn overwritten(dirs: &Dirs, checkpoint: &Checkpoint) -> Result<Vec<String>, GitError> {
+    let listed = run(
+        &dirs.top,
+        &[],
+        &[
+            "ls-files",
+            "-z",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+        ],
+    )?;
+    let ignored: Vec<&str> = listed.split('\0').filter(|p| !p.is_empty()).collect();
+    if ignored.is_empty() {
+        return Ok(Vec::new());
+    }
+    let tree = run(
+        &dirs.top,
+        &[],
+        &[
+            "ls-tree",
+            "-r",
+            "-z",
+            "--name-only",
+            &checkpoint.worktree_tree,
+        ],
+    )?;
+    let mut files: HashSet<&str> = HashSet::new();
+    let mut parents: HashSet<&str> = HashSet::new();
+    for path in tree.split('\0').filter(|p| !p.is_empty()) {
+        files.insert(path);
+        let mut rest = path;
+        while let Some((parent, _)) = rest.rsplit_once('/') {
+            parents.insert(parent);
+            rest = parent;
+        }
+    }
+    Ok(ignored
+        .into_iter()
+        .filter(|path| in_the_way(path, &files, &parents))
+        .map(str::to_owned)
+        .collect())
+}
+
+/// Whether the ignored file `path` is a file of the checkpoint, a directory of one, or lies
+/// under one of its files.
+fn in_the_way(path: &str, files: &HashSet<&str>, parents: &HashSet<&str>) -> bool {
+    if files.contains(path) || parents.contains(path) {
+        return true;
+    }
+    let mut rest = path;
+    while let Some((parent, _)) = rest.rsplit_once('/') {
+        if files.contains(parent) {
+            return true;
+        }
+        rest = parent;
+    }
+    false
 }
 
 /// The branch HEAD is on, None when detached.
@@ -1242,5 +1405,88 @@ mod tests {
         assert_eq!(labels(r.path()), vec!["three", "two"]);
         prune(r.path(), 0).unwrap();
         assert!(list(r.path()).unwrap().is_empty());
+    }
+
+    /// A measurement, not a check: run with `--ignored --nocapture`.
+    #[test]
+    #[ignore = "timing measurement"]
+    fn timing_with_two_hundred_checkpoints() {
+        let r = committed();
+        for n in 0..200 {
+            write(r.path(), "a.txt", &format!("{n}\n"));
+            create(r.path(), &format!("cp {n}"), &[]).unwrap();
+        }
+        let t = std::time::Instant::now();
+        assert_eq!(list(r.path()).unwrap().len(), 200);
+        eprintln!("list of 200: {:?}", t.elapsed());
+        let t = std::time::Instant::now();
+        create(r.path(), "same", &[]).unwrap();
+        eprintln!("create, deduped: {:?}", t.elapsed());
+        write(r.path(), "a.txt", "new\n");
+        let t = std::time::Instant::now();
+        create(r.path(), "new", &[]).unwrap();
+        eprintln!("create, new: {:?}", t.elapsed());
+    }
+
+    #[test]
+    fn restore_keeps_an_ignored_file_it_overwrites_in_the_safety_checkpoint() {
+        let r = committed();
+        write(r.path(), "x.txt", "old\n");
+        let cp = create(r.path(), "with x untracked", &[]).unwrap();
+        write(r.path(), ".gitignore", "x.txt\n");
+        write(r.path(), "x.txt", "precious\n");
+
+        let before = preview(r.path(), &cp).unwrap();
+        assert_eq!(before.overwritten_ignored, vec!["x.txt".to_owned()]);
+
+        let safety = restore(r.path(), &cp).unwrap();
+        assert_eq!(fs::read_to_string(r.path().join("x.txt")).unwrap(), "old\n");
+        restore(r.path(), &safety).unwrap();
+        assert_eq!(
+            fs::read_to_string(r.path().join("x.txt")).unwrap(),
+            "precious\n"
+        );
+    }
+
+    #[test]
+    fn an_ignored_file_outside_the_checkpoint_is_untouched_and_not_listed() {
+        let r = repo();
+        write(r.path(), ".gitignore", "target/\n");
+        write(r.path(), "a.txt", "a\n");
+        commit_all(r.path(), "init");
+        let cp = create(r.path(), "before", &[]).unwrap();
+        write(r.path(), "target/out.bin", "bin\n");
+        write(r.path(), "a.txt", "changed\n");
+
+        let p = preview(r.path(), &cp).unwrap();
+        assert!(p.overwritten_ignored.is_empty(), "{p:?}");
+        restore(r.path(), &cp).unwrap();
+        assert_eq!(
+            fs::read_to_string(r.path().join("target/out.bin")).unwrap(),
+            "bin\n"
+        );
+    }
+
+    #[test]
+    fn an_ignored_file_in_the_way_of_a_checkpoint_directory_is_kept() {
+        let r = repo();
+        write(r.path(), ".gitignore", "build/\n");
+        write(r.path(), "a.txt", "a\n");
+        commit_all(r.path(), "init");
+        write(r.path(), "build", "file\n");
+        let cp = create(r.path(), "build is a file", &[]).unwrap();
+        fs::remove_file(r.path().join("build")).unwrap();
+        write(r.path(), "build/precious.txt", "precious\n");
+
+        let safety = restore(r.path(), &cp).unwrap();
+        assert_eq!(
+            fs::read_to_string(r.path().join("build")).unwrap(),
+            "file\n"
+        );
+        restore(r.path(), &safety).unwrap();
+        assert_eq!(
+            fs::read_to_string(r.path().join("build/precious.txt")).unwrap(),
+            "precious\n"
+        );
     }
 }
