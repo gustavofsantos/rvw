@@ -49,7 +49,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: bats-core/bats-action@4.0.0
-      - run: sudo apt-get update && sudo apt-get install -y sqlite3
+      # sqlite3: test/rvw.bats. The lib*-dev packages: rvw-gui's tests link
+      # against them (gpui); the same list as scripts/setup-dev.sh.
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y sqlite3 libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libfontconfig-dev
       - run: |
           git config --global user.name ci
           git config --global user.email ci@localhost
