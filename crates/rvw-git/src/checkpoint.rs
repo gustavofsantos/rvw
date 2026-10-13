@@ -519,7 +519,7 @@ fn write_scratch(
     // A stale file from an interrupted run must not be the starting point.
     remove_if_exists(temp).map_err(|e| io_error(&["write-tree"], &e))?;
     if real.exists() {
-        fs::copy(real, temp).map_err(|e| io_error(&["write-tree"], &e))?;
+        copy_index(real, temp).map_err(|e| io_error(&["write-tree"], &e))?;
     }
     let temp = temp.to_str().ok_or_else(|| GitError {
         args: owned_args(&["write-tree"]),
@@ -546,6 +546,21 @@ fn write_scratch(
         }
     }
     Ok(run_env(dir, &[], &["write-tree"], &env)?.trim().to_owned())
+}
+
+/// Copies the index with its modification time. Git trusts a cached file
+/// size and time only when they are older than the index file; an entry
+/// written in the same tick as the index is re-read. A copy made later
+/// would look newer, so a file rewritten at the same size in that tick would
+/// be saved with its old content. The time is read first: should git rewrite
+/// the index meanwhile, the copy looks older, which only means more re-reads.
+fn copy_index(real: &Path, temp: &Path) -> io::Result<()> {
+    let modified = fs::metadata(real)?.modified()?;
+    fs::copy(real, temp)?;
+    fs::File::options()
+        .write(true)
+        .open(temp)?
+        .set_modified(modified)
 }
 
 fn remove_if_exists(path: &Path) -> io::Result<()> {
@@ -739,6 +754,7 @@ mod tests {
     use crate::testrepo::{commit_all, git, repo, write};
     use std::os::unix::fs::{symlink, PermissionsExt};
     use std::process::Command;
+    use std::time::{Duration, SystemTime};
     use tempfile::TempDir;
 
     /// A repository whose `a.txt` is committed as "a".
@@ -913,6 +929,41 @@ mod tests {
         restore(r.path(), &cp).unwrap();
         assert_eq!(fs::read_to_string(r.path().join("u.txt")).unwrap(), "u\n");
         assert_eq!(status(r.path()), "?? u.txt\n");
+    }
+
+    #[test]
+    fn a_same_size_edit_in_the_second_the_index_was_written_is_saved() {
+        // Git may compare file times to the second only, and then re-reads a
+        // file whose time is not older than the index. Set that state up a
+        // minute back: "one" staged, the index written, then "two" written,
+        // all within one second. Ctime cannot be set, so it is not trusted.
+        let r = committed();
+        git(r.path(), &["config", "core.trustctime", "false"]);
+        let file = r.path().join("a.txt");
+        let back = SystemTime::now() - Duration::from_secs(60);
+        let set = |path: &Path| {
+            fs::File::options()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_modified(back)
+                .unwrap();
+        };
+        write(r.path(), "a.txt", "one\n");
+        set(&file);
+        git(r.path(), &["add", "--", "a.txt"]);
+        set(&r.path().join(".git/index"));
+        write(r.path(), "a.txt", "two\n");
+        set(&file);
+
+        let cp = create(r.path(), "racy", &[]).unwrap();
+
+        let saved = git(
+            r.path(),
+            &["cat-file", "-p", &format!("{}:a.txt", cp.worktree_tree)],
+        );
+        assert_eq!(saved, "two\n");
+        assert_eq!(git(r.path(), &["diff", "--stat"]).lines().count(), 2);
     }
 
     #[test]
