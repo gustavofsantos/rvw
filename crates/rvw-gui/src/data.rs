@@ -51,6 +51,14 @@ impl Snapshot {
     pub fn view(&self, filter: &Filter) -> Queue {
         queue::build(&self.comments, &self.sheets, &self.acknowledged, filter)
     }
+
+    /// Counts comment `id` as seen, as a reload with it acknowledged would,
+    /// without reading the database or git again.
+    pub fn acknowledge(&mut self, id: &str) {
+        if self.acknowledged.insert(id.to_owned()) {
+            self.queue = self.view(&Filter::default());
+        }
+    }
 }
 
 /// Reads the queue for `workspace`, the branch, what a pull pinned to `lane`
@@ -402,6 +410,39 @@ pub(crate) mod tests {
             lane: "feat".into(),
         };
         (dir, service, identity)
+    }
+
+    #[test]
+    fn acknowledge_counts_a_done_comment_as_a_reload_would() {
+        let (_dir, service, identity) = workspace_with_store();
+        add_comment(&service, &identity, "app.py", (1, 1), "first").expect("add");
+        let pulled = service
+            .pull(PullInput {
+                workspace: identity.workspace.clone(),
+                ..PullInput::default()
+            })
+            .expect("pull");
+        let id = pulled.comments[0].id.clone();
+        service
+            .resolve(rvw_core::operations::ResolveInput {
+                workspace: identity.workspace.clone(),
+                id: id.clone(),
+                outcome: "done".into(),
+                note: "renamed".into(),
+                author: "agent".into(),
+            })
+            .expect("resolve");
+        let load_with = |acknowledged: HashSet<String>| {
+            load(&service, &identity.workspace, "", acknowledged, None).expect("load")
+        };
+
+        let mut snapshot = load_with(HashSet::new());
+        snapshot.acknowledge(&id);
+
+        let reloaded = load_with(HashSet::from([id]));
+        assert_ne!(snapshot.queue, load_with(HashSet::new()).queue);
+        assert_eq!(snapshot.queue, reloaded.queue);
+        assert_eq!(snapshot.acknowledged, reloaded.acknowledged);
     }
 
     #[test]

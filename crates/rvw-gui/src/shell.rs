@@ -51,6 +51,8 @@ pub struct Shell {
     pub(crate) seen: Seen,
     /// The comment open on the outcome screen, if any.
     pub(crate) outcome: Option<Outcome>,
+    /// The comment asked for last, while it is read; see `open_outcome`.
+    pub(crate) outcome_pending: Option<String>,
     /// `Queue` or `Diff` (the review screen), or the Files tab of it.
     pub(crate) screen: Screen,
     filter: Filter,
@@ -143,6 +145,7 @@ impl Shell {
             live_last: None,
             live_epoch: 0,
             outcome: None,
+            outcome_pending: None,
             screen,
             filter: Filter::default(),
             queue,
@@ -181,6 +184,7 @@ impl Shell {
             self.enter_changes(cx);
         }
         self.screen = screen;
+        self.outcome_pending = None;
         self.removal = None;
         cx.notify();
     }
@@ -247,6 +251,14 @@ impl Shell {
         });
         self.diff_generation = self.diff_generation.wrapping_add(1);
         Ok(())
+    }
+
+    /// Counts comment `id` as seen in the counters and the queue, without a
+    /// reload.
+    pub(crate) fn acknowledge(&mut self, id: &str) {
+        self.live_epoch = self.live_epoch.wrapping_add(1);
+        self.snapshot.acknowledge(id);
+        self.queue = self.snapshot.view(&self.filter);
     }
 
     /// Shows a snapshot read like `refresh` does, but keeps the open file's
