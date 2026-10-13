@@ -14,6 +14,7 @@ use rvw_view::selection::Pos;
 
 use crate::composer::Composer;
 use crate::data::{self, Identity, Snapshot};
+use crate::diff_list::drag::DragState;
 use crate::diff_list::DiffList;
 use crate::draft_edit::Removal;
 use crate::files_panel::{self, FileList};
@@ -62,6 +63,8 @@ pub struct Shell {
     /// Bumped whenever the open file or its snapshot is replaced, so the diff
     /// list knows its rows are stale.
     pub(crate) diff_generation: u64,
+    /// The press-drag selection in progress; see `diff_list::drag`.
+    pub(crate) drag: DragState,
     /// Syntax colour of the open file, tokenized in the background.
     pub(crate) highlights: Highlighter,
     /// The delete the right panel offers to undo, or why one failed.
@@ -111,6 +114,7 @@ impl Shell {
             tools: Tools::default(),
             diff_list: None,
             diff_generation: 0,
+            drag: DragState::default(),
             highlights: Highlighter::default(),
             removal: None,
             changes_scroll: UniformListScrollHandle::new(),

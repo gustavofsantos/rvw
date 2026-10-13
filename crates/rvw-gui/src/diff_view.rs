@@ -1,19 +1,19 @@
-//! The rows of the diff of the selected file. A line click selects, a Shift
-//! click extends. The file's comments sit under the diff line their range ends
+//! The rows of the diff of the selected file. A press on a line selects it and
+//! a drag extends the selection, as does a Shift press. The file's comments sit under the diff line their range ends
 //! on, and the composer sits under the last selected line. `diff_list` owns
 //! the list; this file draws one row.
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, AnyElement, App, ClickEvent, Div, FontWeight, MouseButton, MouseDownEvent, Pixels,
-    Rgba, Stateful, StyledText, WeakEntity, Window,
+    div, px, AnyElement, App, ClickEvent, CursorStyle, Div, FontWeight, MouseButton,
+    MouseDownEvent, MouseMoveEvent, Pixels, Rgba, Stateful, StyledText, WeakEntity, Window,
 };
 use rvw_core::types::{Comment, Status};
 use rvw_view::diff::{Line, LineKind};
 use rvw_view::diffrows::{DiffRow, TRUNCATED_NOTE};
 use rvw_view::highlight::Span;
 use rvw_view::queue::is_draft;
-use rvw_view::selection::Selection;
+use rvw_view::selection::{Pos, Selection};
 
 use crate::composer;
 use crate::diff_list::{ComposerSlot, Model};
@@ -90,20 +90,13 @@ pub fn row(
                 return div().into_any_element();
             };
             let selected = selection.contains(&model.diff, pos);
-            let shell = shell.clone();
-            let on_down = move |event: &MouseDownEvent, _: &mut Window, cx: &mut App| {
-                let shift = event.modifiers.shift;
-                shell
-                    .update(cx, |this, cx| this.select_line(pos, shift, cx))
-                    .ok();
-            };
             let spans = model.spans.borrow().clone();
             let spans = spans
                 .as_deref()
                 .and_then(|file| file.get(pos.hunk))
                 .and_then(|hunk| hunk.get(pos.line))
                 .map_or(&[][..], Vec::as_slice);
-            line_view(line, spans, selected, on_down).into_any_element()
+            line_view(line, spans, selected, pos, shell).into_any_element()
         }
         DiffRow::Pair { left, right } => {
             crate::split_view::pair(model, left, right, selection, shell)
@@ -167,7 +160,8 @@ fn line_view(
     line: &Line,
     spans: &[Span],
     selected: bool,
-    on_down: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+    pos: Pos,
+    shell: &WeakEntity<Shell>,
 ) -> Div {
     let (tint, marker) = match line.kind {
         LineKind::Added => (Some(theme::added_tint()), Some(theme::done())),
@@ -179,6 +173,7 @@ fn line_view(
     } else {
         tint
     };
+    let (on_down, on_move) = line_handlers(pos, shell);
     div()
         .w_full()
         .flex()
@@ -188,7 +183,9 @@ fn line_view(
         .text_size(px(theme::CODE_FONT_SIZE))
         .text_color(theme::text())
         .when_some(background, gpui::Styled::bg)
+        .cursor(CursorStyle::IBeam)
         .on_mouse_down(MouseButton::Left, on_down)
+        .on_mouse_move(on_move)
         .child(
             div()
                 .w(px(46.))
@@ -214,6 +211,30 @@ fn line_view(
                 .overflow_hidden()
                 .child(code_text(&line.text, spans)),
         )
+}
+
+type DownHandler = Box<dyn Fn(&MouseDownEvent, &mut Window, &mut App)>;
+type MoveHandler = Box<dyn Fn(&MouseMoveEvent, &mut Window, &mut App)>;
+
+/// The press and move handlers of the line at `pos`: a press selects and
+/// starts a drag, a move over the line extends the drag to it.
+pub(crate) fn line_handlers(pos: Pos, shell: &WeakEntity<Shell>) -> (DownHandler, MoveHandler) {
+    let down_shell = shell.clone();
+    let move_shell = shell.clone();
+    (
+        Box::new(move |event, _, cx| {
+            let shift = event.modifiers.shift;
+            down_shell
+                .update(cx, |this, cx| this.press_line(pos, shift, cx))
+                .ok();
+        }),
+        Box::new(move |event, _, cx| {
+            let held = event.pressed_button == Some(MouseButton::Left);
+            move_shell
+                .update(cx, |this, cx| this.drag_over(pos, held, cx))
+                .ok();
+        }),
+    )
 }
 
 /// The text of a line with its syntax colours. A line with nothing to colour

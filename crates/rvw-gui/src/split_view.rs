@@ -5,14 +5,14 @@
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, AnyElement, App, ClickEvent, Context, Div, FontWeight, MouseButton, MouseDownEvent,
-    Stateful, WeakEntity, Window,
+    div, px, AnyElement, ClickEvent, Context, CursorStyle, Div, FontWeight, MouseButton, Stateful,
+    WeakEntity, Window,
 };
 use rvw_view::diff::LineKind;
 use rvw_view::selection::{Pos, Selection};
 
 use crate::diff_list::Model;
-use crate::diff_view::code_text;
+use crate::diff_view::{code_text, line_handlers};
 use crate::review_screen::LINE_HEIGHT;
 use crate::shell::Shell;
 use crate::theme;
@@ -121,13 +121,7 @@ fn cell(
         Side::Old => line.old_no,
         Side::New => line.new_no,
     };
-    let shell = shell.clone();
-    let on_down = move |event: &MouseDownEvent, _: &mut Window, cx: &mut App| {
-        let shift = event.modifiers.shift;
-        shell
-            .update(cx, |this, cx| this.select_line(pos, shift, cx))
-            .ok();
-    };
+    let (on_down, on_move) = line_handlers(pos, shell);
     let spans = model.spans.borrow().clone();
     let spans = spans
         .as_deref()
@@ -135,7 +129,9 @@ fn cell(
         .and_then(|hunk| hunk.get(pos.line))
         .map_or(&[][..], Vec::as_slice);
     base.when_some(background, gpui::Styled::bg)
+        .cursor(CursorStyle::IBeam)
         .on_mouse_down(MouseButton::Left, on_down)
+        .on_mouse_move(on_move)
         .child(
             div()
                 .w(px(46.))

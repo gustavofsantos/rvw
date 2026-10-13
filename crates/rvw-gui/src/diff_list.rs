@@ -6,11 +6,16 @@
 //! its comments, the composer's place or the composer's error change; the
 //! current selection is read from a shared cell by the visible rows.
 
+pub(crate) mod drag;
+
 use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use gpui::{list, px, Entity, EntityId, List, ListAlignment, ListState, WeakEntity, Window};
+use gpui::{
+    list, px, Bounds, Entity, EntityId, List, ListAlignment, ListState, Pixels, Point, WeakEntity,
+    Window,
+};
 use rvw_core::types::Comment;
 use rvw_view::diff::FileDiff;
 use rvw_view::diffrows::{self, DiffRow};
@@ -77,6 +82,64 @@ impl DiffList {
         list(self.state.clone(), move |index, _, _| {
             diff_view::row(&model, index, selection.get(), &shell)
         })
+    }
+
+    /// Where the list was last drawn, in window coordinates.
+    pub fn viewport(&self) -> Bounds<Pixels> {
+        self.state.viewport_bounds()
+    }
+
+    pub fn scroll_by(&self, distance: Pixels) {
+        self.state.scroll_by(distance);
+    }
+
+    /// The line row under `point`, or the nearest visible one when the
+    /// point is on a thread or beyond the list's ends; in a split row the
+    /// column the point is in. `None` when no line row is in view.
+    pub fn pos_near(&self, point: Point<Pixels>) -> Option<Pos> {
+        let view = self.state.viewport_bounds();
+        let mut before = None;
+        for (index, row) in self
+            .model
+            .rows
+            .iter()
+            .enumerate()
+            .skip(self.state.logical_scroll_top().item_ix)
+        {
+            let Some(bounds) = self.state.bounds_for_item(index) else {
+                break;
+            };
+            if bounds.bottom() <= view.top() {
+                continue;
+            }
+            if bounds.top() >= view.bottom() {
+                break;
+            }
+            let here = match *row {
+                DiffRow::Line { pos } => Some(pos),
+                DiffRow::Pair { left, right } if point.x < view.center().x => left.or(right),
+                DiffRow::Pair { left, right } => right.or(left),
+                _ => None,
+            };
+            if bounds.bottom() > point.y {
+                return here.or(before).or_else(|| self.next_line(index));
+            }
+            before = here.or(before);
+        }
+        before
+    }
+
+    /// The first line row after row `index` that is in the model.
+    fn next_line(&self, index: usize) -> Option<Pos> {
+        self.model
+            .rows
+            .iter()
+            .skip(index + 1)
+            .find_map(|row| match *row {
+                DiffRow::Line { pos } => Some(pos),
+                DiffRow::Pair { left, right } => right.or(left),
+                _ => None,
+            })
     }
 }
 

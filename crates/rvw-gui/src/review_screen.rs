@@ -8,8 +8,9 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use gpui::{
-    div, px, uniform_list, AnyElement, App, ClickEvent, Context, Div, FontWeight, Pixels,
-    SharedString, Stateful, UniformListScrollHandle, Window,
+    canvas, div, px, uniform_list, AnyElement, App, ClickEvent, Context, Div, FontWeight,
+    MouseButton, MouseMoveEvent, MouseUpEvent, Pixels, SharedString, Stateful,
+    UniformListScrollHandle, WeakEntity, Window,
 };
 use rvw_view::changes::ChangedFile;
 use rvw_view::diff::FileDiff;
@@ -388,12 +389,38 @@ fn diff_body(
         (Some(selected), None) => match (&selected.diff, diff_list) {
             (Ok(_), Some(list)) => body
                 .py(px(8.))
-                .child(list.element(cx.weak_entity()).size_full()),
+                .child(list.element(cx.weak_entity()).size_full())
+                .child(drag_listeners(cx.weak_entity())),
             (Ok(diff), None) if diff.binary => body.child(notice("Binary file, no diff shown")),
             (Ok(_), None) => body.child(notice("No line changes in this file.")),
             (Err(message), _) => body.child(notice(message)),
         },
     }
+}
+
+/// Window-level pointer listeners of a line drag. They sit beside the list
+/// so a drag keeps going when the pointer leaves the rows, and ends on a
+/// release anywhere in the window.
+fn drag_listeners(shell: WeakEntity<Shell>) -> impl IntoElement {
+    canvas(
+        |_, _, _| (),
+        move |_, (), window, _| {
+            let moves = shell.clone();
+            window.on_mouse_event(move |event: &MouseMoveEvent, _, _, cx| {
+                let held = event.pressed_button == Some(MouseButton::Left);
+                moves
+                    .update(cx, |this, _| this.drag_pointer(event.position, held))
+                    .ok();
+            });
+            window.on_mouse_event(move |event: &MouseUpEvent, _, _, cx| {
+                if event.button == MouseButton::Left {
+                    shell.update(cx, |this, _| this.end_drag()).ok();
+                }
+            });
+        },
+    )
+    .absolute()
+    .size_0()
 }
 
 pub fn notice(text: &str) -> Div {
