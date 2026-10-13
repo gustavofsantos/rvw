@@ -544,6 +544,73 @@ pub fn default_branch(dir: &Path) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// A local branch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BranchInfo {
+    pub name: String,
+    pub current: bool,
+    pub upstream: Option<String>,
+    /// The subject of the branch's tip commit.
+    pub subject: String,
+    /// The relative commit date from git, e.g. `3 days ago`.
+    pub when: String,
+}
+
+/// Parses one `for-each-ref` line; `None` when the line does not have the
+/// five NUL-separated fields.
+fn parse_branch(line: &str) -> Option<BranchInfo> {
+    let fields: Vec<&str> = line.split('\0').collect();
+    let [head, name, upstream, subject, when] = fields.as_slice() else {
+        return None;
+    };
+    Some(BranchInfo {
+        name: (*name).to_owned(),
+        current: *head == "*",
+        upstream: (!upstream.is_empty()).then(|| (*upstream).to_owned()),
+        subject: (*subject).to_owned(),
+        when: (*when).to_owned(),
+    })
+}
+
+/// Local branches, the current one first, then by most recent commit. A
+/// detached or unborn HEAD has no current entry.
+pub fn branches(dir: &Path) -> Result<Vec<BranchInfo>, GitError> {
+    // NUL cannot occur in a ref name or a subject, and a subject has no
+    // newline, so one line per branch and NUL between fields is unambiguous.
+    let out = run(
+        dir,
+        &[],
+        &[
+            "for-each-ref",
+            "--sort=-committerdate",
+            "--format=%(HEAD)%00%(refname:lstrip=2)%00%(upstream:short)%00%(contents:subject)%00%(committerdate:relative)",
+            "refs/heads",
+        ],
+    )?;
+    let mut list: Vec<BranchInfo> = out.lines().filter_map(parse_branch).collect();
+    // A stable sort keeps the recency order among the rest.
+    list.sort_by_key(|b| !b.current);
+    Ok(list)
+}
+
+/// Switches the working tree to the local branch `name`. Git's refusal (for
+/// example, local changes that would be overwritten) is returned as is.
+pub fn switch(dir: &Path, name: &str) -> Result<(), GitError> {
+    if name.is_empty() || name.starts_with('-') {
+        return Err(GitError {
+            args: owned_args(&["switch", name]),
+            stderr: format!("invalid branch name '{name}'"),
+        });
+    }
+    if !branches(dir)?.iter().any(|b| b.name == name) {
+        return Err(GitError {
+            args: owned_args(&["switch", name]),
+            stderr: format!("no local branch named '{name}'"),
+        });
+    }
+    run(dir, &[], &["switch", name]).map(|_| ())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -916,5 +983,109 @@ mod tests {
             ],
         );
         assert_eq!(default_branch(&clone).as_deref(), Some("origin/main"));
+    }
+
+    /// Commits everything with the given author and committer date.
+    fn commit_at(dir: &Path, msg: &str, date: &str) {
+        git(dir, &["add", "-A"]);
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["commit", "-q", "-m", msg])
+            .env("GIT_AUTHOR_DATE", date)
+            .env("GIT_COMMITTER_DATE", date)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "commit: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// A repository on main (2020), with `middle` (2022) and `newer` (2024)
+    /// branches, and main checked out.
+    fn three_branches() -> TempDir {
+        let r = repo();
+        write(r.path(), "a.txt", "a\n");
+        commit_at(r.path(), "init", "2020-01-01T00:00:00Z");
+        git(r.path(), &["switch", "-q", "-c", "middle"]);
+        write(r.path(), "a.txt", "middle\n");
+        commit_at(r.path(), "middle work", "2022-01-01T00:00:00Z");
+        git(r.path(), &["switch", "-q", "main"]);
+        git(r.path(), &["switch", "-q", "-c", "newer"]);
+        write(r.path(), "a.txt", "newer\n");
+        commit_at(r.path(), "tab\there, café ✓", "2024-01-01T00:00:00Z");
+        git(r.path(), &["switch", "-q", "main"]);
+        r
+    }
+
+    #[test]
+    fn branches_lists_current_first_then_newest() {
+        let r = three_branches();
+        let got = branches(r.path()).unwrap();
+        let names: Vec<&str> = got.iter().map(|b| b.name.as_str()).collect();
+        assert_eq!(names, vec!["main", "newer", "middle"]);
+        assert!(got[0].current);
+        assert!(!got[1].current && !got[2].current);
+        assert_eq!(got[0].upstream, None);
+        assert!(!got[0].when.is_empty());
+    }
+
+    #[test]
+    fn branches_keeps_subject_with_tab_and_non_ascii() {
+        let r = three_branches();
+        let got = branches(r.path()).unwrap();
+        let newer = got.iter().find(|b| b.name == "newer").unwrap();
+        assert_eq!(newer.subject, "tab\there, café ✓");
+        assert!(!newer.current);
+    }
+
+    #[test]
+    fn branches_on_detached_head_has_no_current() {
+        let r = three_branches();
+        git(r.path(), &["checkout", "-q", "--detach"]);
+        let got = branches(r.path()).unwrap();
+        assert_eq!(got.len(), 3);
+        assert!(got.iter().all(|b| !b.current));
+    }
+
+    #[test]
+    fn switch_changes_the_checked_out_branch() {
+        let r = three_branches();
+        switch(r.path(), "newer").unwrap();
+        assert_eq!(branch(r.path()), "newer");
+        assert!(branches(r.path()).unwrap()[0].current);
+    }
+
+    #[test]
+    fn switch_to_missing_branch_errors() {
+        let r = three_branches();
+        let err = switch(r.path(), "nope").unwrap_err();
+        assert!(err.stderr.contains("nope"));
+        assert_eq!(branch(r.path()), "main");
+    }
+
+    #[test]
+    fn switch_rejects_option_like_name_without_running_git() {
+        let r = three_branches();
+        let err = switch(r.path(), "--force").unwrap_err();
+        assert_eq!(err.args, vec!["switch", "--force"]);
+        assert!(switch(r.path(), "").is_err());
+        assert_eq!(branch(r.path()), "main");
+    }
+
+    #[test]
+    fn switch_refused_when_local_changes_would_be_overwritten() {
+        let r = three_branches();
+        // main's a.txt is "a"; newer's is "newer". Dirty it on main.
+        write(r.path(), "a.txt", "dirty\n");
+        let err = switch(r.path(), "newer").unwrap_err();
+        assert!(!err.stderr.is_empty());
+        assert_eq!(branch(r.path()), "main");
+        assert_eq!(
+            fs::read_to_string(r.path().join("a.txt")).unwrap(),
+            "dirty\n"
+        );
     }
 }
