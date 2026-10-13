@@ -15,6 +15,7 @@ make fmt                        # cargo fmt --all
 make audit                      # cargo audit
 make check                      # lint, audit, cargo test and bats
 make hooks                      # once per clone: pre-push runs make check
+bash scripts/setup-dev.sh       # toolchain, apt packages, cargo-audit; the web environment's setup script
 bash test/help-compare.sh       # --help of every command against test/reference/help
 bash test/mcp-compare.sh        # MCP tools/list against test/reference
 ```
