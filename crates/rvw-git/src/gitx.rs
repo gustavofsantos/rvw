@@ -43,14 +43,14 @@ pub struct Change {
 }
 
 /// Outcome of one git process that could be started.
-struct Ran {
-    stdout: String,
+pub(crate) struct Ran {
+    pub(crate) stdout: String,
     /// `None` when git was killed by a signal.
-    code: Option<i32>,
-    stderr: String,
+    pub(crate) code: Option<i32>,
+    pub(crate) stderr: String,
 }
 
-fn owned_args(args: &[&str]) -> Vec<String> {
+pub(crate) fn owned_args(args: &[&str]) -> Vec<String> {
     args.iter().map(|a| (*a).to_owned()).collect()
 }
 
@@ -88,7 +88,7 @@ pub fn os_error_text(e: &std::io::Error) -> String {
 /// Runs `git -C dir args...` with `stdin` piped in and closed. Only a failure
 /// to start git, or a cancellation, is an `Err`; a non-zero exit is reported
 /// through `Ran::code`.
-fn exec(dir: &Path, stdin: &[u8], args: &[&str]) -> Result<Ran, GitError> {
+pub(crate) fn exec(dir: &Path, stdin: &[u8], args: &[&str]) -> Result<Ran, GitError> {
     let fail = |stderr: String| GitError {
         args: owned_args(args),
         stderr,
@@ -96,7 +96,11 @@ fn exec(dir: &Path, stdin: &[u8], args: &[&str]) -> Result<Ran, GitError> {
     if cancelled() {
         return Err(fail("context canceled".to_owned()));
     }
+    // No credential prompt can open on a terminal nobody sees, and a status
+    // read never takes the index lock an agent's git command may need.
     let mut child = Command::new("git")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .arg("-C")
         .arg(dir)
         .args(args)
@@ -172,7 +176,7 @@ fn exec(dir: &Path, stdin: &[u8], args: &[&str]) -> Result<Ran, GitError> {
 
 /// Runs git and returns its stdout; any exit other than 0 is a `GitError`
 /// carrying git's trimmed stderr.
-fn run(dir: &Path, stdin: &[u8], args: &[&str]) -> Result<String, GitError> {
+pub(crate) fn run(dir: &Path, stdin: &[u8], args: &[&str]) -> Result<String, GitError> {
     let ran = exec(dir, stdin, args)?;
     if ran.code == Some(0) {
         Ok(ran.stdout)
