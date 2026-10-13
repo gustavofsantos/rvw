@@ -102,6 +102,18 @@ pub fn reset_soft(dir: &Path, rev: &str) -> Result<(), GitError> {
     run(dir, &[], &["reset", "-q", "--soft", rev]).map(|_| ())
 }
 
+/// Moves the current branch and the worktree to `rev`, keeping local changes.
+/// git refuses when a local change would be lost.
+pub fn reset_keep(dir: &Path, rev: &str) -> Result<(), GitError> {
+    if rev.starts_with('-') {
+        return Err(GitError {
+            args: owned_args(&["reset", "--keep", rev]),
+            stderr: format!("invalid revision '{rev}'"),
+        });
+    }
+    run(dir, &[], &["reset", "-q", "--keep", rev]).map(|_| ())
+}
+
 /// A file's worktree state saved before its changes were discarded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Discarded {
@@ -309,6 +321,37 @@ mod tests {
 
         let err = reset_soft(r.path(), "--hard").unwrap_err();
         assert_eq!(err.args, vec!["reset", "--soft", "--hard"]);
+        assert_eq!(head(r.path()), before);
+    }
+
+    #[test]
+    fn reset_keep_moves_back_one_commit_and_keeps_an_unrelated_local_change() {
+        let r = repo();
+        write(r.path(), "a.txt", "a\n");
+        commit_all(r.path(), "first");
+        let first = head(r.path()).unwrap();
+        write(r.path(), "b.txt", "b\n");
+        commit_all(r.path(), "second");
+        write(r.path(), "a.txt", "edited\n");
+
+        reset_keep(r.path(), &first).unwrap();
+        assert_eq!(head(r.path()), Some(first));
+        assert!(!r.path().join("b.txt").exists());
+        assert_eq!(
+            fs::read_to_string(r.path().join("a.txt")).unwrap(),
+            "edited\n"
+        );
+    }
+
+    #[test]
+    fn reset_keep_rejects_an_option_like_rev_and_moves_nothing() {
+        let r = repo();
+        write(r.path(), "a.txt", "a\n");
+        commit_all(r.path(), "first");
+        let before = head(r.path());
+
+        let err = reset_keep(r.path(), "--hard").unwrap_err();
+        assert_eq!(err.stderr, "invalid revision '--hard'");
         assert_eq!(head(r.path()), before);
     }
 
