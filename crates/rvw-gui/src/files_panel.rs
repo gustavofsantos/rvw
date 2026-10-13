@@ -226,10 +226,17 @@ impl Shell {
     pub fn step_file(&mut self, delta: i32, cx: &mut Context<Self>) {
         let rows = self.file_rows();
         let paths: Vec<&str> = rows.iter().map(|(_, path)| path.as_str()).collect();
+        // A read still running is the file last asked for, so keys pressed
+        // faster than files load step from it rather than repeat one target.
         let current = self
-            .selected
+            .file_pending
             .as_ref()
-            .map(|selected| selected.path.as_str());
+            .map(|request| request.path.as_str())
+            .or_else(|| {
+                self.selected
+                    .as_ref()
+                    .map(|selected| selected.path.as_str())
+            });
         let Some(index) = nav::file_step(&paths, current, delta) else {
             return;
         };

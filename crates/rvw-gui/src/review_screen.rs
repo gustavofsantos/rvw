@@ -47,17 +47,23 @@ pub struct Selected {
 }
 
 impl Selected {
-    /// Reads the diff of `path` against the snapshot's base.
-    pub fn load(snapshot: &Snapshot, path: &str) -> Self {
+    /// Reads the diff of `path` against the commit `base_id` in `workspace`.
+    /// Takes plain inputs, so it can run off the UI thread.
+    pub fn read(workspace: &str, base_id: &str, path: &str) -> Self {
         Self {
             path: path.to_owned(),
-            diff: data::load_diff(&snapshot.workspace, &snapshot.base_id, path).map(Arc::new),
+            diff: data::load_diff(workspace, base_id, path).map(Arc::new),
             selection: Selection::default(),
             outside: false,
             cut: false,
             mode: ViewMode::Diff,
             changed: true,
         }
+    }
+
+    /// Reads the diff of `path` against the snapshot's base.
+    pub fn load(snapshot: &Snapshot, path: &str) -> Self {
+        Self::read(&snapshot.workspace, &snapshot.base_id, path)
     }
 }
 

@@ -24,6 +24,7 @@ use crate::data::{self, Identity, Snapshot};
 use crate::diff_list::drag::DragState;
 use crate::diff_list::DiffList;
 use crate::draft_edit::Removal;
+use crate::file_view;
 use crate::files_panel::{self, FileList};
 use crate::finder::{self, Finder, OpenFinder};
 use crate::frame::{self, Panels};
@@ -61,6 +62,12 @@ pub struct Shell {
     queue: Queue,
     /// The file the review screen shows, if any.
     pub(crate) selected: Option<Selected>,
+    /// The file read asked for last, while it runs off the UI thread; see
+    /// `request_file`. The file on screen stays until it lands.
+    pub(crate) file_pending: Option<FileRequest>,
+    /// Numbers the file reads, so a read is told apart from a later one of
+    /// the same file and mode.
+    file_requests: u64,
     /// The open comment composer, if any.
     pub(crate) composer: Option<Composer>,
     /// The open submit dialog, if any.
@@ -156,6 +163,8 @@ impl Shell {
             filter: Filter::default(),
             queue,
             selected,
+            file_pending: None,
+            file_requests: 0,
             composer: None,
             submit: None,
             listing: None,
@@ -197,13 +206,86 @@ impl Shell {
         cx.notify();
     }
 
+    /// Shows the file at `path` in the mode it opens in. The read runs off the
+    /// UI thread, and the file on screen stays until it lands; see
+    /// `request_file`.
     pub fn select_file(&mut self, path: &str, cx: &mut Context<Self>) {
         let mode = self.mode_for(path);
-        self.selected = Some(self.load_selected(path, mode));
+        self.request_file(path, mode, false, cx);
+    }
+
+    /// Reads `path` in `mode` off the UI thread, then shows it with
+    /// `show_selected` when the read lands. Only the inputs the read needs are
+    /// copied, not the snapshot. `switched` marks a change of view for the
+    /// open file, which also remembers the mode.
+    pub(crate) fn request_file(
+        &mut self,
+        path: &str,
+        mode: ViewMode,
+        switched: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.file_requests = self.file_requests.wrapping_add(1);
+        let id = self.file_requests;
+        self.file_pending = Some(FileRequest {
+            id,
+            path: path.to_owned(),
+            mode,
+        });
+        let workspace = self.snapshot.workspace.clone();
+        let base_id = self.snapshot.base_id.clone();
+        let changed = self.snapshot.changes.iter().any(|file| file.path == path);
+        let read_path = path.to_owned();
+        cx.spawn(async move |this, cx| {
+            let selected = cx
+                .background_executor()
+                .spawn(async move {
+                    file_view::read_selected(&workspace, &base_id, changed, &read_path, mode)
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.show_selected(id, switched, selected, cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Shows what read `id` of `request_file` read, when it is still the
+    /// read asked for last. A change of view also remembers the mode and
+    /// starts the diff list at the top, since its rows differ by mode.
+    fn show_selected(
+        &mut self,
+        id: u64,
+        switched: bool,
+        selected: Selected,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(request) = self.file_pending.take_if(|request| request.id == id) else {
+            return;
+        };
+        if switched {
+            self.file_modes.insert(request.path, request.mode);
+            // Row indices differ between the modes, so the list starts at the top.
+            self.diff_list = None;
+        }
+        self.selected = Some(selected);
         self.diff_generation = self.diff_generation.wrapping_add(1);
         self.composer = None;
         self.removal = None;
         cx.notify();
+    }
+
+    /// The file on screen as its path and mode: the one asked for last while
+    /// its read runs, else the one shown.
+    pub(crate) fn shown_file(&self) -> Option<(String, ViewMode)> {
+        match self.file_pending.as_ref() {
+            Some(request) => Some((request.path.clone(), request.mode)),
+            None => self
+                .selected
+                .as_ref()
+                .map(|selected| (selected.path.clone(), selected.mode)),
+        }
     }
 
     /// A sideways wheel or swipe over the review's diff moves its code.
@@ -279,6 +361,8 @@ impl Shell {
             let mode = mode.unwrap_or_else(|| self.mode_for(&path));
             self.load_selected(&path, mode)
         });
+        // A read asked for before this reload must not replace the file it reloads.
+        self.file_pending = None;
         self.diff_generation = self.diff_generation.wrapping_add(1);
         Ok(())
     }
@@ -298,7 +382,9 @@ impl Shell {
     /// changed or its comments did, since its rows hold the comments. While a
     /// composer is open the file keeps its old diff, since the composer sits
     /// under the selection; the result is `false` then, and the file is
-    /// re-read once the composer closes.
+    /// re-read once the composer closes. A file read still pending is `false`
+    /// too: that read may have started before this disk change, so the next
+    /// tick reads again, against the file the reviewer asked for.
     pub(crate) fn apply_snapshot(&mut self, snapshot: Snapshot, fresh: Option<Selected>) -> bool {
         let queue = snapshot.view(&self.filter);
         let file_comments = |snapshot: &Snapshot, path: &str| {
@@ -316,7 +402,7 @@ impl Shell {
         self.snapshot = snapshot;
         self.queue = queue;
         let (Some(old), Some(before)) = (previous, before) else {
-            return true;
+            return self.file_pending.is_none();
         };
         let fresh = fresh.unwrap_or_else(|| self.load_selected(&old.path, old.mode));
         let moved = file_comments(&self.snapshot, &old.path) != before;
@@ -348,7 +434,7 @@ impl Shell {
         if !same_file || moved {
             self.diff_generation = self.diff_generation.wrapping_add(1);
         }
-        true
+        self.file_pending.is_none()
     }
 
     /// Re-reads the snapshot after a write. A failed re-read keeps the
@@ -629,4 +715,11 @@ impl Shell {
             _ => review_screen::left(&self.snapshot, &self.changes_scroll, cx),
         }
     }
+}
+
+/// A file read asked for: which file, in which view, and its number.
+pub(crate) struct FileRequest {
+    id: u64,
+    pub(crate) path: String,
+    pub(crate) mode: ViewMode,
 }

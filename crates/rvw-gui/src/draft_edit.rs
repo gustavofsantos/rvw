@@ -51,6 +51,9 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // The composer belongs to the file on screen, so a read still running
+        // for another file is dropped rather than replacing it under the text.
+        self.file_pending = None;
         let input = cx.new(|cx| {
             let mut area = TextArea::new("Write a comment", cx).with_lines(2, 8);
             if !text.is_empty() {
