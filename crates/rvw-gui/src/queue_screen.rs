@@ -299,14 +299,23 @@ fn row_view(row: &Row, by_id: &HashMap<&str, &Comment>, cx: &Context<Shell>) -> 
         State::Draft | State::NotYetTaken | State::Closed => theme::muted(),
     };
 
+    // Two lines, so the title has the row's width: the glyph, the title and
+    // the state on the first; the id and the location, faint, on the second.
+    // Five columns on one line left the title no room.
+    let meta = if row.location.is_empty() {
+        row.id.clone()
+    } else {
+        format!("{}  ·  {}", row.id, row.location)
+    };
     div()
         .id(SharedString::from(format!("queue-row-{}", row.id)))
         .flex()
-        .items_center()
+        .items_start()
         .gap(px(12.))
-        .h(px(42.))
+        .py(px(9.))
         .border_b_1()
         .border_color(theme::hairline())
+        .cursor_pointer()
         .on_click(on_click)
         .child(
             div()
@@ -318,33 +327,29 @@ fn row_view(row: &Row, by_id: &HashMap<&str, &Comment>, cx: &Context<Shell>) -> 
         )
         .child(
             div()
-                .w(px(30.))
-                .flex_none()
-                .font_family(theme::code_font())
-                .text_size(px(12.))
-                .text_color(theme::muted())
-                .child(row.id.clone()),
-        )
-        .child(
-            div()
+                .flex()
+                .flex_col()
+                .gap(px(2.))
                 .flex_1()
                 .min_w(px(0.))
-                .truncate()
-                .text_color(theme::ink())
-                .child(row.title.clone()),
+                .child(
+                    div()
+                        .truncate()
+                        .text_color(theme::ink())
+                        .child(row.title.clone()),
+                )
+                .child(
+                    div()
+                        .truncate()
+                        .font_family(theme::code_font())
+                        .text_size(px(12.))
+                        .text_color(theme::faint())
+                        .child(meta),
+                ),
         )
         .child(
             div()
                 .flex_none()
-                .font_family(theme::code_font())
-                .text_size(px(theme::CODE_FONT_SIZE))
-                .text_color(theme::muted())
-                .child(row.location.clone()),
-        )
-        .child(
-            div()
-                .flex_none()
-                .w(px(120.))
                 .text_color(label_colour)
                 .child(row.state.label()),
         )

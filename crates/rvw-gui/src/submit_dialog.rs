@@ -318,7 +318,7 @@ fn review_row(row: &Row) -> Div {
         )
         .child(
             div()
-                .w(px(40.))
+                .min_w(px(40.))
                 .flex_none()
                 .font_family(theme::code_font())
                 .text_size(px(12.))

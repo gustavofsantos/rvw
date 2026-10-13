@@ -317,7 +317,8 @@ fn workspace_row(
     cx: &Context<Shell>,
 ) -> Stateful<Div> {
     let name = tools::matched_text(&hit.name, &hit.matches)
-        .flex_none()
+        .min_w(px(0.))
+        .overflow_hidden()
         .font_family(theme::code_font())
         .text_size(px(theme::CODE_FONT_SIZE))
         .text_color(theme::text());
@@ -327,6 +328,7 @@ fn workspace_row(
         .gap(px(8.))
         .flex_1()
         .min_w(px(0.))
+        .overflow_hidden()
         .child(name);
     if item.current {
         label = label.child(

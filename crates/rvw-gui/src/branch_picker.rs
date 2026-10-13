@@ -219,8 +219,11 @@ fn branch_row(
     highlighted: bool,
     cx: &Context<Shell>,
 ) -> Stateful<Div> {
+    // The name and the upstream clip inside the label's column; never
+    // flex_none, or a long one is drawn over the subject beside it.
     let name = tools::matched_text(&hit.name, &hit.matches)
-        .flex_none()
+        .min_w(px(0.))
+        .overflow_hidden()
         .font_family(theme::code_font())
         .text_size(px(theme::CODE_FONT_SIZE))
         .text_color(theme::text());
@@ -230,6 +233,7 @@ fn branch_row(
         .gap(px(8.))
         .flex_1()
         .min_w(px(0.))
+        .overflow_hidden()
         .child(name);
     if info.current {
         label = label.child(
@@ -244,7 +248,8 @@ fn branch_row(
     if let Some(upstream) = info.upstream.as_deref() {
         label = label.child(
             div()
-                .flex_none()
+                .min_w(px(0.))
+                .truncate()
                 .font_family(theme::code_font())
                 .text_size(px(theme::KEY_FONT_SIZE))
                 .text_color(theme::faint())
