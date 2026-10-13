@@ -105,3 +105,43 @@ Slices 1 to 6 run in parallel, one Haiku agent each, on disjoint files.
 - Non-GUI crates compile on Rust 1.93.
 - Tests come first for git and view logic. The GUI layer is checked by
   compiling and by a manual run.
+
+## Status at the end of the session
+
+Slices 1 to 13 are done and the checks are green: clippy (`-D warnings`),
+`fmt --check`, `cargo test --workspace`, the doctests and `bats test/rvw.bats`.
+Nothing has been looked at in a window yet: GUI slices were checked by
+compiling, unit tests on their pure parts, and a run of the binary that stays
+up.
+
+| Done | Where |
+|---|---|
+| Log pages, commit detail and diffs, compare revisions | `rvw-git::history` |
+| Tree and file at a revision, file history, blame | `rvw-git::blame` |
+| Commit search, stoppable | `rvw-git::search` |
+| Worktrees, with their checkpoint refs removed | `rvw-git::worktree` |
+| Merge, cherry-pick, abort, finish | `rvw-git::merge` |
+| Reword, squash, drop | `rvw-git::rewrite` |
+| Graph lanes, history rows and labels | `rvw-view::{graph, history}` |
+| History screen, search, blame, browse a commit's files, compare | `rvw-gui::{history_state, history_screen, history_files}` |
+| Cherry-pick, merge, conflict panel on Changes | `rvw-gui::history_actions`, `changes_screen` |
+| Worktrees in ⌘O, new and remove | `rvw-gui::{workspace_picker, worktree_ui}` |
+| History edit card | `rvw-gui::rewrite_card` |
+| Terminal and diff tool | `rvw-gui::external_tools` |
+| Palette actions for all of it | `rvw-view::palette` |
+
+Open, in priority order for the first person who runs it:
+
+1. Look at the History screen, the blame, the compare panel, the conflict
+   panel and the history edit card: layout, focus, keys.
+2. Edit history on a real branch: reword with an agent editing, then drop a
+   commit; restore the checkpoint taken before.
+3. The History list does not refresh live when an agent commits; it re-reads
+   when the screen opens and after rvw's own actions.
+4. Merge, cherry-pick, worktree add and remove, and the commit-file list read
+   or write git on the UI thread.
+5. The review screen still compares only with its three bases; comparing two
+   revisions lives on the History screen.
+6. `make check` with `RUSTC` pointed at the rustup toolchain fails the rvw-cli
+   doctest (rustdoc 1.93 against crates built by 1.99). Run it without that
+   override, or clippy alone with it.

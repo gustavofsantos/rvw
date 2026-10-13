@@ -136,9 +136,8 @@ file and a line range.
 
 ## Not designed yet
 
-Empty and error states, the actions palette (⌘K), the narrow history edit
-(B14) and its confirmation, the checkpoint list as its own view, worktree
-switching, a dark variant (the same tokens map onto cursorized dark:
+Empty and error states, the actions palette (⌘K), the checkpoint list as
+its own view, a dark variant (the same tokens map onto cursorized dark:
 background `#1a1918`, ink `#d2cfc5`), and a compact layout for narrow windows.
 
 ## Decisions
@@ -168,3 +167,10 @@ background `#1a1918`, ink `#d2cfc5`), and a compact layout for narrow windows.
 - **The file finder lists nothing until you type** (2026-10-13). With an
   empty field it listed twelve files that did not fit or scroll, which
   helped no one. Asked for by the user.
+- **Worktrees are switched in the workspace picker** (2026-10-13). A
+  worktree is a workspace, so ⌘O lists the repository's other worktrees
+  first, marked "worktree · branch". Approved by the user.
+- **The history edit (B14) is a card like the restore confirmation**
+  (2026-10-13): each unpushed commit is kept, reworded, squashed into the one
+  below or dropped by key, then the before and after, then Apply after a
+  checkpoint. Approved by the user.
