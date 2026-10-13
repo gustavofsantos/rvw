@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use gpui::{AppContext, Context, Entity, Subscription, UniformListScrollHandle, Window};
-use rvw_git::history::{self, CommitDetail, LogEntry, LogQuery};
+use rvw_git::history::{self, CommitDetail, FileChange, LogEntry, LogQuery};
 use rvw_git::search::{self, Field};
 use rvw_git::{blame, GitError};
 use rvw_view::diff::{parse, FileDiff};
@@ -22,12 +22,16 @@ use crate::git_tools::last_line;
 use crate::shell::Shell;
 use crate::text_input::{TextInput, TextInputEvent};
 
-/// Lines of context in a commit's file diff.
-const CONTEXT: usize = 3;
+/// Lines of context in a file's diff.
+pub(crate) const CONTEXT: usize = 3;
 
 /// The width of the two line-number columns left of the code in the open
 /// file's diff; `history_screen` draws them this wide.
 pub const HISTORY_CODE_GUTTER: gpui::Pixels = gpui::px(114.);
+
+/// The width left of the code in the blame: the short id, author, age and
+/// line number with four 8px gaps, and the 6px before the code.
+pub const BLAME_CODE_GUTTER: gpui::Pixels = gpui::px(288.);
 
 /// Which commits the list shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +73,23 @@ pub struct OpenCommitFile {
     pub longest_line: usize,
 }
 
+/// The blame of one file on disk: a line per line of the file.
+pub struct BlameView {
+    pub path: String,
+    pub lines: Vec<blame::BlameLine>,
+    /// The columns of the longest line; a tab counts as four.
+    pub longest_line: usize,
+}
+
+/// A comparison of two revisions: the files that differ between them.
+pub struct CompareView {
+    /// The branch or tag chosen in the picker.
+    pub from: String,
+    /// The full id of the commit selected when the comparison started.
+    pub to: String,
+    pub files: Vec<FileChange>,
+}
+
 pub struct HistoryState {
     pub history: History,
     pub source: Source,
@@ -90,17 +111,31 @@ pub struct HistoryState {
     pub notice: Option<String>,
     pub list_scroll: UniformListScrollHandle,
     pub diff_scroll: UniformListScrollHandle,
-    /// How far the open file's code is moved left; see `code_scroll`.
+    /// How far the open file's code is moved left; see `code_scroll`. The
+    /// blame's code moves with it.
     pub code_scroll_x: gpui::Pixels,
+    /// The blame of the file on disk, drawn in the centre while it is Some.
+    pub blame: Option<Result<BlameView, String>>,
+    pub blame_scroll: UniformListScrollHandle,
+    /// The files that differ between the selected commit and a branch or tag,
+    /// drawn on the right while it is Some.
+    pub compare: Option<Result<CompareView, String>>,
     /// Numbers the list reads; a page read for an older number is dropped.
     list_request: u64,
     /// Stops the list read in flight when a new one replaces it.
     stop: Arc<AtomicBool>,
+    /// Numbers the blame reads; a read for an older number is dropped.
+    pub(crate) blame_request: u64,
+    /// Stops the blame read in flight when the blame is dropped.
+    pub(crate) blame_stop: Arc<AtomicBool>,
+    /// Numbers the comparisons; one for an older number is dropped.
+    pub(crate) compare_request: u64,
+    /// Numbers the opened files; a read for an older number is dropped.
+    pub(crate) open_request: u64,
     /// The commit to select once a restarted list's first page is read.
     keep: Option<String>,
     /// The commit whose details were asked for last.
     detail_request: Option<String>,
-    file_request: Option<(String, String)>,
     search_events: Option<Subscription>,
 }
 
@@ -120,13 +155,41 @@ impl Default for HistoryState {
             list_scroll: UniformListScrollHandle::new(),
             diff_scroll: UniformListScrollHandle::new(),
             code_scroll_x: gpui::Pixels::ZERO,
+            blame: None,
+            blame_scroll: UniformListScrollHandle::new(),
+            compare: None,
             list_request: 0,
             stop: Arc::new(AtomicBool::new(false)),
+            blame_request: 0,
+            blame_stop: Arc::new(AtomicBool::new(false)),
+            compare_request: 0,
+            open_request: 0,
             keep: None,
             detail_request: None,
-            file_request: None,
             search_events: None,
         }
+    }
+}
+
+impl HistoryState {
+    /// Drops the blame and stops its read in flight.
+    pub(crate) fn cancel_blame(&mut self) {
+        self.blame_stop.store(true, Ordering::Relaxed);
+        self.blame_stop = Arc::new(AtomicBool::new(false));
+        self.blame_request = self.blame_request.wrapping_add(1);
+        self.blame = None;
+    }
+
+    /// Drops the comparison and any read of one in flight.
+    pub(crate) fn cancel_compare(&mut self) {
+        self.compare_request = self.compare_request.wrapping_add(1);
+        self.compare = None;
+    }
+
+    /// Closes the open file, and any read of one in flight.
+    pub(crate) fn cancel_open(&mut self) {
+        self.open_request = self.open_request.wrapping_add(1);
+        self.open = None;
     }
 }
 
@@ -164,7 +227,7 @@ impl Shell {
     /// Shows the commits of `source` from the top.
     pub fn show_history_source(&mut self, source: Source, cx: &mut Context<Self>) {
         self.history.source = source;
-        self.history.open = None;
+        self.history.cancel_blame();
         self.restart_list(None, cx);
     }
 
@@ -245,7 +308,8 @@ impl Shell {
     /// Selects row `index` and reads its details.
     pub fn select_commit(&mut self, index: usize, cx: &mut Context<Self>) {
         self.history.history.select(index);
-        self.history.open = None;
+        self.history.cancel_open();
+        self.history.cancel_compare();
         self.history
             .list_scroll
             .scroll_to_item(index, gpui::ScrollStrategy::Center);
@@ -269,29 +333,37 @@ impl Shell {
         }
     }
 
-    /// Opens `path` of the selected commit in the centre.
-    pub fn open_commit_file(&mut self, path: &str, cx: &mut Context<Self>) {
-        let Some(commit) = self
-            .history
+    /// The id of the selected commit; None when no commit is listed.
+    pub(crate) fn selected_commit_id(&self) -> Option<String> {
+        self.history
             .history
             .selected_row()
             .map(|row| row.entry.id.clone())
-        else {
+    }
+
+    /// Opens `path` of the selected commit in the centre.
+    pub fn open_commit_file(&mut self, path: &str, cx: &mut Context<Self>) {
+        let Some(commit) = self.selected_commit_id() else {
             return;
         };
-        let key = (commit.clone(), path.to_owned());
-        self.history.file_request = Some(key.clone());
-        self.history.code_scroll_x = gpui::Pixels::ZERO;
         let dir = self.repo_path().to_path_buf();
         let path = path.to_owned();
+        self.spawn_open(move || read_commit_file(&dir, &commit, &path), cx);
+    }
+
+    /// Reads a file for the centre off the UI thread and opens it. A read
+    /// that a newer open or a selection change overtook is dropped.
+    pub(crate) fn spawn_open<F>(&mut self, read: F, cx: &mut Context<Self>)
+    where
+        F: FnOnce() -> Result<OpenCommitFile, String> + Send + 'static,
+    {
+        self.history.code_scroll_x = gpui::Pixels::ZERO;
+        self.history.open_request = self.history.open_request.wrapping_add(1);
+        let request = self.history.open_request;
         cx.spawn(async move |this, cx| {
-            let read = cx
-                .background_executor()
-                .spawn(async move { read_commit_file(&dir, &commit, &path) })
-                .await;
+            let read = cx.background_executor().spawn(async move { read() }).await;
             this.update(cx, |this, cx| {
-                if this.history.file_request.as_ref() == Some(&key) {
-                    this.history.file_request = None;
+                if this.history.open_request == request {
                     this.history.open = Some(read);
                     cx.notify();
                 }
@@ -301,37 +373,42 @@ impl Shell {
         .detach();
     }
 
-    /// Closes the open file and shows the list again.
+    /// Closes the open file and the blame, and shows the list again.
     pub fn close_commit_file(&mut self, cx: &mut Context<Self>) {
-        self.history.open = None;
-        self.history.file_request = None;
+        self.history.cancel_open();
+        self.history.cancel_blame();
         cx.notify();
     }
 
-    /// A sideways wheel or swipe over the open file's diff moves its code.
+    /// A sideways wheel or swipe over the open file's diff, or the blame,
+    /// moves its code.
     pub(crate) fn scroll_history_code(
         &mut self,
         event: &gpui::ScrollWheelEvent,
         cx: &mut Context<Self>,
     ) {
         let delta = code_scroll::sideways(event);
-        let Some(Ok(open)) = self.history.open.as_ref() else {
-            return;
-        };
         if delta == gpui::Pixels::ZERO {
             return;
         }
-        let view = self
-            .history
-            .diff_scroll
-            .0
-            .borrow()
-            .base_handle
-            .bounds()
-            .size
-            .width;
-        let width = code_scroll::width(self.code_advance, open.longest_line);
-        let max = code_scroll::max_offset(width, view - HISTORY_CODE_GUTTER);
+        let (longest, gutter, handle) = if let Some(Ok(open)) = self.history.open.as_ref() {
+            (
+                open.longest_line,
+                HISTORY_CODE_GUTTER,
+                &self.history.diff_scroll,
+            )
+        } else if let Some(Ok(blame)) = self.history.blame.as_ref() {
+            (
+                blame.longest_line,
+                BLAME_CODE_GUTTER,
+                &self.history.blame_scroll,
+            )
+        } else {
+            return;
+        };
+        let view = handle.0.borrow().base_handle.bounds().size.width;
+        let width = code_scroll::width(self.code_advance, longest);
+        let max = code_scroll::max_offset(width, view - gutter);
         let new = code_scroll::scrolled(self.history.code_scroll_x, delta, max);
         if new != self.history.code_scroll_x {
             self.history.code_scroll_x = new;
@@ -350,8 +427,7 @@ impl Shell {
         self.history.error = None;
         self.history.detail = None;
         self.history.keep = keep;
-        self.history.open = None;
-        self.history.file_request = None;
+        self.history.cancel_open();
         self.read_page(cx);
         cx.notify();
     }
@@ -485,7 +561,11 @@ fn read_page(
 /// The diff of `path` in `commit`, parsed into rows.
 fn read_commit_file(dir: &Path, commit: &str, path: &str) -> Result<OpenCommitFile, String> {
     let raw = history::commit_diff(dir, commit, path, CONTEXT).map_err(|e| last_line(&e.stderr))?;
-    let diff = parse(&raw);
+    Ok(open_file(commit, path, parse(&raw)))
+}
+
+/// The file `path` of `commit`, shown from its parsed diff.
+pub(crate) fn open_file(commit: &str, path: &str, diff: FileDiff) -> OpenCommitFile {
     let rows = diff
         .hunks
         .iter()
@@ -495,11 +575,11 @@ fn read_commit_file(dir: &Path, commit: &str, path: &str) -> Result<OpenCommitFi
                 .chain((0..h.lines.len()).map(move |line| DiffRow::Line(Pos { hunk, line })))
         })
         .collect();
-    Ok(OpenCommitFile {
+    OpenCommitFile {
         commit: commit.to_owned(),
         path: path.to_owned(),
         longest_line: code_scroll::longest_line(&diff),
         diff: Arc::new(diff),
         rows,
-    })
+    }
 }

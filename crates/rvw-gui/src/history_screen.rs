@@ -11,15 +11,17 @@ use gpui::{
     canvas, div, point, px, uniform_list, AnyElement, Bounds, ClickEvent, Context, Div, FontWeight,
     PathBuilder, Pixels, Point, Stateful, Window,
 };
+use rvw_git::blame::BlameLine;
 use rvw_git::history::{CommitDetail, FileChange};
 use rvw_git::search::Field;
-use rvw_view::diff::{Line, LineKind};
+use rvw_view::diff::LineKind;
 use rvw_view::graph::{Row as GraphRow, Seg};
 use rvw_view::history::{ago, short, HistoryRow, Label, LabelKind, MAX_LANES};
 use rvw_view::selection::Pos;
 
 use crate::code_scroll;
-use crate::history_state::{DiffRow, HistoryState, OpenCommitFile, Source};
+use crate::history_files::{is_uncommitted, starts_run};
+use crate::history_state::{BlameView, CompareView, DiffRow, HistoryState, OpenCommitFile, Source};
 use crate::review_screen::LINE_HEIGHT;
 use crate::shell::Shell;
 use crate::theme;
@@ -40,6 +42,12 @@ const REVIEW_WIDTH: Pixels = px(96.);
 /// the code they make `HISTORY_CODE_GUTTER`.
 const GUTTER: Pixels = px(46.);
 const SIGN_WIDTH: Pixels = px(16.);
+/// The blame's author and age columns, and the gap after each column; the
+/// short id is `SHA_WIDTH`. With the line number and the 6px before the code
+/// they make `history_state::BLAME_CODE_GUTTER`.
+const BLAME_AUTHOR: Pixels = px(110.);
+const BLAME_AGE: Pixels = px(36.);
+const BLAME_GAP: Pixels = px(8.);
 /// The size of the small text: shas, labels, hints and the file list.
 const SMALL: f32 = 12.;
 
@@ -211,7 +219,33 @@ fn file_section(path: &str, cx: &Context<Shell>) -> Div {
                 .truncate()
                 .child(path.to_owned()),
         )
+        .child(blame_link(path, cx))
         .child(show_all_link(cx))
+}
+
+/// "Blame this file": the file on disk, blamed in the centre.
+fn blame_link(path: &str, cx: &Context<Shell>) -> Stateful<Div> {
+    let path = path.to_owned();
+    div()
+        .id("history-blame-file")
+        .flex()
+        .items_center()
+        .h(px(30.))
+        .px(px(8.))
+        .rounded(theme::ROW_RADIUS)
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(theme::ink())
+        .cursor_pointer()
+        .child("Blame this file")
+        .on_click(cx.listener(
+            move |this: &mut Shell,
+                  _: &ClickEvent,
+                  window: &mut Window,
+                  cx: &mut Context<Shell>| {
+                this.blame_file(&path, cx);
+                this.focus_shell(window);
+            },
+        ))
 }
 
 /// "Show all commits": the log again, with the branch choice kept.
@@ -269,7 +303,8 @@ fn placeholder(title: &'static str, value: &'static str, why: &'static str) -> D
         .child(div().px(px(8.)).text_size(px(SMALL)).child(why))
 }
 
-/// The commit list, or the open file of the selected commit.
+/// The commit list, the blame, or the open file of the selected commit. An
+/// open file is shown over the blame.
 pub fn centre(state: &HistoryState, cx: &Context<Shell>) -> Stateful<Div> {
     let root = div()
         .id("history-centre")
@@ -278,13 +313,217 @@ pub fn centre(state: &HistoryState, cx: &Context<Shell>) -> Stateful<Div> {
         .flex_1()
         .min_w(px(0.))
         .bg(theme::paper());
-    match &state.open {
-        Some(Ok(open)) => root
+    match (&state.open, &state.blame) {
+        (Some(Ok(open)), _) => root
             .child(file_header(open, cx))
             .child(diff_body(state, open, cx)),
-        Some(Err(message)) => root.child(back_header(cx)).child(error_text(message)),
-        None => root.child(commit_list(state, cx)),
+        (Some(Err(message)), _) => root.child(back_header(cx)).child(error_text(message)),
+        (None, Some(Ok(blame))) => root
+            .child(blame_header(&blame.path, cx))
+            .child(blame_body(state, blame, cx)),
+        (None, Some(Err(message))) => root
+            .child(blame_header(file_path(state), cx))
+            .child(error_text(message)),
+        (None, None) => root.child(commit_list(state, cx)),
     }
+}
+
+/// The path the list is about, when it is a file's history.
+fn file_path(state: &HistoryState) -> &str {
+    match &state.source {
+        Source::File { path } => path.as_str(),
+        _ => "",
+    }
+}
+
+/// The path of the open file, when one is open.
+fn open_path(state: &HistoryState) -> Option<&str> {
+    match &state.open {
+        Some(Ok(open)) => Some(open.path.as_str()),
+        _ => None,
+    }
+}
+
+/// The blame's 48px header: the way back to the commits, the word "Blame",
+/// and the file's path.
+fn blame_header(path: &str, cx: &Context<Shell>) -> Div {
+    header_frame()
+        .child(blame_back_link(cx))
+        .child(div().flex_none().text_color(theme::muted()).child("Blame"))
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .truncate()
+                .text_color(theme::ink())
+                .child(path.to_owned()),
+        )
+}
+
+/// "← Commits" in the blame's header: drops the blame.
+fn blame_back_link(cx: &Context<Shell>) -> Stateful<Div> {
+    div()
+        .id("history-blame-back")
+        .flex_none()
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(theme::ink())
+        .cursor_pointer()
+        .child("\u{2190} Commits")
+        .on_click(cx.listener(
+            |this: &mut Shell, _: &ClickEvent, window: &mut Window, cx: &mut Context<Shell>| {
+                this.close_blame(cx);
+                this.focus_shell(window);
+            },
+        ))
+}
+
+/// The blame's lines in a uniform list, moved sideways with the code of the
+/// diff. Its wheel turns move the code, not the list.
+fn blame_body(state: &HistoryState, blame: &BlameView, cx: &Context<Shell>) -> AnyElement {
+    if blame.lines.is_empty() {
+        return div()
+            .flex_1()
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_color(theme::muted())
+            .child("The file is empty.")
+            .into_any_element();
+    }
+    let mut list = uniform_list("history-blame", blame.lines.len(), cx.processor(blame_rows))
+        .track_scroll(state.blame_scroll.clone())
+        .flex_1()
+        .min_h(px(0.))
+        .on_scroll_wheel(cx.listener(|this, event, _, cx| this.scroll_history_code(event, cx)));
+    list.style().restrict_scroll_to_axis = Some(true);
+    list.into_any_element()
+}
+
+/// The blame rows in view, built from the shell's current state. The row of
+/// the selected commit is highlighted.
+fn blame_rows(
+    this: &mut Shell,
+    range: Range<usize>,
+    _: &mut Window,
+    cx: &mut Context<Shell>,
+) -> Vec<AnyElement> {
+    let state = &this.history;
+    let Some(Ok(blame)) = state.blame.as_ref() else {
+        return Vec::new();
+    };
+    let Some(lines) = blame.lines.get(range.clone()) else {
+        return Vec::new();
+    };
+    let now = now_secs();
+    let selected = state
+        .history
+        .selected_row()
+        .map(|row| row.entry.id.as_str());
+    let scroll_x = state.code_scroll_x;
+    lines
+        .iter()
+        .zip(range)
+        .map(|(line, index)| {
+            let is_selected = selected == Some(line.id.as_str());
+            blame_row(
+                line,
+                starts_run(&blame.lines, index),
+                is_selected,
+                now,
+                scroll_x,
+                cx,
+            )
+        })
+        .collect()
+}
+
+/// One blamed line: the commit's id, author and age on the first line of its
+/// run, then the line number and the code. A click selects the line's commit.
+fn blame_row(
+    line: &BlameLine,
+    first: bool,
+    selected: bool,
+    now: i64,
+    scroll_x: Pixels,
+    cx: &Context<Shell>,
+) -> AnyElement {
+    let committed = !is_uncommitted(&line.id);
+    let id = line.id.clone();
+    div()
+        .id(("history-blame-row", line.line))
+        .flex()
+        .items_center()
+        .gap(BLAME_GAP)
+        .h(LINE_HEIGHT)
+        .font_family(theme::code_font())
+        .text_size(px(theme::CODE_FONT_SIZE))
+        .text_color(theme::text())
+        .when(selected, |d| d.bg(theme::selected_line()))
+        .when(committed, gpui::Styled::cursor_pointer)
+        .on_click(cx.listener(
+            move |this: &mut Shell,
+                  _: &ClickEvent,
+                  window: &mut Window,
+                  cx: &mut Context<Shell>| {
+                this.select_blame_commit(&id, cx);
+                this.focus_shell(window);
+            },
+        ))
+        .child(blame_id(line, first))
+        .child(blame_author(line, first))
+        .child(blame_age(line, first, now))
+        .child(gutter(u32::try_from(line.line).ok()))
+        .child(code_text(&line.text, scroll_x))
+        .into_any_element()
+}
+
+/// The short id of a run's first line in faint code, or "uncommitted" in
+/// muted text for a line git has not committed. Blank on the other lines.
+fn blame_id(line: &BlameLine, first: bool) -> Div {
+    let cell = div()
+        .w(SHA_WIDTH)
+        .flex_none()
+        .truncate()
+        .text_size(px(SMALL));
+    if !first {
+        cell
+    } else if is_uncommitted(&line.id) {
+        cell.text_color(theme::muted()).child("uncommitted")
+    } else {
+        cell.font_family(theme::code_font())
+            .text_color(theme::faint())
+            .child(short(&line.id).to_owned())
+    }
+}
+
+/// The author of a run's first line in muted text; blank on the other lines.
+fn blame_author(line: &BlameLine, first: bool) -> Div {
+    let author = if first {
+        line.author.clone()
+    } else {
+        String::new()
+    };
+    div()
+        .w(BLAME_AUTHOR)
+        .flex_none()
+        .truncate()
+        .text_color(theme::muted())
+        .child(author)
+}
+
+/// The age of a run's first line, right aligned; blank on the other lines.
+fn blame_age(line: &BlameLine, first: bool, now: i64) -> Div {
+    let age = if first {
+        ago(now, line.time)
+    } else {
+        String::new()
+    };
+    div()
+        .w(BLAME_AGE)
+        .flex_none()
+        .text_right()
+        .text_color(theme::faint())
+        .child(age)
 }
 
 /// The 48px header of the centre, in the code font with a hairline below.
@@ -309,7 +548,7 @@ fn back_header(cx: &Context<Shell>) -> Div {
 
 /// The open file's header: the way back, the commit, the path and the counts.
 fn file_header(open: &OpenCommitFile, cx: &Context<Shell>) -> Div {
-    header_frame()
+    let header = header_frame()
         .child(back_link(cx))
         .child(
             div()
@@ -324,7 +563,12 @@ fn file_header(open: &OpenCommitFile, cx: &Context<Shell>) -> Div {
                 .truncate()
                 .text_color(theme::ink())
                 .child(open.path.clone()),
-        )
+        );
+    // A whole-file view counts no changes, so it shows no counts.
+    if open.diff.added + open.diff.removed == 0 {
+        return header;
+    }
+    header
         .child(
             div()
                 .text_color(theme::done())
@@ -477,7 +721,7 @@ fn line_row(open: &OpenCommitFile, pos: Pos, scroll_x: Pixels) -> AnyElement {
                 .text_color(sign_colour)
                 .child(sign),
         )
-        .child(line_text(line, scroll_x))
+        .child(code_text(&line.text, scroll_x))
         .into_any_element()
 }
 
@@ -492,9 +736,9 @@ fn gutter(number: Option<u32>) -> Div {
         .child(number.map_or(String::new(), |n| n.to_string()))
 }
 
-/// The code of a line, moved left by `scroll_x` and clipped at the panel's
-/// edge rather than wrapped.
-fn line_text(line: &Line, scroll_x: Pixels) -> Div {
+/// Code text, moved left by `scroll_x` and clipped at the panel's edge rather
+/// than wrapped. Used by the diff's lines and the blame's.
+fn code_text(text: &str, scroll_x: Pixels) -> Div {
     div()
         .flex_1()
         .min_w(px(0.))
@@ -502,7 +746,7 @@ fn line_text(line: &Line, scroll_x: Pixels) -> Div {
         .whitespace_nowrap()
         .overflow_hidden()
         .child(code_scroll::shifted(
-            line.text.clone().into_any_element(),
+            text.to_owned().into_any_element(),
             scroll_x,
         ))
 }
@@ -802,14 +1046,12 @@ fn label_text(label: &Label) -> Div {
         .child(text)
 }
 
-/// The right panel: the selected commit's subject, facts, body, parents and
-/// files, or why there are none.
+/// The right panel: the comparison while there is one, else the selected
+/// commit's subject, facts, body, parents and files, or why there are none.
 pub fn right(state: &HistoryState, cx: &Context<Shell>) -> Div {
-    let body = match &state.detail {
-        None if state.history.is_empty() => div(),
-        None => div().text_color(theme::muted()).child("Select a commit."),
-        Some(Err(message)) => div().text_color(theme::rejected()).child(message.clone()),
-        Some(Ok(detail)) => detail_body(state, detail, now_secs(), cx),
+    let body = match &state.compare {
+        Some(compare) => compare_body(state, compare, cx),
+        None => commit_body(state, cx),
     };
     div()
         .flex()
@@ -844,6 +1086,93 @@ pub fn right(state: &HistoryState, cx: &Context<Shell>) -> Div {
                      Nothing is guessed.",
                 ),
         )
+}
+
+/// The selected commit's details, or why they could not be read.
+fn commit_body(state: &HistoryState, cx: &Context<Shell>) -> Div {
+    match &state.detail {
+        None if state.history.is_empty() => div(),
+        None => div().text_color(theme::muted()).child("Select a commit."),
+        Some(Err(message)) => div().text_color(theme::rejected()).child(message.clone()),
+        Some(Ok(detail)) => detail_body(state, detail, now_secs(), cx),
+    }
+}
+
+/// The comparison with a branch or tag: its title, the counts, a link that
+/// closes it, and the files that differ. An empty comparison says so.
+fn compare_body(
+    state: &HistoryState,
+    compare: &Result<CompareView, String>,
+    cx: &Context<Shell>,
+) -> Div {
+    let view = match compare {
+        Ok(view) => view,
+        Err(message) => {
+            return div().flex().flex_col().child(close_compare_link(cx)).child(
+                div()
+                    .pt(px(12.))
+                    .text_color(theme::rejected())
+                    .child(message.clone()),
+            );
+        }
+    };
+    let count = view.files.len();
+    let noun = if count == 1 { "file" } else { "files" };
+    let column = div()
+        .flex()
+        .flex_col()
+        .child(
+            div()
+                .text_size(px(17.))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(theme::ink())
+                .child(format!("Compared with {}", view.from)),
+        )
+        .child(div().pt(px(6.)).text_color(theme::muted()).child(format!(
+            "{} \u{2192} {}, {count} {noun}",
+            view.from,
+            short(&view.to)
+        )))
+        .child(close_compare_link(cx));
+    if view.files.is_empty() {
+        return column.child(
+            div()
+                .pt(px(12.))
+                .text_color(theme::muted())
+                .child("No differences."),
+        );
+    }
+    let open = open_path(state);
+    column.children(view.files.iter().enumerate().map(|(index, file)| {
+        let selected = open == Some(file.path.as_str());
+        file_row(
+            "history-compare-file",
+            index,
+            file,
+            selected,
+            Shell::open_compare_file,
+            cx,
+        )
+    }))
+}
+
+/// "Close comparison": drops the comparison from the right panel.
+fn close_compare_link(cx: &Context<Shell>) -> Stateful<Div> {
+    div()
+        .id("history-compare-close")
+        .flex()
+        .items_center()
+        .h(px(30.))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(theme::ink())
+        .cursor_pointer()
+        .child("Close comparison")
+        .on_click(cx.listener(
+            |this: &mut Shell, _: &ClickEvent, window: &mut Window, cx: &mut Context<Shell>| {
+                this.close_compare(cx);
+                this.focus_shell(window);
+            },
+        ))
 }
 
 /// The details of one commit, top to bottom.
@@ -953,10 +1282,7 @@ fn parents_row(parents: &[String]) -> Div {
 
 /// "Files, N" and one row per file. The open file is selected.
 fn files_section(state: &HistoryState, detail: &CommitDetail, cx: &Context<Shell>) -> Div {
-    let open_path = match &state.open {
-        Some(Ok(open)) => Some(open.path.as_str()),
-        _ => None,
-    };
+    let open = open_path(state);
     div()
         .flex()
         .flex_col()
@@ -968,18 +1294,33 @@ fn files_section(state: &HistoryState, detail: &CommitDetail, cx: &Context<Shell
                 .child(format!("Files, {}", detail.files.len())),
         )
         .children(detail.files.iter().enumerate().map(|(index, file)| {
-            let selected = open_path == Some(file.path.as_str());
-            file_row(index, file, selected, cx)
+            let selected = open == Some(file.path.as_str());
+            file_row(
+                "history-file",
+                index,
+                file,
+                selected,
+                Shell::open_commit_file,
+                cx,
+            )
         }))
 }
 
 /// One changed file: its status letter, its name and directory, and its
-/// counts. A click opens its diff in the centre.
-fn file_row(index: usize, file: &FileChange, selected: bool, cx: &Context<Shell>) -> Stateful<Div> {
+/// counts. A click calls `open` with its path, which opens its diff in the
+/// centre. `id` names the row's list, so its rows have unique ids.
+fn file_row(
+    id: &'static str,
+    index: usize,
+    file: &FileChange,
+    selected: bool,
+    open: fn(&mut Shell, &str, &mut Context<Shell>),
+    cx: &Context<Shell>,
+) -> Stateful<Div> {
     let path = file.path.clone();
     let (dir, name) = file_name(file);
     div()
-        .id(("history-file", index))
+        .id((id, index))
         .flex()
         .items_center()
         .gap(px(8.))
@@ -1018,7 +1359,7 @@ fn file_row(index: usize, file: &FileChange, selected: bool, cx: &Context<Shell>
                   _: &ClickEvent,
                   window: &mut Window,
                   cx: &mut Context<Shell>| {
-                this.open_commit_file(&path, cx);
+                open(this, &path, cx);
                 this.focus_shell(window);
             },
         ))

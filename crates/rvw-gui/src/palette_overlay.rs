@@ -219,10 +219,6 @@ impl Shell {
                     self.blame_file(&path, cx);
                 }
             }
-            Action::BrowseCommitFiles
-            | Action::CompareWith
-            | Action::NewWorktree
-            | Action::RemoveWorktree => self.run_git_action(action, window, cx),
             Action::EditHistory => self.open_rewrite(window, cx),
             Action::OpenTerminal => self.open_terminal(cx),
             Action::OpenDiffTool => {
@@ -230,7 +226,11 @@ impl Shell {
                     self.open_diff_tool(&path, cx);
                 }
             }
-            Action::StashChanges
+            Action::BrowseCommitFiles
+            | Action::CompareWith
+            | Action::NewWorktree
+            | Action::RemoveWorktree
+            | Action::StashChanges
             | Action::ApplyStash
             | Action::DropStash
             | Action::NewBranch
