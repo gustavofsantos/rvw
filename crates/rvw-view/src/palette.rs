@@ -213,6 +213,49 @@ fn score_of(query: &str, action: Action) -> Option<(i64, Vec<usize>)> {
     }
 }
 
+/// `entries` reordered so that each group's rows sit together, groups in the
+/// order they first appear and rows in their given order. For the grouped
+/// list shown when the query is empty.
+#[must_use]
+pub fn grouped(entries: Vec<Entry>) -> Vec<Entry> {
+    let mut groups: Vec<&'static str> = Vec::new();
+    for entry in &entries {
+        if !groups.contains(&entry.group) {
+            groups.push(entry.group);
+        }
+    }
+    let rank = |entry: &Entry| groups.iter().position(|g| *g == entry.group);
+    let mut keyed: Vec<(Option<usize>, Entry)> = entries
+        .into_iter()
+        .map(|entry| (rank(&entry), entry))
+        .collect();
+    keyed.sort_by_key(|(group, _)| *group);
+    keyed.into_iter().map(|(_, entry)| entry).collect()
+}
+
+/// The index of the first runnable entry, or 0 when none is.
+#[must_use]
+pub fn first_available(entries: &[Entry]) -> usize {
+    entries
+        .iter()
+        .position(|entry| entry.unavailable.is_none())
+        .unwrap_or(0)
+}
+
+/// The next runnable entry from `from` going down or up, or `from` itself
+/// when there is none in that direction.
+#[must_use]
+pub fn step(entries: &[Entry], from: usize, down: bool) -> usize {
+    let found = if down {
+        (from + 1..entries.len()).find(|&at| entries[at].unavailable.is_none())
+    } else {
+        (0..from.min(entries.len()))
+            .rev()
+            .find(|&at| entries[at].unavailable.is_none())
+    };
+    found.unwrap_or(from)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -415,5 +458,45 @@ mod tests {
             submit.and_then(|e| e.unavailable),
             Some("Add a comment to your review first")
         );
+    }
+
+    #[test]
+    fn grouping_keeps_each_group_together_in_first_seen_order() {
+        let got = grouped(entries("", &state(Screen::Diff)));
+        let groups: Vec<&str> = got.iter().map(|e| e.group).collect();
+        assert_eq!(
+            groups,
+            [
+                "Go",
+                "Go",
+                "Go",
+                "Find",
+                "Move",
+                "Move",
+                "Review",
+                "Review",
+                "Diff",
+                "Diff",
+                "Diff",
+                "Diff",
+                "Repository",
+                "Repository"
+            ]
+        );
+        assert_eq!(got.len(), 14);
+    }
+
+    #[test]
+    fn stepping_skips_unavailable_entries_and_stops_at_the_ends() {
+        let got = entries("", &state(Screen::Queue));
+        let first = first_available(&got);
+        assert_eq!(got[first].unavailable, None);
+        let down = step(&got, first, true);
+        assert!(down > first && got[down].unavailable.is_none());
+        assert_eq!(step(&got, down, false), first);
+        assert_eq!(step(&got, first, false), first);
+        let last = got.len() - 1;
+        assert_eq!(step(&got, last, true), last);
+        assert_eq!(first_available(&[]), 0);
     }
 }

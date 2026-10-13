@@ -4,6 +4,7 @@
 
 pub mod branches;
 pub mod changes;
+pub mod compare_menu;
 pub mod context;
 pub mod diff;
 pub mod diffrows;

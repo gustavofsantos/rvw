@@ -220,9 +220,24 @@ pub fn signs(hunks: &[Hunk], n: usize) -> Vec<Sign> {
 ///
 /// Returns HEAD's message when there is no commit to compare with at all.
 pub fn resolve_base(dir: &Path) -> Result<Base, String> {
-    Compare::Default
-        .base(dir)
-        .or_else(|_| Compare::Head.base(dir))
+    resolve(dir, None).map(|(_, base)| base)
+}
+
+/// The comparison to use and its base. `None` is the automatic choice of
+/// [`resolve_base`]; `Some` is exactly that comparison, with its error when
+/// it cannot be resolved.
+///
+/// # Errors
+///
+/// Returns the message of the comparison that could not be resolved.
+pub fn resolve(dir: &Path, wanted: Option<Compare>) -> Result<(Compare, Base), String> {
+    match wanted {
+        Some(compare) => compare.base(dir).map(|base| (compare, base)),
+        None => Compare::Default
+            .base(dir)
+            .map(|base| (Compare::Default, base))
+            .or_else(|_| Compare::Head.base(dir).map(|base| (Compare::Head, base))),
+    }
 }
 
 /// A changed file as the review screen lists it.
@@ -708,5 +723,19 @@ mod tests {
             resolve_base(r.path()),
             Err("no commit to compare with yet".to_owned())
         );
+    }
+
+    #[test]
+    fn resolve_prefers_default_then_head_and_honours_a_choice() {
+        let r = repo();
+        write(r.path(), "a.txt", "x\n");
+        git(r.path(), &["add", "a.txt"]);
+        git(r.path(), &["commit", "-q", "-m", "one"]);
+        let auto = resolve(r.path(), None).expect("auto");
+        assert!(matches!(auto.0, Compare::Default | Compare::Head));
+        let head = resolve(r.path(), Some(Compare::Head)).expect("head");
+        assert_eq!(head.0, Compare::Head);
+        assert_eq!(head.1.name, "HEAD");
+        assert!(resolve(r.path(), Some(Compare::Prev)).is_err());
     }
 }
