@@ -173,3 +173,9 @@ Product:
 - Undo that refuses whenever the repository moved fails exactly when an
   agent works in parallel. Checkpoints that always restore, and save the
   current state first, are the predictable form.
+
+## First run of M2 by a person (release build, 2026-10-13)
+
+- The window felt very snappy, and the operations tried worked. Still to learn
+  from use: the window under an agent editing nonstop (the live refresh reads
+  git on the UI thread), and a week of daily commits, the milestone's exit.
