@@ -18,6 +18,7 @@ use rvw_view::branches::{self, Hit};
 use rvw_view::workspaces::{self, Item};
 
 use crate::data::{self, Identity};
+use crate::last_workspace;
 use crate::seen::Seen;
 use crate::shell::Shell;
 use crate::text_input::{TextInput, TextInputEvent};
@@ -201,6 +202,7 @@ impl Shell {
                 .await;
             this.update_in(cx, move |this, window, cx| match loaded {
                 Ok(snapshot) => {
+                    last_workspace::save(&db, &identity.workspace).ok();
                     // The new shell replaces this one once this update ends.
                     window.defer(cx, move |window, cx| {
                         window.replace_root(cx, move |window, cx| {

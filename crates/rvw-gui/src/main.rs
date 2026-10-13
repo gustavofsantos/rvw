@@ -22,6 +22,7 @@ mod git_overlay;
 mod git_tools;
 mod highlights;
 mod key_strip;
+mod last_workspace;
 mod live;
 mod outcome_flow;
 mod outcome_screen;
@@ -43,7 +44,7 @@ mod verdict;
 mod window_chrome;
 mod workspace_picker;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use gpui::{
     actions, px, size, App, AppContext, Application, Bounds, KeyBinding, Menu, MenuItem,
@@ -81,7 +82,8 @@ fn run() -> Result<(), String> {
     let store = rvw_store::Store::open(&db).map_err(|e| e.message)?;
     let service = rvw_core::Service::new(Box::new(store));
 
-    let workspace = launch_workspace(args.workspace, &service)?;
+    let workspace = launch_workspace(args.workspace.as_deref(), &db, &service)?;
+    last_workspace::save(&db, &workspace).ok();
 
     let seen = Seen::load(&db);
     let snapshot = data::load(
@@ -100,18 +102,39 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
-/// The workspace to open. `--workspace` is exact. Otherwise the working
-/// directory is it, as from a shell; a desktop launcher starts in $HOME, which
-/// is none, so that falls back to the queue with the most work.
-fn launch_workspace(flag: Option<PathBuf>, service: &rvw_core::Service) -> Result<String, String> {
+/// The workspace to open. `--workspace` is exact, and an error when it is not
+/// a repository. Otherwise `last_workspace::choose` decides: the working
+/// directory when it is a repository, then the workspace the window showed
+/// last, then the queue with the most work. A desktop launcher starts in
+/// $HOME, which is no repository, so the last two apply there.
+fn launch_workspace(
+    flag: Option<&Path>,
+    db: &Path,
+    service: &rvw_core::Service,
+) -> Result<String, String> {
     if let Some(dir) = flag {
-        return resolve_workspace(&dir);
+        return resolve_workspace(dir);
     }
-    let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
-    resolve_workspace(&cwd).or_else(|not_found| data::busiest_workspace(service).ok_or(not_found))
+    let cwd_repo = std::env::current_dir()
+        .map_err(|e| e.to_string())
+        .and_then(|cwd| resolve_workspace(&cwd));
+    let not_found = cwd_repo.clone().err().unwrap_or_default();
+    last_workspace::choose(
+        cwd_repo.ok(),
+        last_workspace::load(db),
+        is_workspace_root,
+        || data::busiest_workspace(service),
+    )
+    .ok_or(not_found)
 }
 
-fn resolve_workspace(dir: &std::path::Path) -> Result<String, String> {
+/// Whether `path` is the root of a repository, as recorded: resolving it
+/// gives back the same path. A path inside another repository is not.
+fn is_workspace_root(path: &str) -> bool {
+    resolve_workspace(Path::new(path)).as_deref() == Ok(path)
+}
+
+fn resolve_workspace(dir: &Path) -> Result<String, String> {
     Ok(rvw_git::workspace::resolve(dir)?
         .to_string_lossy()
         .into_owned())
