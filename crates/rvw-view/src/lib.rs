@@ -24,6 +24,7 @@ pub mod patch;
 pub mod queue;
 pub mod selection;
 pub mod split;
+pub mod terminals;
 pub mod tree;
 pub mod viewmode;
 pub mod workspaces;
