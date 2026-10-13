@@ -178,8 +178,6 @@ that depends on it.
 
 ## Milestones
 
-Each ends with something usable daily.
-
 Each milestone is small enough to finish in a few weeks and ends with
 something usable daily.
 
