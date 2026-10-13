@@ -1,0 +1,18 @@
+[package]
+name = "rvw-term"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Headless terminals for rvw: a PTY, the emulation, and owned snapshots"
+
+[dependencies]
+alacritty_terminal = { workspace = true }
+libc = { workspace = true }
+polling = "3"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tempfile = "3"
