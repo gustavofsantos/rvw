@@ -19,8 +19,10 @@ use crate::files_panel::{self, FileList};
 use crate::finder::{self, Finder, OpenFinder};
 use crate::frame::{self, Panels};
 use crate::key_strip::key_strip;
+use crate::outcome_screen::{self, Outcome};
 use crate::queue_screen;
 use crate::review_screen::{self, Selected};
+use crate::seen::Seen;
 use crate::submit_dialog::{self, OpenSubmit, SubmitDialog};
 use crate::text_area::{TextArea, TextAreaEvent};
 use crate::theme;
@@ -28,9 +30,13 @@ use crate::verdict::Verdict;
 
 pub struct Shell {
     pub(crate) snapshot: Snapshot,
-    service: Service,
+    pub(crate) service: Service,
     /// The workspace, author and lane new comments are written with.
-    identity: Identity,
+    pub(crate) identity: Identity,
+    /// The outcomes the reviewer has looked at, kept beside the database.
+    pub(crate) seen: Seen,
+    /// The comment open on the outcome screen, if any.
+    pub(crate) outcome: Option<Outcome>,
     /// `Queue` or `Diff` (the review screen), or the Files tab of it.
     pub(crate) screen: Screen,
     filter: Filter,
@@ -66,6 +72,7 @@ impl Shell {
         snapshot: Snapshot,
         service: Service,
         identity: Identity,
+        seen: Seen,
         cx: &mut Context<Self>,
     ) -> Self {
         let queue = snapshot.queue.clone();
@@ -82,6 +89,8 @@ impl Shell {
             snapshot,
             service,
             identity,
+            seen,
+            outcome: None,
             screen,
             filter: Filter::default(),
             queue,
@@ -204,18 +213,29 @@ impl Shell {
         data::add_comment(&self.service, &self.identity, &selected.path, lines, text)
     }
 
-    /// Re-reads the snapshot after a write, keeping the file open with a fresh
-    /// selection. A failed re-read keeps the composer open with its message.
-    fn reload(&mut self, cx: &mut Context<Self>) {
+    /// Re-reads the snapshot, with the seen outcomes, keeping the file open
+    /// with a fresh selection.
+    pub(crate) fn refresh(&mut self) -> Result<(), String> {
         let path = self.selected.as_ref().map(|selected| selected.path.clone());
-        match data::load(&self.service, &self.identity.workspace, &self.identity.lane) {
-            Ok(snapshot) => {
-                self.queue = snapshot.view(&self.filter);
-                self.snapshot = snapshot;
-                self.selected = path.map(|path| self.load_selected(&path));
-                self.diff_generation = self.diff_generation.wrapping_add(1);
-                self.composer = None;
-            }
+        let acknowledged = self.seen.ids_for(&self.identity.workspace);
+        let snapshot = data::load(
+            &self.service,
+            &self.identity.workspace,
+            &self.identity.lane,
+            acknowledged,
+        )?;
+        self.queue = snapshot.view(&self.filter);
+        self.snapshot = snapshot;
+        self.selected = path.map(|path| self.load_selected(&path));
+        self.diff_generation = self.diff_generation.wrapping_add(1);
+        Ok(())
+    }
+
+    /// Re-reads the snapshot after a write. A failed re-read keeps the
+    /// composer open with its message.
+    fn reload(&mut self, cx: &mut Context<Self>) {
+        match self.refresh() {
+            Ok(()) => self.composer = None,
             Err(message) => {
                 if let Some(composer) = self.composer.as_mut() {
                     composer.error = Some(format!("Saved, but the view did not reload: {message}"));
@@ -246,6 +266,14 @@ impl Shell {
         // With no field open, plain keys move through the review: C opens the
         // composer, and J or Down and K or Up select the next or previous file.
         if event.keystroke.modifiers.number_of_modifiers() != 0 || self.composer.is_some() {
+            return;
+        }
+        if self.screen == Screen::Outcome {
+            match event.keystroke.key.as_str() {
+                "j" | "down" => self.step_outcome(1, cx),
+                "k" | "up" => self.step_outcome(-1, cx),
+                _ => {}
+            }
             return;
         }
         let on_review = matches!(self.screen, Screen::Diff | Screen::Files);
@@ -373,8 +401,8 @@ impl Render for Shell {
             self.focus.focus(window);
         }
         self.sync_diff_list(window);
-        let panels = match self.screen {
-            Screen::Diff | Screen::Files => Panels {
+        let panels = match (self.screen, self.outcome.as_ref()) {
+            (Screen::Diff | Screen::Files, _) => Panels {
                 left: self.review_left(cx),
                 centre: review_screen::centre(
                     &self.snapshot,
@@ -384,18 +412,24 @@ impl Render for Shell {
                 ),
                 right: crate::draft_panel::right(&self.snapshot, cx),
             },
+            (Screen::Outcome, Some(open)) => Panels {
+                left: outcome_screen::left(open, &self.snapshot, cx),
+                centre: outcome_screen::centre(open),
+                right: outcome_screen::right(open),
+            },
             _ => Panels {
                 left: queue_screen::left(&self.snapshot, &self.filter, cx),
-                centre: queue_screen::centre(&self.snapshot, &self.queue),
+                centre: queue_screen::centre(&self.snapshot, &self.queue, cx),
                 right: queue_screen::right(&self.snapshot.next_pull),
             },
         };
-        // The Files tab is part of the review screen, so R stays lit; the key
-        // strip reads Files, or Search while the finder is open.
-        let rail_screen = if self.screen == Screen::Files {
-            Screen::Diff
-        } else {
-            self.screen
+        // The Files tab is part of the review screen, so R stays lit; the
+        // outcome screen lights the screen it was opened from.
+        let rail_screen = match (self.screen, self.outcome.as_ref()) {
+            (Screen::Files, _) => Screen::Diff,
+            (Screen::Outcome, Some(open)) => outcome_screen::rail_screen(open.back),
+            (Screen::Outcome, None) => Screen::Queue,
+            (screen, _) => screen,
         };
         let key_screen = if self.finder.is_some() {
             Screen::Search

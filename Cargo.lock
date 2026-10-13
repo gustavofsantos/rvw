@@ -5492,7 +5492,9 @@ version = "0.0.0"
 dependencies = [
  "rvw-core",
  "rvw-git",
+ "syntect",
  "tempfile",
+ "two-face",
 ]
 
 [[package]]

@@ -2,7 +2,7 @@
 //! button.
 
 use gpui::prelude::*;
-use gpui::{div, px, ClickEvent, Context, Div, FontWeight, Stateful, Window};
+use gpui::{div, px, ClickEvent, Context, Div, FontWeight, SharedString, Stateful, Window};
 use rvw_view::queue::Row;
 
 use crate::data::Snapshot;
@@ -18,7 +18,10 @@ pub fn right(snapshot: &Snapshot, cx: &Context<Shell>) -> Div {
             .text_color(theme::muted())
             .child("No comments in your draft yet.")
     } else {
-        div().flex().flex_col().children(rows.iter().map(draft_row))
+        div()
+            .flex()
+            .flex_col()
+            .children(rows.iter().map(|row| draft_row(row, cx)))
     };
 
     div()
@@ -39,10 +42,19 @@ pub fn right(snapshot: &Snapshot, cx: &Context<Shell>) -> Div {
         .child(submit_button(drafts, cx))
 }
 
-fn draft_row(row: &Row) -> Div {
+/// One draft comment. A click opens its outcome screen.
+fn draft_row(row: &Row, cx: &Context<Shell>) -> Stateful<Div> {
+    let id = row.id.clone();
+    let on_click = cx.listener(
+        move |this: &mut Shell, _: &ClickEvent, _: &mut Window, cx: &mut Context<Shell>| {
+            this.open_outcome(&id, cx);
+        },
+    );
     div()
+        .id(SharedString::from(format!("draft-row-{}", row.id)))
         .flex()
         .items_start()
+        .on_click(on_click)
         .gap(px(10.))
         .py(px(10.))
         .border_b_1()

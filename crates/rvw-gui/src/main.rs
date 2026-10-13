@@ -10,8 +10,12 @@ mod files_panel;
 mod finder;
 mod frame;
 mod key_strip;
+mod outcome_flow;
+mod outcome_screen;
+mod outcome_story;
 mod queue_screen;
 mod review_screen;
+mod seen;
 mod shell;
 mod submit_dialog;
 mod text_area;
@@ -28,6 +32,7 @@ use gpui::{
 };
 
 use crate::data::{Identity, Snapshot};
+use crate::seen::Seen;
 use crate::shell::Shell;
 
 #[derive(Default)]
@@ -63,13 +68,14 @@ fn run() -> Result<(), String> {
     let store = rvw_store::Store::open(&db).map_err(|e| e.message)?;
     let service = rvw_core::Service::new(Box::new(store));
 
-    let snapshot = data::load(&service, &workspace, &args.lane)?;
+    let seen = Seen::load(&db);
+    let snapshot = data::load(&service, &workspace, &args.lane, seen.ids_for(&workspace))?;
     let identity = Identity {
         workspace,
         author: args.author,
         lane: args.lane,
     };
-    show_window(snapshot, service, identity);
+    show_window(snapshot, service, identity, seen);
     Ok(())
 }
 
@@ -93,7 +99,7 @@ fn flag_value(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<Str
 
 /// Starts the application and opens the one window. Errors here happen after
 /// the database is open, so they are reported from inside the app callback.
-fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identity) {
+fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identity, seen: Seen) {
     Application::new()
         .with_assets(assets::Assets)
         .run(move |cx: &mut App| {
@@ -113,7 +119,7 @@ fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identit
                 ..WindowOptions::default()
             };
             let opened = cx.open_window(options, move |_window, cx| {
-                cx.new(|cx| Shell::new(snapshot, service, identity, cx))
+                cx.new(|cx| Shell::new(snapshot, service, identity, seen, cx))
             });
             if let Err(error) = opened {
                 eprintln!("rvw-gui: {error}");

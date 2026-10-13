@@ -13,6 +13,7 @@ pub mod fuzzy;
 pub mod highlight;
 pub mod keys;
 pub mod nav;
+pub mod outcome;
 pub mod queue;
 pub mod selection;
 pub mod tree;

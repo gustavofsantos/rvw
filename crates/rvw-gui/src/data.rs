@@ -53,7 +53,8 @@ impl Snapshot {
 
 /// Reads the queue for `workspace`, the branch, what a pull pinned to `lane`
 /// would take, and the files that differ from the base. An empty `lane` means
-/// every lane.
+/// every lane. A done comment whose id is in `acknowledged` counts as closed,
+/// not waiting on the reviewer.
 ///
 /// A missing comparison is not an error: the changes stay empty and the note
 /// says why, so the queue still opens.
@@ -61,7 +62,12 @@ impl Snapshot {
 /// # Errors
 ///
 /// Fails with the service's message when any queue read fails.
-pub fn load(service: &Service, workspace: &str, lane: &str) -> Result<Snapshot, String> {
+pub fn load(
+    service: &Service,
+    workspace: &str,
+    lane: &str,
+    acknowledged: HashSet<String>,
+) -> Result<Snapshot, String> {
     let list = service
         .list(QueryInput {
             workspace: workspace.to_owned(),
@@ -85,7 +91,6 @@ pub fn load(service: &Service, workspace: &str, lane: &str) -> Result<Snapshot, 
         })
         .map_err(|e| e.message)?;
 
-    let acknowledged = HashSet::new();
     let queue = queue::build(
         &list.comments,
         &sheets.sheets,
@@ -375,5 +380,35 @@ mod tests {
         let error = submit_review(&service, &identity, "maybe", "ok", Vec::new())
             .expect_err("bad decision");
         assert!(!error.is_empty());
+    }
+
+    #[test]
+    fn a_done_comment_in_the_seen_set_counts_as_closed() {
+        let (_dir, service, identity) = workspace_with_store();
+        add_comment(&service, &identity, "app.py", (1, 1), "first").expect("add");
+        let workspace = identity.workspace.clone();
+        service
+            .pull(PullInput {
+                workspace: workspace.clone(),
+                ..PullInput::default()
+            })
+            .expect("pull");
+        service
+            .resolve(rvw_core::operations::ResolveInput {
+                workspace: workspace.clone(),
+                id: "r1".into(),
+                outcome: rvw_core::types::OUTCOME_DONE.into(),
+                ..rvw_core::operations::ResolveInput::default()
+            })
+            .expect("resolve");
+
+        let unseen = load(&service, &workspace, "", HashSet::new()).expect("load");
+        assert_eq!(unseen.queue.counters.waiting_on_you, 1);
+        assert_eq!(unseen.queue.counters.closed, 0);
+
+        let seen = HashSet::from(["r1".to_owned()]);
+        let seen_snapshot = load(&service, &workspace, "", seen).expect("load");
+        assert_eq!(seen_snapshot.queue.counters.waiting_on_you, 0);
+        assert_eq!(seen_snapshot.queue.counters.closed, 1);
     }
 }

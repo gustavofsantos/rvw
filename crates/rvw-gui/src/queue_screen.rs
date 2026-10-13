@@ -165,7 +165,7 @@ fn filter_row(
         )
 }
 
-pub fn centre(snapshot: &Snapshot, queue: &Queue) -> Stateful<Div> {
+pub fn centre(snapshot: &Snapshot, queue: &Queue, cx: &Context<Shell>) -> Stateful<Div> {
     let by_id: HashMap<&str, &Comment> = snapshot
         .comments
         .iter()
@@ -187,7 +187,12 @@ pub fn centre(snapshot: &Snapshot, queue: &Queue) -> Stateful<Div> {
             .flex()
             .flex_col()
             .gap(px(28.))
-            .children(queue.groups.iter().map(|group| group_view(group, &by_id)))
+            .children(
+                queue
+                    .groups
+                    .iter()
+                    .map(|group| group_view(group, &by_id, cx)),
+            )
             .into_any_element()
     };
 
@@ -211,12 +216,12 @@ pub fn centre(snapshot: &Snapshot, queue: &Queue) -> Stateful<Div> {
         .child(body)
 }
 
-fn group_view(group: &Group, by_id: &HashMap<&str, &Comment>) -> Div {
+fn group_view(group: &Group, by_id: &HashMap<&str, &Comment>, cx: &Context<Shell>) -> Div {
     div()
         .flex()
         .flex_col()
         .child(group_header(group.review.as_ref()))
-        .children(group.rows.iter().map(|row| row_view(row, by_id)))
+        .children(group.rows.iter().map(|row| row_view(row, by_id, cx)))
 }
 
 fn group_header(review: Option<&Review>) -> Div {
@@ -270,8 +275,15 @@ fn group_header(review: Option<&Review>) -> Div {
     }
 }
 
-fn row_view(row: &Row, by_id: &HashMap<&str, &Comment>) -> Div {
+/// One comment's row. A click opens its outcome screen.
+fn row_view(row: &Row, by_id: &HashMap<&str, &Comment>, cx: &Context<Shell>) -> Stateful<Div> {
     let comment = by_id.get(row.id.as_str()).copied();
+    let id = row.id.clone();
+    let on_click = cx.listener(
+        move |this: &mut Shell, _: &ClickEvent, _: &mut Window, cx: &mut Context<Shell>| {
+            this.open_outcome(&id, cx);
+        },
+    );
     let glyph = comment.map_or(row.state.glyph(), |c| glyph_of(c, row.state));
     let is_rejected = comment.is_some_and(|c| c.status == Status::Rejected);
     let glyph_colour = match row.state {
@@ -288,12 +300,14 @@ fn row_view(row: &Row, by_id: &HashMap<&str, &Comment>) -> Div {
     };
 
     div()
+        .id(SharedString::from(format!("queue-row-{}", row.id)))
         .flex()
         .items_center()
         .gap(px(12.))
         .h(px(42.))
         .border_b_1()
         .border_color(theme::hairline())
+        .on_click(on_click)
         .child(
             div()
                 .w(px(14.))
