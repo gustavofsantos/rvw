@@ -251,6 +251,117 @@ pub fn before_commit(lists: &Lists, comments: &[Comment]) -> Vec<String> {
     lines
 }
 
+/// The git action a commit gate guards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GateAction {
+    Commit,
+    Amend,
+    Push,
+}
+
+impl GateAction {
+    /// The action name the core operation accepts: "commit" or "push".
+    #[must_use]
+    pub fn core_action(self) -> &'static str {
+        match self {
+            GateAction::Commit | GateAction::Amend => "commit",
+            GateAction::Push => "push",
+        }
+    }
+
+    /// The button verb: "Commit", "Amend" or "Push".
+    #[must_use]
+    pub fn verb(self) -> &'static str {
+        match self {
+            GateAction::Commit => "Commit",
+            GateAction::Amend => "Amend",
+            GateAction::Push => "Push",
+        }
+    }
+
+    /// The lowercase noun used in the confirmation question.
+    fn noun(self) -> &'static str {
+        match self {
+            GateAction::Commit => "commit",
+            GateAction::Amend => "amend",
+            GateAction::Push => "push",
+        }
+    }
+}
+
+/// What still needs a decision before a commit or push goes ahead: the open
+/// comments (pending or pulled) and the decided ones with no verdict, in one
+/// lane. An empty `lane` means every lane.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Gate {
+    pub open: usize,
+    pub unjudged: usize,
+    pub lane: String,
+}
+
+impl Gate {
+    /// Builds the gate from the ids of the open comments and of the decided
+    /// comments without a verdict.
+    #[must_use]
+    pub fn from_ids(open: &[String], unjudged: &[String], lane: &str) -> Gate {
+        Gate {
+            open: open.len(),
+            unjudged: unjudged.len(),
+            lane: lane.to_owned(),
+        }
+    }
+
+    /// Whether nothing needs a decision.
+    #[must_use]
+    pub fn is_clear(&self) -> bool {
+        self.open == 0 && self.unjudged == 0
+    }
+}
+
+/// The confirmation sentence for a gate that is not clear, or `None` when it
+/// is clear. The zero clause is left out; the question follows the action.
+#[must_use]
+pub fn gate_notice(gate: &Gate, action: GateAction) -> Option<String> {
+    if gate.is_clear() {
+        return None;
+    }
+    let mut clauses = Vec::new();
+    match gate.open {
+        0 => {}
+        1 => clauses.push("1 comment is still open".to_owned()),
+        n => clauses.push(format!("{n} comments are still open")),
+    }
+    match gate.unjudged {
+        0 => {}
+        1 => clauses.push("1 decided comment has no verdict".to_owned()),
+        n => clauses.push(format!("{n} decided comments have no verdict")),
+    }
+    let lane = gate.lane.trim();
+    let scope = if lane.is_empty() {
+        "in every lane".to_owned()
+    } else {
+        format!("in lane {lane}")
+    };
+    Some(format!(
+        "{} {scope}. Go ahead with the {} anyway?",
+        clauses.join(" and "),
+        action.noun()
+    ))
+}
+
+/// Whether a reason typed to get past a gate is usable: not blank.
+#[must_use]
+pub fn gate_reason_ok(reason: &str) -> bool {
+    !reason.trim().is_empty()
+}
+
+/// The button that goes ahead past a gate: "Commit anyway", "Amend anyway",
+/// "Push anyway".
+#[must_use]
+pub fn gate_confirm_label(action: GateAction) -> String {
+    format!("{} anyway", action.verb())
+}
+
 /// J and K: the next (`delta` 1) or previous (-1) file, staged list first, then
 /// unstaged, clamped at the ends. With no current file, or one that is not in
 /// the lists, the first file. `None` when both lists are empty.
@@ -751,5 +862,135 @@ mod tests {
     #[test]
     fn reselect_is_none_when_both_lists_are_empty() {
         assert_eq!(reselect(&Lists::default(), Side::Unstaged, "x.rs", 3), None);
+    }
+
+    fn ids(values: &[&str]) -> Vec<String> {
+        values.iter().map(|v| (*v).to_owned()).collect()
+    }
+
+    fn gate(open: usize, unjudged: usize, lane: &str) -> Gate {
+        Gate {
+            open,
+            unjudged,
+            lane: lane.to_owned(),
+        }
+    }
+
+    #[test]
+    fn a_gate_with_nothing_open_or_unjudged_is_clear() {
+        assert!(Gate::from_ids(&[], &[], "main").is_clear());
+        assert!(!gate(1, 0, "main").is_clear());
+        assert!(!gate(0, 1, "main").is_clear());
+    }
+
+    #[test]
+    fn from_ids_counts_each_list_and_keeps_the_lane() {
+        let gate = Gate::from_ids(&ids(&["a", "b", "c"]), &ids(&["d", "e"]), "main");
+        assert_eq!(gate, self::gate(3, 2, "main"));
+    }
+
+    #[test]
+    fn gate_notice_is_none_when_clear() {
+        assert_eq!(
+            gate_notice(&self::gate(0, 0, "main"), GateAction::Commit),
+            None
+        );
+    }
+
+    #[test]
+    fn gate_notice_names_only_open_comments() {
+        assert_eq!(
+            gate_notice(&self::gate(3, 0, "main"), GateAction::Commit).as_deref(),
+            Some("3 comments are still open in lane main. Go ahead with the commit anyway?")
+        );
+    }
+
+    #[test]
+    fn gate_notice_names_only_unjudged_comments() {
+        assert_eq!(
+            gate_notice(&self::gate(0, 2, "main"), GateAction::Commit).as_deref(),
+            Some(
+                "2 decided comments have no verdict in lane main. Go ahead with the commit anyway?"
+            )
+        );
+    }
+
+    #[test]
+    fn gate_notice_names_both_clauses() {
+        assert_eq!(
+            gate_notice(&self::gate(3, 2, "main"), GateAction::Commit).as_deref(),
+            Some(
+                "3 comments are still open and 2 decided comments have no verdict in lane main. Go ahead with the commit anyway?"
+            )
+        );
+    }
+
+    #[test]
+    fn gate_notice_uses_singular_wording_for_one() {
+        let notice = |g: Gate| gate_notice(&g, GateAction::Commit).unwrap();
+        assert_eq!(
+            notice(self::gate(1, 0, "main")),
+            "1 comment is still open in lane main. Go ahead with the commit anyway?"
+        );
+        assert_eq!(
+            notice(self::gate(0, 1, "main")),
+            "1 decided comment has no verdict in lane main. Go ahead with the commit anyway?"
+        );
+        assert_eq!(
+            notice(self::gate(1, 1, "main")),
+            "1 comment is still open and 1 decided comment has no verdict in lane main. Go ahead with the commit anyway?"
+        );
+    }
+
+    #[test]
+    fn gate_notice_says_every_lane_when_no_lane_is_named() {
+        assert_eq!(
+            gate_notice(&self::gate(3, 2, ""), GateAction::Commit).as_deref(),
+            Some("3 comments are still open and 2 decided comments have no verdict in every lane. Go ahead with the commit anyway?")
+        );
+        assert_eq!(
+            gate_notice(&self::gate(1, 0, "  "), GateAction::Commit).as_deref(),
+            Some("1 comment is still open in every lane. Go ahead with the commit anyway?")
+        );
+    }
+
+    #[test]
+    fn gate_notice_question_follows_the_action() {
+        let g = self::gate(1, 0, "main");
+        assert!(gate_notice(&g, GateAction::Commit)
+            .unwrap()
+            .ends_with("Go ahead with the commit anyway?"));
+        assert!(gate_notice(&g, GateAction::Amend)
+            .unwrap()
+            .ends_with("Go ahead with the amend anyway?"));
+        assert!(gate_notice(&g, GateAction::Push)
+            .unwrap()
+            .ends_with("Go ahead with the push anyway?"));
+    }
+
+    #[test]
+    fn each_action_has_its_verb_and_core_action() {
+        assert_eq!(GateAction::Commit.verb(), "Commit");
+        assert_eq!(GateAction::Commit.core_action(), "commit");
+        assert_eq!(GateAction::Amend.verb(), "Amend");
+        assert_eq!(GateAction::Amend.core_action(), "commit");
+        assert_eq!(GateAction::Push.verb(), "Push");
+        assert_eq!(GateAction::Push.core_action(), "push");
+    }
+
+    #[test]
+    fn confirm_label_follows_the_verb() {
+        assert_eq!(gate_confirm_label(GateAction::Commit), "Commit anyway");
+        assert_eq!(gate_confirm_label(GateAction::Amend), "Amend anyway");
+        assert_eq!(gate_confirm_label(GateAction::Push), "Push anyway");
+    }
+
+    #[test]
+    fn a_reason_is_ok_only_when_it_is_not_blank() {
+        assert!(!gate_reason_ok(""));
+        assert!(!gate_reason_ok("   "));
+        assert!(!gate_reason_ok("\t\n"));
+        assert!(gate_reason_ok("checked with the author"));
+        assert!(gate_reason_ok("  ok  "));
     }
 }
