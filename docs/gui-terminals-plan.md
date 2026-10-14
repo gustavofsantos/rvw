@@ -1,7 +1,7 @@
 # GUI terminals plan: terminals in the workspace
 
-Status: order locked on 2026-10-13, at the user's request. T3 built (T3.1 and T3.2); manual run pending.
-Known: the tab number chords (`⌘1`..`⌘9`) did not fire in the user's first run, who does not use them; IME is unverified;
+Status: order locked on 2026-10-13, at the user's request. All six slices built and run by the user on Linux; the week of daily use is the remaining exit check.
+Known: the tab number chords (`⌘1`..`⌘9`) did not fire in the user's first run, who does not use them; macOS is unverified;
 focus reporting (`CSI I`/`CSI O`) is not sent.
 Look: boards 5 and 6 of the V2 canvas (https://claude.ai/artifact/MnJ1HhFLLqx45kzuokJWYn,
 private): the review desk with a terminal dock, and the `⌘T` palette.
@@ -78,8 +78,8 @@ The three milestones are in the locked order.
 1. Input method (IME) and the compose key: T1.2 routes plain text through
    gpui's input handler, so dead keys, the compose key and input methods that
    gpui supports reach the program as committed text, with the composition
-   drawn at the cursor. Not yet run on any platform; the user's manual run
-   decides. Option is a compose key on macOS, not Meta.
+   drawn at the cursor. Verified on Linux 2026-10-13: dead keys and compose
+   produce `é`, `ã`, `à`. macOS not yet run. Option is a compose key on macOS, not Meta.
 2. Which commands the `⌘T` palette lists: delayed. For now it lists only
    "Shell" and runs a typed command (`/bin/sh -c`) on Enter. The user plans
    config files under the XDG config directory, not committed in
