@@ -411,6 +411,7 @@ impl Terminal {
 
         let config = Config {
             scrolling_history: options.scrollback.min(MAX_SCROLLBACK),
+            kitty_keyboard: true,
             ..Config::default()
         };
         let size = Size {

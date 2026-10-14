@@ -22,7 +22,9 @@ use gpui::{
     ShapedLine, StrikethroughStyle, Style, Subscription, Task, TextRun, UTF16Selection,
     UnderlineStyle, Window,
 };
-use rvw_term::{Color, CursorKind, Event, Scroll, Snapshot, SpawnOptions, Terminal, UrlMatch};
+use rvw_term::{
+    Color, CursorKind, Event, Mode, Scroll, Snapshot, SpawnOptions, Terminal, UrlMatch,
+};
 use rvw_view::resize;
 use rvw_view::terminals::{Launch, TerminalId, Terminals};
 
@@ -538,11 +540,11 @@ impl TerminalView {
             }
             return;
         }
-        let app_cursor = self.snapshot().is_some_and(|s| s.mode.app_cursor);
+        let term = self.snapshot().map_or_else(Mode::default, |s| s.mode);
         if self.scroll_page(keystroke, cx) {
             return;
         }
-        match translate(keystroke, app_cursor, cfg!(target_os = "macos")) {
+        match translate(keystroke, &term, cfg!(target_os = "macos")) {
             Translated::Send(bytes) => {
                 self.write(&bytes);
                 cx.stop_propagation();
@@ -648,7 +650,7 @@ impl TerminalView {
             _ => {
                 // Chords that would be bytes for the program are not.
                 if matches!(
-                    translate(keystroke, false, cfg!(target_os = "macos")),
+                    translate(keystroke, &Mode::default(), cfg!(target_os = "macos")),
                     Translated::Send(_)
                 ) {
                     cx.stop_propagation();

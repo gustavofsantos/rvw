@@ -1,9 +1,13 @@
 //! Keys and pastes to the bytes a program on the PTY expects.
 //!
 //! No window toolkit here: the GUI maps its key events to [`Key`] and
-//! [`Modifiers`], and writes the result with `Terminal::write`. The tables
-//! follow xterm, as Zed's `terminal/src/mappings/keys.rs` does. The kitty
-//! keyboard protocol is not implemented.
+//! [`Modifiers`], and writes the result with `Terminal::write`. The legacy
+//! tables follow xterm, as Zed's `terminal/src/mappings/keys.rs` does. Once a
+//! program sets kitty keyboard protocol flags, keys are encoded by the
+//! protocol instead (see `kitty.rs`, ported from Ghostty).
+
+use crate::kitty;
+use crate::snapshot::Mode;
 
 /// A key that is not just text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,8 +52,9 @@ impl Modifiers {
         self == Self::NONE
     }
 
-    /// The xterm modifier parameter: 1 plus shift, alt (2) and ctrl (4).
-    fn param(self) -> u8 {
+    /// The xterm modifier parameter: 1 plus shift, alt (2) and ctrl (4). The
+    /// kitty protocol uses the same value.
+    pub(crate) fn param(self) -> u8 {
         1 + u8::from(self.shift) + 2 * u8::from(self.alt) + 4 * u8::from(self.ctrl)
     }
 }
@@ -57,10 +62,21 @@ impl Modifiers {
 const ESC: u8 = 0x1b;
 
 /// The bytes for a key press, or `None` when the key has no encoding (the
-/// caller then drops it). `app_cursor` is the terminal's application cursor
-/// mode (`Mode::app_cursor` of a snapshot). Alt sends an ESC prefix.
+/// caller then drops it). With no kitty flags set in `term`, this is the
+/// legacy encoding, where `term.app_cursor` (the application cursor mode of a
+/// snapshot) selects the arrow forms and Alt sends an ESC prefix. With kitty
+/// flags set, the protocol's encoding is used and the cursor mode is ignored.
 #[must_use]
-pub fn encode_key(key: Key, mods: Modifiers, app_cursor: bool) -> Option<Vec<u8>> {
+pub fn encode_key(key: Key, mods: Modifiers, term: &Mode) -> Option<Vec<u8>> {
+    if term.kitty.is_empty() {
+        legacy(key, mods, term.app_cursor)
+    } else {
+        kitty::encode(key, mods, term.kitty)
+    }
+}
+
+/// The legacy xterm encoding of a key press.
+pub(crate) fn legacy(key: Key, mods: Modifiers, app_cursor: bool) -> Option<Vec<u8>> {
     match key {
         Key::Char(c) => encode_char(c, mods),
         Key::Enter => Some(alt_prefix(mods, vec![b'\r'])),
@@ -192,6 +208,7 @@ pub fn encode_paste(text: &str, bracketed: bool) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kitty::KittyFlags;
 
     const NONE: Modifiers = Modifiers::NONE;
     const CTRL: Modifiers = Modifiers {
@@ -211,7 +228,24 @@ mod tests {
     };
 
     fn enc(key: Key, mods: Modifiers, app: bool) -> Vec<u8> {
-        encode_key(key, mods, app).expect("encodes")
+        let term = Mode {
+            app_cursor: app,
+            ..Mode::default()
+        };
+        encode_key(key, mods, &term).expect("encodes")
+    }
+
+    #[test]
+    fn kitty_flags_replace_the_legacy_bytes() {
+        let kitty = Mode {
+            kitty: KittyFlags::DISAMBIGUATE,
+            ..Mode::default()
+        };
+        assert_eq!(
+            encode_key(Key::Char('c'), CTRL, &kitty),
+            Some(b"\x1b[99;5u".to_vec())
+        );
+        assert_eq!(enc(Key::Char('c'), CTRL, false), [3]);
     }
 
     #[test]
@@ -228,7 +262,7 @@ mod tests {
         assert_eq!(enc(Key::Char('['), CTRL, false), [0x1b]);
         assert_eq!(enc(Key::Char(' '), CTRL, false), [0]);
         assert_eq!(enc(Key::Char('/'), CTRL, false), [0x1f]);
-        assert_eq!(encode_key(Key::Char('1'), CTRL, false), None);
+        assert_eq!(encode_key(Key::Char('1'), CTRL, &Mode::default()), None);
     }
 
     #[test]
@@ -277,8 +311,8 @@ mod tests {
         assert_eq!(enc(Key::F(5), NONE, false), b"\x1b[15~");
         assert_eq!(enc(Key::F(12), NONE, false), b"\x1b[24~");
         assert_eq!(enc(Key::F(12), CTRL, false), b"\x1b[24;5~");
-        assert_eq!(encode_key(Key::F(0), NONE, false), None);
-        assert_eq!(encode_key(Key::F(21), NONE, false), None);
+        assert_eq!(encode_key(Key::F(0), NONE, &Mode::default()), None);
+        assert_eq!(encode_key(Key::F(21), NONE, &Mode::default()), None);
     }
 
     #[test]

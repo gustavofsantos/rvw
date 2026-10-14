@@ -7,6 +7,7 @@ use alacritty_terminal::term::cell::{Cell as TermCell, Flags};
 use alacritty_terminal::term::{Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color as TermColor, CursorShape, NamedColor};
 
+use crate::kitty::KittyFlags;
 use crate::search::Search;
 use crate::select;
 use crate::terminal::Exit;
@@ -108,6 +109,9 @@ pub struct Cursor {
 pub struct Mode {
     /// Arrows send `ESC O x`; pass to `encode_key`.
     pub app_cursor: bool,
+    /// The kitty keyboard protocol flags the program has set. When any is set,
+    /// `encode_key` uses the protocol instead of the legacy keys.
+    pub kitty: KittyFlags,
     /// Pastes are wrapped; pass to `encode_paste`.
     pub bracketed_paste: bool,
     /// The alternate screen is up (a full-screen program).
@@ -261,9 +265,32 @@ fn convert_cell(cell: &TermCell) -> Cell {
     }
 }
 
+fn convert_kitty(mode: TermMode) -> KittyFlags {
+    const MAP: [(TermMode, KittyFlags); 5] = [
+        (TermMode::DISAMBIGUATE_ESC_CODES, KittyFlags::DISAMBIGUATE),
+        (TermMode::REPORT_EVENT_TYPES, KittyFlags::REPORT_EVENT_TYPES),
+        (
+            TermMode::REPORT_ALTERNATE_KEYS,
+            KittyFlags::REPORT_ALTERNATE_KEYS,
+        ),
+        (
+            TermMode::REPORT_ALL_KEYS_AS_ESC,
+            KittyFlags::REPORT_ALL_KEYS,
+        ),
+        (
+            TermMode::REPORT_ASSOCIATED_TEXT,
+            KittyFlags::REPORT_ASSOCIATED_TEXT,
+        ),
+    ];
+    MAP.into_iter()
+        .filter(|(from, _)| mode.contains(*from))
+        .fold(KittyFlags::default(), |flags, (_, to)| flags.union(to))
+}
+
 fn convert_mode(mode: TermMode) -> Mode {
     Mode {
         app_cursor: mode.contains(TermMode::APP_CURSOR),
+        kitty: convert_kitty(mode),
         bracketed_paste: mode.contains(TermMode::BRACKETED_PASTE),
         alt_screen: mode.contains(TermMode::ALT_SCREEN),
         focus_reporting: mode.contains(TermMode::FOCUS_IN_OUT),

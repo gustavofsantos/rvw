@@ -3,7 +3,7 @@
 //! key for the program, text for the input method, or neither.
 
 use gpui::Keystroke;
-use rvw_term::{Key, Modifiers};
+use rvw_term::{Key, Mode, Modifiers};
 
 /// What one keystroke becomes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,11 +69,12 @@ fn single(text: &str) -> Option<char> {
     chars.next().is_none().then_some(first)
 }
 
-/// Translates `keystroke`. `app_cursor` is the terminal's application cursor
-/// mode. On macOS, Option composes characters (Option-2 types a symbol on
-/// many layouts), so Option with a character is text there; elsewhere Alt
-/// is Meta and sends ESC before the key.
-pub fn translate(keystroke: &Keystroke, app_cursor: bool, is_mac: bool) -> Translated {
+/// Translates `keystroke`. `term` is the terminal's mode, which the encoder
+/// reads for the cursor keys and the kitty keyboard protocol. On macOS, Option
+/// composes characters (Option-2 types a symbol on many layouts), so Option
+/// with a character is text there; elsewhere Alt is Meta and sends ESC before
+/// the key.
+pub fn translate(keystroke: &Keystroke, term: &Mode, is_mac: bool) -> Translated {
     let held = keystroke.modifiers;
     if is_mac {
         if let Some(bytes) = mac_text_editing(keystroke) {
@@ -91,14 +92,14 @@ pub fn translate(keystroke: &Keystroke, app_cursor: bool, is_mac: bool) -> Trans
         alt: held.alt,
     };
     if let Some(key) = named_key(&keystroke.key) {
-        return encoded(key, mods, app_cursor);
+        return encoded(key, mods, term);
     }
     let Some(c) = character(keystroke) else {
         return Translated::Pass;
     };
     let composes = is_mac && mods.alt && !mods.ctrl && keystroke.key_char.is_some();
     if mods.ctrl || (mods.alt && !composes) {
-        return encoded(Key::Char(c), mods, app_cursor);
+        return encoded(Key::Char(c), mods, term);
     }
     if keystroke.key_char.is_some() {
         Translated::Text
@@ -127,8 +128,8 @@ fn mac_text_editing(keystroke: &Keystroke) -> Option<&'static [u8]> {
     Some(bytes)
 }
 
-fn encoded(key: Key, mods: Modifiers, app_cursor: bool) -> Translated {
-    match rvw_term::encode_key(key, mods, app_cursor) {
+fn encoded(key: Key, mods: Modifiers, term: &Mode) -> Translated {
+    match rvw_term::encode_key(key, mods, term) {
         Some(bytes) => Translated::Send(bytes),
         None => Translated::Pass,
     }
@@ -138,6 +139,16 @@ fn encoded(key: Key, mods: Modifiers, app_cursor: bool) -> Translated {
 mod tests {
     use super::*;
     use gpui::Modifiers as Held;
+
+    /// `translate` with only the application cursor mode set, which is all
+    /// most of these cases depend on.
+    fn translate(keystroke: &Keystroke, app_cursor: bool, is_mac: bool) -> Translated {
+        let term = Mode {
+            app_cursor,
+            ..Mode::default()
+        };
+        super::translate(keystroke, &term, is_mac)
+    }
 
     fn press(key: &str, key_char: Option<&str>, held: Held) -> Keystroke {
         Keystroke {

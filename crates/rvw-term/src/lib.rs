@@ -7,6 +7,7 @@
 //! until the owner takes a snapshot.
 
 mod keys;
+mod kitty;
 mod mouse;
 mod notify;
 mod pump;
@@ -18,6 +19,7 @@ mod terminal;
 mod url;
 
 pub use keys::{encode_key, encode_paste, Key, Modifiers};
+pub use kitty::KittyFlags;
 pub use mouse::{
     encode_alternate_scroll, encode_mouse, MouseButton, MouseEvent, MouseEventKind, Wheel,
     MAX_WHEEL_LINES,
