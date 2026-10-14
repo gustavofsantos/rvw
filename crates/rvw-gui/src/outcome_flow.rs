@@ -1,12 +1,11 @@
 //! The outcome screen's behaviour: opening a comment, marking a decided one
 //! seen, going back, and stepping through the review's comments. Opening reads
-//! the comment off the UI thread; the rules are in `rvw_view` and `seen`.
+//! the comment off the UI thread; the rules are in `rvw_view`.
 
 use std::sync::Arc;
 
 use gpui::Context;
 use rvw_core::operations::GetInput;
-use rvw_core::types::Status;
 use rvw_view::keys::Screen;
 use rvw_view::nav;
 use rvw_view::outcome::{self, Moment, Story};
@@ -18,9 +17,8 @@ impl Shell {
     /// Opens the outcome of comment `id`. The comment and its evidence (the
     /// code before and after, read from git) are read off the UI thread; the
     /// screen switches when they arrive, unless another comment was opened
-    /// meanwhile. A done or rejected comment is marked seen, so the waiting
-    /// counter drops. A failure to mark it is shown beside the story, which
-    /// still opens.
+    /// meanwhile. Opening a decided comment does not close it: only a verdict
+    /// does.
     pub fn open_outcome(&mut self, id: &str, cx: &mut Context<Self>) {
         self.outcome_pending = Some(id.to_owned());
         let service = Arc::clone(&self.service);
@@ -62,10 +60,7 @@ impl Shell {
             _ => self.screen,
         };
         let (story, timeline, error) = match read {
-            Ok((story, timeline)) => {
-                let error = self.mark_seen(&story);
-                (Ok(story), timeline, error)
-            }
+            Ok((story, timeline)) => (Ok(story), timeline, None),
             Err(error) => (Err(error.message), Vec::new(), None),
         };
         self.outcome = Some(Outcome {
@@ -78,21 +73,6 @@ impl Shell {
         self.screen = Screen::Outcome;
         self.removal = None;
         cx.notify();
-    }
-
-    /// Records a decided comment as seen and counts it so. Returns the
-    /// message to show when that fails.
-    fn mark_seen(&mut self, story: &Story) -> Option<String> {
-        let decided = matches!(story.status, Status::Done | Status::Rejected);
-        if !decided || self.seen.contains(&self.identity.workspace, &story.id) {
-            return None;
-        }
-        let workspace = self.identity.workspace.clone();
-        if let Err(message) = self.seen.mark(&workspace, &story.id) {
-            return Some(message);
-        }
-        self.acknowledge(&story.id);
-        None
     }
 
     /// Returns from the outcome screen to the screen it was opened from.

@@ -37,7 +37,6 @@ use crate::outcome_screen::{self, Outcome};
 use crate::palette_overlay::OpenPalette;
 use crate::queue_screen;
 use crate::review_screen::{self, Selected};
-use crate::seen::Seen;
 use crate::submit_dialog::{OpenSubmit, SubmitDialog};
 use crate::terminal_dock::{NewTerminal, TerminalView, ToggleTerminal};
 use crate::terminal_launcher::Launcher;
@@ -53,7 +52,6 @@ pub struct Shell {
     /// The workspace, author and lane new comments are written with.
     pub(crate) identity: Identity,
     /// The outcomes the reviewer has looked at, kept beside the database.
-    pub(crate) seen: Seen,
     /// The comment open on the outcome screen, if any.
     pub(crate) outcome: Option<Outcome>,
     /// The comment asked for last, while it is read; see `open_outcome`.
@@ -141,7 +139,6 @@ impl Shell {
         snapshot: Snapshot,
         service: Arc<Service>,
         identity: Identity,
-        seen: Seen,
         db_path: PathBuf,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -169,7 +166,6 @@ impl Shell {
             snapshot,
             service,
             identity,
-            seen,
             db_path,
             live_last: None,
             live_epoch: 0,
@@ -372,16 +368,14 @@ impl Shell {
         self.install_composer(None, "", window, cx);
     }
 
-    /// Re-reads the snapshot, with the seen outcomes, keeping the file open
+    /// Re-reads the snapshot, keeping the file open
     /// with a fresh selection.
     pub(crate) fn refresh(&mut self) -> Result<(), String> {
         let path = self.selected.as_ref().map(|selected| selected.path.clone());
-        let acknowledged = self.seen.ids_for(&self.identity.workspace);
         let snapshot = data::load(
             &self.service,
             &self.identity.workspace,
             &self.identity.lane,
-            acknowledged,
             self.tools.compare,
         )?;
         self.live_epoch = self.live_epoch.wrapping_add(1);
@@ -396,14 +390,6 @@ impl Shell {
         self.file_pending = None;
         self.diff_generation = self.diff_generation.wrapping_add(1);
         Ok(())
-    }
-
-    /// Counts comment `id` as seen in the counters and the queue, without a
-    /// reload.
-    pub(crate) fn acknowledge(&mut self, id: &str) {
-        self.live_epoch = self.live_epoch.wrapping_add(1);
-        self.snapshot.acknowledge(id);
-        self.queue = self.snapshot.view(&self.filter);
     }
 
     /// Shows a snapshot read like `refresh` does, but keeps the open file's

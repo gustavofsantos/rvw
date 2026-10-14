@@ -1,10 +1,9 @@
 //! The queue as the reviewer sees it: groups, states and counters.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::hash::BuildHasher;
 
 use rvw_core::operations::ReviewSheet;
-use rvw_core::types::{parse_seq, Comment, Review, Status};
+use rvw_core::types::{parse_seq, Comment, Review, Status, VerdictKind};
 
 /// The title length limit, in characters, ellipsis included. A title longer
 /// than this is cut to `TITLE_MAX_CHARS - 1` characters (59) followed by `…`,
@@ -68,6 +67,10 @@ pub struct Row {
     pub state: State,
     /// who recorded the decision, or ""
     pub resolved_by: String,
+    /// the verdict on the decision, or None until one is given
+    pub verdict: Option<VerdictKind>,
+    /// the decided comment this one reopens, or None
+    pub reopens: Option<String>,
 }
 
 /// Rows under one review; `review` is None for the group of loose comments.
@@ -115,16 +118,23 @@ pub fn is_draft(comment: &Comment) -> bool {
     comment.status == Status::Pending && comment.review_id.is_empty()
 }
 
-/// The state of a comment, given the ids the reviewer has acknowledged.
-pub fn state_of<S: BuildHasher>(comment: &Comment, acknowledged: &HashSet<String, S>) -> State {
+/// The state of a comment. Only a verdict closes a decided comment: until a
+/// reviewer judges an agent's decision, it waits on them. A comment withdrawn
+/// before any handoff, or decided by its own author, is closed.
+pub fn state_of(comment: &Comment) -> State {
     match comment.status {
         Status::Pending if is_draft(comment) => State::Draft,
         Status::Pending => State::NotYetTaken,
         Status::Pulled => State::WithAgent,
-        Status::Done if acknowledged.contains(&comment.id) => State::Closed,
-        Status::Done => State::WaitingOnYou,
-        Status::Rejected => State::Closed,
+        Status::Done | Status::Rejected if comment.awaits_verdict() => State::WaitingOnYou,
+        Status::Done | Status::Rejected => State::Closed,
     }
+}
+
+/// How many comments wait on a reviewer's verdict, whatever the filter.
+#[must_use]
+pub fn waiting_on_you(comments: &[Comment]) -> usize {
+    comments.iter().filter(|c| c.awaits_verdict()).count()
 }
 
 /// Builds the queue home view from every comment and submitted review sheet.
@@ -132,12 +142,7 @@ pub fn state_of<S: BuildHasher>(comment: &Comment, acknowledged: &HashSet<String
 /// A comment belongs to the first sheet (newest review first) that links it.
 /// Comments no sheet links form the trailing group without a review, in input
 /// order. Groups the filter empties are dropped; counters see filtered rows only.
-pub fn build<S: BuildHasher>(
-    comments: &[Comment],
-    sheets: &[ReviewSheet],
-    acknowledged: &HashSet<String, S>,
-    filter: &Filter,
-) -> Queue {
+pub fn build(comments: &[Comment], sheets: &[ReviewSheet], filter: &Filter) -> Queue {
     let by_id: HashMap<&str, &Comment> = comments.iter().map(|c| (c.id.as_str(), c)).collect();
     let mut claimed: HashSet<&str> = HashSet::new();
     let mut counters = Counters {
@@ -182,7 +187,7 @@ pub fn build<S: BuildHasher>(
             if !claimed.insert(comment.id.as_str()) {
                 continue;
             }
-            let state = state_of(comment, acknowledged);
+            let state = state_of(comment);
             if passes(filter, comment, state) {
                 tally(&mut counters, state);
                 rows.push(row_of(comment, state));
@@ -201,7 +206,7 @@ pub fn build<S: BuildHasher>(
         if claimed.contains(comment.id.as_str()) {
             continue;
         }
-        let state = state_of(comment, acknowledged);
+        let state = state_of(comment);
         if passes(filter, comment, state) {
             tally(&mut counters, state);
             loose.push(row_of(comment, state));
@@ -279,6 +284,8 @@ fn row_of(comment: &Comment, state: State) -> Row {
         lane: comment.lane.clone().unwrap_or_default(),
         state,
         resolved_by: comment.resolved_by.clone().unwrap_or_default(),
+        verdict: comment.verdict.as_ref().map(|verdict| verdict.kind),
+        reopens: comment.reopens.clone(),
     }
 }
 
@@ -300,7 +307,7 @@ fn title_of(text: &str) -> String {
 mod tests {
     use super::*;
     use rvw_core::operations::SheetState;
-    use rvw_core::types::{ReviewStatus, Status};
+    use rvw_core::types::{Actor, ReviewStatus, Status, Verdict};
 
     fn comment(id: &str, status: Status) -> Comment {
         Comment {
@@ -333,6 +340,44 @@ mod tests {
 
     fn in_review(mut c: Comment, review_id: &str) -> Comment {
         c.review_id = review_id.into();
+        c
+    }
+
+    fn handed_off_done(id: &str) -> Comment {
+        with_id(after_handoff(Status::Done, "claude"), id)
+    }
+
+    fn with_id(mut c: Comment, id: &str) -> Comment {
+        c.id = id.into();
+        c
+    }
+
+    /// A comment the agent decided after it was handed over.
+    fn after_handoff(status: Status, decided_by: &str) -> Comment {
+        let mut c = comment("r1", status);
+        c.pulled_at = Some("2026-01-01T00:01:00Z".into());
+        c.resolved_at = Some("2026-01-01T00:02:00Z".into());
+        c.resolved_by = Some(decided_by.into());
+        c
+    }
+
+    /// A pending comment rejected before any handoff: a withdrawal.
+    fn withdrawn() -> Comment {
+        let mut c = comment("r1", Status::Rejected);
+        c.resolved_at = Some("2026-01-01T00:02:00Z".into());
+        c.resolved_by = Some("gustavo".into());
+        c
+    }
+
+    fn judged(mut c: Comment, kind: VerdictKind) -> Comment {
+        c.verdict = Some(Verdict {
+            kind,
+            by: "gustavo".into(),
+            actor: Actor::Human,
+            at: "2026-01-01T00:03:00Z".into(),
+            note: None,
+            followup: None,
+        });
         c
     }
 
@@ -374,51 +419,128 @@ mod tests {
         }
     }
 
-    fn none() -> HashSet<String> {
-        HashSet::new()
-    }
-
     fn ids(group: &Group) -> Vec<&str> {
         group.rows.iter().map(|r| r.id.as_str()).collect()
     }
 
     #[test]
     fn state_of_pending_without_review_is_draft() {
-        assert_eq!(
-            state_of(&comment("r1", Status::Pending), &none()),
-            State::Draft
-        );
+        assert_eq!(state_of(&comment("r1", Status::Pending)), State::Draft);
     }
 
     #[test]
     fn state_of_pending_in_review_is_not_yet_taken() {
         let c = in_review(comment("r1", Status::Pending), "rv1");
-        assert_eq!(state_of(&c, &none()), State::NotYetTaken);
+        assert_eq!(state_of(&c), State::NotYetTaken);
     }
 
     #[test]
     fn state_of_pulled_is_with_agent() {
         let c = in_review(comment("r1", Status::Pulled), "rv1");
-        assert_eq!(state_of(&c, &none()), State::WithAgent);
+        assert_eq!(state_of(&c), State::WithAgent);
     }
 
     #[test]
-    fn state_of_done_unacknowledged_is_waiting_on_you() {
-        let c = comment("r1", Status::Done);
-        assert_eq!(state_of(&c, &none()), State::WaitingOnYou);
+    fn state_of_done_after_a_handoff_without_a_verdict_waits_on_you() {
+        assert_eq!(
+            state_of(&after_handoff(Status::Done, "claude")),
+            State::WaitingOnYou
+        );
     }
 
     #[test]
-    fn state_of_done_acknowledged_is_closed() {
-        let c = comment("r1", Status::Done);
-        let acked: HashSet<String> = ["r1".to_string()].into();
-        assert_eq!(state_of(&c, &acked), State::Closed);
+    fn state_of_rejected_after_a_handoff_without_a_verdict_waits_on_you() {
+        assert_eq!(
+            state_of(&after_handoff(Status::Rejected, "claude")),
+            State::WaitingOnYou
+        );
     }
 
     #[test]
-    fn state_of_rejected_is_closed_even_unacknowledged() {
-        let c = comment("r1", Status::Rejected);
-        assert_eq!(state_of(&c, &none()), State::Closed);
+    fn state_of_a_withdrawn_rejection_is_closed() {
+        assert_eq!(state_of(&withdrawn()), State::Closed);
+    }
+
+    #[test]
+    fn state_of_a_decision_by_its_own_author_is_closed() {
+        let mut own = after_handoff(Status::Done, "ada");
+        own.author = Some("ada".into());
+        assert_eq!(state_of(&own), State::Closed);
+
+        let mut other = after_handoff(Status::Done, "claude");
+        other.author = Some("ada".into());
+        assert_eq!(state_of(&other), State::WaitingOnYou);
+    }
+
+    #[test]
+    fn state_of_an_accepted_verdict_closes_a_done_comment() {
+        let c = judged(after_handoff(Status::Done, "claude"), VerdictKind::Accepted);
+        assert_eq!(state_of(&c), State::Closed);
+    }
+
+    #[test]
+    fn state_of_a_reopened_verdict_closes_a_rejected_comment() {
+        let mut c = judged(
+            after_handoff(Status::Rejected, "claude"),
+            VerdictKind::Reopened,
+        );
+        if let Some(verdict) = c.verdict.as_mut() {
+            verdict.followup = Some("r10".into());
+        }
+        assert_eq!(state_of(&c), State::Closed);
+    }
+
+    #[test]
+    fn counters_follow_the_verdicts() {
+        let comments = vec![
+            with_id(after_handoff(Status::Done, "claude"), "r1"),
+            with_id(
+                judged(after_handoff(Status::Done, "claude"), VerdictKind::Accepted),
+                "r2",
+            ),
+            with_id(
+                judged(
+                    after_handoff(Status::Rejected, "claude"),
+                    VerdictKind::Reopened,
+                ),
+                "r3",
+            ),
+            with_id(after_handoff(Status::Rejected, "claude"), "r4"),
+            with_id(withdrawn(), "r5"),
+        ];
+        let q = build(&comments, &[], &Filter::default());
+        assert_eq!(q.counters.waiting_on_you, 2);
+        assert_eq!(q.counters.closed, 3);
+        assert_eq!(waiting_on_you(&comments), 2);
+    }
+
+    #[test]
+    fn waiting_on_you_counts_only_comments_awaiting_a_verdict() {
+        let mut own = after_handoff(Status::Done, "ada");
+        own.author = Some("ada".into());
+        let comments = vec![
+            comment("r1", Status::Pending),
+            comment("r2", Status::Pulled),
+            after_handoff(Status::Done, "claude"),
+            judged(after_handoff(Status::Done, "claude"), VerdictKind::Accepted),
+            withdrawn(),
+            own,
+        ];
+        assert_eq!(waiting_on_you(&comments), 1);
+        assert_eq!(waiting_on_you(&[]), 0);
+    }
+
+    #[test]
+    fn row_carries_the_verdict_and_what_a_comment_reopens() {
+        let judged_done = judged(after_handoff(Status::Done, "claude"), VerdictKind::Accepted);
+        let mut follow_up = comment("r4", Status::Pending);
+        follow_up.reopens = Some("r3".into());
+        let q = build(&[judged_done, follow_up], &[], &Filter::default());
+        let rows: Vec<&Row> = q.groups.iter().flat_map(|g| g.rows.iter()).collect();
+        assert_eq!(rows[0].verdict, Some(VerdictKind::Accepted));
+        assert_eq!(rows[0].reopens, None);
+        assert_eq!(rows[1].verdict, None);
+        assert_eq!(rows[1].reopens.as_deref(), Some("r3"));
     }
 
     #[test]
@@ -458,7 +580,7 @@ mod tests {
             // comment_ids order is the row order, not the id order
             sheet("rv2", "2026-01-02T00:00:00Z", &["r7", "r3"], vec![]),
         ];
-        let q = build(&comments, &sheets, &none(), &Filter::default());
+        let q = build(&comments, &sheets, &Filter::default());
 
         assert_eq!(q.groups.len(), 3);
         assert_eq!(q.groups[0].review.as_ref().unwrap().id, "rv2");
@@ -479,7 +601,7 @@ mod tests {
             sheet("rv3", "2026-01-01T00:00:00Z", &["r1"], vec![]),
             sheet("rv10", "2026-01-01T00:00:00Z", &["r2"], vec![]),
         ];
-        let q = build(&comments, &sheets, &none(), &Filter::default());
+        let q = build(&comments, &sheets, &Filter::default());
         assert_eq!(q.groups[0].review.as_ref().unwrap().id, "rv10");
         assert_eq!(q.groups[1].review.as_ref().unwrap().id, "rv3");
     }
@@ -490,7 +612,7 @@ mod tests {
             comment("r9", Status::Pending),
             comment("r2", Status::Pending),
         ];
-        let q = build(&comments, &[], &none(), &Filter::default());
+        let q = build(&comments, &[], &Filter::default());
         assert_eq!(q.groups.len(), 1);
         assert!(q.groups[0].review.is_none());
         assert_eq!(ids(&q.groups[0]), vec!["r9", "r2"]);
@@ -501,7 +623,7 @@ mod tests {
         let fresh = in_review(comment("r1", Status::Pulled), "rv1");
         let stale = in_review(comment("r1", Status::Pending), "rv1");
         let sheets = vec![sheet("rv1", "2026-01-01T00:00:00Z", &["r1"], vec![stale])];
-        let q = build(&[fresh], &sheets, &none(), &Filter::default());
+        let q = build(&[fresh], &sheets, &Filter::default());
 
         assert_eq!(q.groups.len(), 1);
         assert_eq!(ids(&q.groups[0]), vec!["r1"]);
@@ -514,7 +636,7 @@ mod tests {
     fn a_sheet_comment_missing_from_the_comments_input_is_still_shown() {
         let linked = in_review(comment("r4", Status::Pending), "rv1");
         let sheets = vec![sheet("rv1", "2026-01-01T00:00:00Z", &["r4"], vec![linked])];
-        let q = build(&[], &sheets, &none(), &Filter::default());
+        let q = build(&[], &sheets, &Filter::default());
         assert_eq!(ids(&q.groups[0]), vec!["r4"]);
         assert_eq!(q.counters.not_yet_taken, 1);
     }
@@ -524,7 +646,7 @@ mod tests {
         // a sheet listing an id that is not in `comments` and not in its own
         // comments has nothing to show for that id
         let sheets = vec![sheet("rv1", "2026-01-01T00:00:00Z", &["r99"], vec![])];
-        let q = build(&[], &sheets, &none(), &Filter::default());
+        let q = build(&[], &sheets, &Filter::default());
         assert!(q.groups.is_empty());
         assert_eq!(q.counters.draft, 0);
     }
@@ -540,7 +662,7 @@ mod tests {
             state: Some(State::WithAgent),
             ..Filter::default()
         };
-        let q = build(&comments, &sheets, &none(), &filter);
+        let q = build(&comments, &sheets, &filter);
         assert_eq!(q.groups.len(), 1);
         assert_eq!(ids(&q.groups[0]), vec!["r2"]);
     }
@@ -554,7 +676,7 @@ mod tests {
             lane: Some("feat".into()),
             ..Filter::default()
         };
-        let q = build(&[laned, unlaned], &[], &none(), &filter);
+        let q = build(&[laned, unlaned], &[], &filter);
         assert_eq!(q.groups.len(), 1);
         assert_eq!(ids(&q.groups[0]), vec!["r1"]);
         assert_eq!(q.groups[0].rows[0].lane, "feat");
@@ -569,7 +691,7 @@ mod tests {
             author: Some("ada".into()),
             ..Filter::default()
         };
-        let q = build(&[ada, anonymous], &[], &none(), &filter);
+        let q = build(&[ada, anonymous], &[], &filter);
         assert_eq!(ids(&q.groups[0]), vec!["r1"]);
         assert_eq!(q.groups[0].rows[0].author, "ada");
     }
@@ -578,7 +700,7 @@ mod tests {
     fn groups_left_empty_by_the_filter_are_dropped() {
         let comments = vec![
             in_review(comment("r1", Status::Pending), "rv1"),
-            in_review(comment("r2", Status::Done), "rv2"),
+            in_review(handed_off_done("r2"), "rv2"),
             comment("r3", Status::Pending),
         ];
         let sheets = vec![
@@ -589,7 +711,7 @@ mod tests {
             state: Some(State::WaitingOnYou),
             ..Filter::default()
         };
-        let q = build(&comments, &sheets, &none(), &filter);
+        let q = build(&comments, &sheets, &filter);
         assert_eq!(q.groups.len(), 1);
         assert_eq!(q.groups[0].review.as_ref().unwrap().id, "rv2");
     }
@@ -607,7 +729,7 @@ mod tests {
             lane: Some("feat".into()),
             ..Filter::default()
         };
-        let q = build(&comments, &[], &none(), &filter);
+        let q = build(&comments, &[], &filter);
         assert_eq!(
             q.counters,
             Counters {
@@ -618,7 +740,7 @@ mod tests {
                 closed: 0,
             }
         );
-        let all = build(&comments, &[], &none(), &Filter::default());
+        let all = build(&comments, &[], &Filter::default());
         assert_eq!(all.counters.draft, 2);
         assert_eq!(all.counters.closed, 1);
     }
@@ -629,7 +751,7 @@ mod tests {
         c.resolved_by = Some("ada".into());
         c.start_line = 3;
         c.end_line = 5;
-        let q = build(&[c], &[], &none(), &Filter::default());
+        let q = build(&[c], &[], &Filter::default());
         let row = &q.groups[0].rows[0];
         assert_eq!(row.location, "src/a.rs:3-5");
         assert_eq!(row.resolved_by, "ada");
@@ -641,7 +763,7 @@ mod tests {
     fn title_is_the_first_non_empty_trimmed_line() {
         let mut c = comment("r1", Status::Pending);
         c.comment = "\n   \n  hello  \nworld".into();
-        let q = build(&[c], &[], &none(), &Filter::default());
+        let q = build(&[c], &[], &Filter::default());
         assert_eq!(q.groups[0].rows[0].title, "hello");
     }
 
@@ -649,7 +771,7 @@ mod tests {
     fn title_of_whitespace_only_text_is_empty_marker() {
         let mut c = comment("r1", Status::Pending);
         c.comment = "  \n\t\n   ".into();
-        let q = build(&[c], &[], &none(), &Filter::default());
+        let q = build(&[c], &[], &Filter::default());
         assert_eq!(q.groups[0].rows[0].title, "(empty)");
     }
 
@@ -658,7 +780,7 @@ mod tests {
         let text = "a".repeat(60);
         let mut c = comment("r1", Status::Pending);
         c.comment = text.clone();
-        let q = build(&[c], &[], &none(), &Filter::default());
+        let q = build(&[c], &[], &Filter::default());
         assert_eq!(q.groups[0].rows[0].title, text);
     }
 
@@ -685,7 +807,7 @@ mod tests {
         let text = "é".repeat(70);
         let mut c = comment("r1", Status::Pending);
         c.comment = text;
-        let q = build(&[c], &[], &none(), &Filter::default());
+        let q = build(&[c], &[], &Filter::default());
         let title = &q.groups[0].rows[0].title;
         assert_eq!(title.chars().count(), 60);
         assert!(title.ends_with('…'));

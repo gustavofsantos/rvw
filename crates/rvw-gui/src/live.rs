@@ -5,7 +5,6 @@
 //! the window shows off the UI thread; `Shell::live_apply` shows it.
 
 use std::collections::hash_map::DefaultHasher;
-use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -129,7 +128,6 @@ pub struct LiveJob {
     service: Arc<Service>,
     workspace: String,
     lane: String,
-    acknowledged: HashSet<String>,
     /// The comments shown now, which the Changes lists count when the queue
     /// cannot be read.
     comments: Vec<Comment>,
@@ -153,13 +151,7 @@ impl LiveJob {
     /// Reads the queue, the open file and, when git changed, the Changes
     /// screen and the repository facts. Runs off the UI thread.
     fn read(self) -> LiveRead {
-        let snapshot = data::load(
-            &self.service,
-            &self.workspace,
-            &self.lane,
-            self.acknowledged,
-            self.key.compare,
-        );
+        let snapshot = data::load(&self.service, &self.workspace, &self.lane, self.key.compare);
         let selected = match (&snapshot, &self.key.selected) {
             (Ok(snapshot), Some((path, mode))) => Some(load_selected(snapshot, path, *mode)),
             _ => None,
@@ -223,7 +215,6 @@ impl Shell {
             service: Arc::clone(&self.service),
             workspace: self.identity.workspace.clone(),
             lane: self.identity.lane.clone(),
-            acknowledged: self.seen.ids_for(&self.identity.workspace),
             comments: self.snapshot.comments.clone(),
             open_place: self.open_change_place(),
         })
@@ -497,7 +488,6 @@ mod tests {
             service: Arc::new(Service::new(Box::new(store))),
             workspace: repo.path().to_string_lossy().into_owned(),
             lane: String::new(),
-            acknowledged: HashSet::new(),
             comments: Vec::new(),
             open_place: None,
         }

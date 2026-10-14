@@ -2,10 +2,8 @@
 //! comment in four steps, and the timeline of its moments. No drawing and no
 //! I/O; the times are shown in short form.
 
-use std::collections::HashSet;
-
 use rvw_core::operations::Evidence;
-use rvw_core::types::{Comment, Status};
+use rvw_core::types::{Comment, Status, VerdictKind};
 
 use crate::diff::{self, FileDiff};
 use crate::queue::{self, Filter, Group, Queue};
@@ -73,14 +71,23 @@ pub fn story(ev: &Evidence) -> Story {
     }
 }
 
-/// The moments of a comment, oldest first: raised, pulled when it was, then
-/// done or rejected. A comment not yet decided has no decision moment.
+/// The moments of a comment, oldest first: the comment it reopens, raised,
+/// pulled when it was, then done or rejected, then the verdict on that
+/// decision. A comment not yet decided has no decision moment.
 pub fn timeline(c: &Comment) -> Vec<Moment> {
-    let mut moments = vec![Moment {
+    let mut moments = Vec::new();
+    if let Some(id) = c.reopens.as_deref() {
+        moments.push(Moment {
+            glyph: "↻",
+            label: format!("Reopens {id}"),
+            at: short_time(&c.created_at),
+        });
+    }
+    moments.push(Moment {
         glyph: "○",
         label: format!("raised by {}", named(c.author.as_deref(), "someone")),
         at: short_time(&c.created_at),
-    }];
+    });
     if let Some(at) = c.pulled_at.as_deref() {
         moments.push(Moment {
             glyph: "◐",
@@ -102,6 +109,24 @@ pub fn timeline(c: &Comment) -> Vec<Moment> {
             at: resolved_at,
         }),
         Status::Pending | Status::Pulled => {}
+    }
+    if let Some(verdict) = c.verdict.as_ref() {
+        let by = named(Some(verdict.by.as_str()), "someone");
+        let (glyph, label) = match verdict.kind {
+            VerdictKind::Accepted => ("✓", format!("Accepted by {by}")),
+            VerdictKind::Reopened => (
+                "↻",
+                match verdict.followup.as_deref() {
+                    Some(id) => format!("Reopened by {by} as {id}"),
+                    None => format!("Reopened by {by}"),
+                },
+            ),
+        };
+        moments.push(Moment {
+            glyph,
+            label,
+            at: short_time(&verdict.at),
+        });
     }
     moments
 }
@@ -140,22 +165,18 @@ fn named(name: Option<&str>, fallback: &str) -> String {
 /// The title the queue shows for this comment. The queue builds its rows
 /// from comments, so one comment alone gives the same title.
 fn title_of(c: &Comment) -> String {
-    queue::build(
-        std::slice::from_ref(c),
-        &[],
-        &HashSet::<String>::new(),
-        &Filter::default(),
-    )
-    .groups
-    .into_iter()
-    .next()
-    .and_then(|group| group.rows.into_iter().next())
-    .map_or_else(|| "(empty)".to_owned(), |row| row.title)
+    queue::build(std::slice::from_ref(c), &[], &Filter::default())
+        .groups
+        .into_iter()
+        .next()
+        .and_then(|group| group.rows.into_iter().next())
+        .map_or_else(|| "(empty)".to_owned(), |row| row.title)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rvw_core::types::{Actor, Verdict};
 
     fn comment(status: Status) -> Comment {
         Comment {
@@ -321,17 +342,77 @@ mod tests {
         assert_eq!(timeline(&c)[0].label, "raised by someone");
     }
 
+    /// A decided comment, handed over before the decision.
+    fn decided(status: Status) -> Comment {
+        let mut c = comment(status);
+        c.pulled_at = Some("2026-10-12T10:52:00+00:00".into());
+        c.resolved_at = Some("2026-10-12T11:03:00+00:00".into());
+        c.resolved_by = Some("claude".into());
+        c
+    }
+
+    fn verdict(kind: VerdictKind, at: &str) -> Verdict {
+        Verdict {
+            kind,
+            by: "gustavo".into(),
+            actor: Actor::Human,
+            at: at.into(),
+            note: None,
+            followup: None,
+        }
+    }
+
+    #[test]
+    fn timeline_of_an_accepted_verdict_ends_with_it() {
+        let mut c = decided(Status::Done);
+        c.verdict = Some(verdict(VerdictKind::Accepted, "2026-10-12T11:20:00+00:00"));
+        let moments = timeline(&c);
+        assert_eq!(moments.len(), 4);
+        let last = moments.last().expect("a last moment");
+        assert_eq!(last.glyph, "✓");
+        assert_eq!(last.label, "Accepted by gustavo");
+        assert_eq!(last.at, "11:20");
+    }
+
+    #[test]
+    fn timeline_of_a_reopened_verdict_names_the_follow_up() {
+        let mut c = decided(Status::Rejected);
+        let mut given = verdict(VerdictKind::Reopened, "2026-10-12T11:21:00+00:00");
+        given.followup = Some("r10".into());
+        c.verdict = Some(given);
+        let moments = timeline(&c);
+        assert_eq!(moments.len(), 4);
+        let last = moments.last().expect("a last moment");
+        assert_eq!(last.glyph, "↻");
+        assert_eq!(last.label, "Reopened by gustavo as r10");
+        assert_eq!(last.at, "11:21");
+    }
+
+    #[test]
+    fn timeline_of_a_comment_that_reopens_starts_with_what_it_reopens() {
+        let mut c = comment(Status::Pending);
+        c.reopens = Some("r3".into());
+        let moments = timeline(&c);
+        assert_eq!(moments.len(), 2);
+        assert_eq!(moments[0].glyph, "↻");
+        assert_eq!(moments[0].label, "Reopens r3");
+        assert_eq!(moments[0].at, "10:41");
+        assert_eq!(moments[1].label, "raised by gustavo");
+    }
+
+    #[test]
+    fn timeline_of_a_decision_without_a_verdict_has_no_verdict_moment() {
+        let moments = timeline(&decided(Status::Done));
+        assert_eq!(moments.len(), 3);
+        assert_eq!(moments[2].label, "done by claude");
+    }
+
     #[test]
     fn group_of_finds_the_group_holding_the_comment() {
         let loose = comment(Status::Done);
         let mut other = comment(Status::Done);
         other.id = "r10".into();
-        let queue = queue::build(
-            &[loose, other],
-            &[],
-            &HashSet::<String>::new(),
-            &Filter::default(),
-        );
+        let queue = queue::build(&[loose, other], &[], &Filter::default());
         let group = group_of(&queue, "r10").expect("a group");
         assert!(group.review.is_none());
         assert_eq!(group.rows.len(), 2);

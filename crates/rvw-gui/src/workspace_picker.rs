@@ -20,7 +20,6 @@ use rvw_view::workspaces::{self, Item};
 use crate::data::{self, Identity};
 use crate::icon::{self, Icon};
 use crate::last_workspace;
-use crate::seen::Seen;
 use crate::shell::Shell;
 use crate::text_input::{TextInput, TextInputEvent};
 use crate::theme;
@@ -204,8 +203,6 @@ impl Shell {
         cx.notify();
         let service = Arc::clone(&self.service);
         let db = self.db_path.clone();
-        let seen = Seen::load(&db);
-        let acknowledged = seen.ids_for(&workspace);
         let identity = Identity {
             workspace: workspace.clone(),
             author: self.identity.author.clone(),
@@ -216,7 +213,7 @@ impl Shell {
             let lane = identity.lane.clone();
             let loaded = cx
                 .background_executor()
-                .spawn(async move { data::load(&reader, &workspace, &lane, acknowledged, None) })
+                .spawn(async move { data::load(&reader, &workspace, &lane, None) })
                 .await;
             this.update_in(cx, move |this, window, cx| match loaded {
                 Ok(snapshot) => {
@@ -224,7 +221,7 @@ impl Shell {
                     // The new shell replaces this one once this update ends.
                     window.defer(cx, move |window, cx| {
                         window.replace_root(cx, move |window, cx| {
-                            Shell::new(snapshot, service, identity, seen, db, window, cx)
+                            Shell::new(snapshot, service, identity, db, window, cx)
                         });
                     });
                 }

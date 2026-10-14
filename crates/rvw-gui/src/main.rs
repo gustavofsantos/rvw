@@ -39,7 +39,6 @@ mod queue_screen;
 mod resize_handle;
 mod review_screen;
 mod rewrite_card;
-mod seen;
 mod shell;
 mod split_view;
 mod submit_dialog;
@@ -68,7 +67,6 @@ use gpui::{
 };
 
 use crate::data::{Identity, Snapshot};
-use crate::seen::Seen;
 use crate::shell::Shell;
 
 actions!(rvw_app, [Quit]);
@@ -101,20 +99,13 @@ fn run() -> Result<(), String> {
     let workspace = launch_workspace(args.workspace.as_deref(), &db, &service)?;
     last_workspace::save(&db, &workspace).ok();
 
-    let seen = Seen::load(&db);
-    let snapshot = data::load(
-        &service,
-        &workspace,
-        &args.lane,
-        seen.ids_for(&workspace),
-        None,
-    )?;
+    let snapshot = data::load(&service, &workspace, &args.lane, None)?;
     let identity = Identity {
         workspace,
         author: args.author,
         lane: args.lane,
     };
-    show_window(snapshot, service, identity, seen, db);
+    show_window(snapshot, service, identity, db);
     Ok(())
 }
 
@@ -176,13 +167,7 @@ fn flag_value(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<Str
 
 /// Starts the application and opens the one window. Errors here happen after
 /// the database is open, so they are reported from inside the app callback.
-fn show_window(
-    snapshot: Snapshot,
-    service: rvw_core::Service,
-    identity: Identity,
-    seen: Seen,
-    db: PathBuf,
-) {
+fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identity, db: PathBuf) {
     Application::new()
         .with_assets(assets::Assets)
         .run(move |cx: &mut App| {
@@ -218,7 +203,7 @@ fn show_window(
             let opened = cx.open_window(options, move |window, cx| {
                 theme::follow(window.appearance());
                 let service = std::sync::Arc::new(service);
-                cx.new(|cx| Shell::new(snapshot, service, identity, seen, db, window, cx))
+                cx.new(|cx| Shell::new(snapshot, service, identity, db, window, cx))
             });
             if let Err(error) = opened {
                 eprintln!("rvw-gui: {error}");

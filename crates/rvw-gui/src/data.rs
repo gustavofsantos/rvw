@@ -1,7 +1,6 @@
 //! What the screens show, read once from the service and git. Filters re-run
 //! the view model over these stored comments and sheets, never the service.
 
-use std::collections::HashSet;
 use std::path::Path;
 
 use rvw_core::operations::{
@@ -19,7 +18,6 @@ pub struct Snapshot {
     pub branch: String,
     pub comments: Vec<Comment>,
     pub sheets: Vec<ReviewSheet>,
-    pub acknowledged: HashSet<String>,
     /// The queue under the default filter: the counters and the empty check.
     pub queue: Queue,
     pub facets: Facets,
@@ -49,22 +47,13 @@ pub struct NextPull {
 impl Snapshot {
     /// The queue under `filter`, built from the stored comments and sheets.
     pub fn view(&self, filter: &Filter) -> Queue {
-        queue::build(&self.comments, &self.sheets, &self.acknowledged, filter)
-    }
-
-    /// Counts comment `id` as seen, as a reload with it acknowledged would,
-    /// without reading the database or git again.
-    pub fn acknowledge(&mut self, id: &str) {
-        if self.acknowledged.insert(id.to_owned()) {
-            self.queue = self.view(&Filter::default());
-        }
+        queue::build(&self.comments, &self.sheets, filter)
     }
 }
 
 /// Reads the queue for `workspace`, the branch, what a pull pinned to `lane`
 /// would take, and the files that differ from the base. An empty `lane` means
-/// every lane. A done comment whose id is in `acknowledged` counts as closed,
-/// not waiting on the reviewer.
+/// every lane. A decided comment waits on the reviewer until a verdict closes it.
 ///
 /// `compare` is the comparison to use; `None` takes the default branch and
 /// falls back to the uncommitted changes.
@@ -79,7 +68,6 @@ pub fn load(
     service: &Service,
     workspace: &str,
     lane: &str,
-    acknowledged: HashSet<String>,
     compare: Option<Compare>,
 ) -> Result<Snapshot, String> {
     let list = service
@@ -105,12 +93,7 @@ pub fn load(
         })
         .map_err(|e| e.message)?;
 
-    let queue = queue::build(
-        &list.comments,
-        &sheets.sheets,
-        &acknowledged,
-        &Filter::default(),
-    );
+    let queue = queue::build(&list.comments, &sheets.sheets, &Filter::default());
     let facets = queue::facets(&list.comments);
     let count = peek.count();
     let (elsewhere, elsewhere_lanes) = match peek.elsewhere {
@@ -124,7 +107,6 @@ pub fn load(
         branch: gitx::branch(Path::new(workspace)),
         comments: list.comments,
         sheets: sheets.sheets,
-        acknowledged,
         queue,
         facets,
         next_pull: NextPull {
@@ -414,39 +396,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn acknowledge_counts_a_done_comment_as_a_reload_would() {
-        let (_dir, service, identity) = workspace_with_store();
-        add_comment(&service, &identity, "app.py", (1, 1), "first").expect("add");
-        let pulled = service
-            .pull(PullInput {
-                workspace: identity.workspace.clone(),
-                ..PullInput::default()
-            })
-            .expect("pull");
-        let id = pulled.comments[0].id.clone();
-        service
-            .resolve(rvw_core::operations::ResolveInput {
-                workspace: identity.workspace.clone(),
-                id: id.clone(),
-                outcome: "done".into(),
-                note: "renamed".into(),
-                author: "agent".into(),
-            })
-            .expect("resolve");
-        let load_with = |acknowledged: HashSet<String>| {
-            load(&service, &identity.workspace, "", acknowledged, None).expect("load")
-        };
-
-        let mut snapshot = load_with(HashSet::new());
-        snapshot.acknowledge(&id);
-
-        let reloaded = load_with(HashSet::from([id]));
-        assert_ne!(snapshot.queue, load_with(HashSet::new()).queue);
-        assert_eq!(snapshot.queue, reloaded.queue);
-        assert_eq!(snapshot.acknowledged, reloaded.acknowledged);
-    }
-
-    #[test]
     fn busiest_workspace_is_a_stored_workspace_that_still_exists() {
         let (dir, service, identity) = workspace_with_store();
         assert_eq!(busiest_workspace(&service), None);
@@ -517,7 +466,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_done_comment_in_the_seen_set_counts_as_closed() {
+    fn a_decided_comment_waits_on_the_reviewer_until_judged() {
         let (_dir, service, identity) = workspace_with_store();
         add_comment(&service, &identity, "app.py", (1, 1), "first").expect("add");
         let workspace = identity.workspace.clone();
@@ -536,13 +485,8 @@ pub(crate) mod tests {
             })
             .expect("resolve");
 
-        let unseen = load(&service, &workspace, "", HashSet::new(), None).expect("load");
-        assert_eq!(unseen.queue.counters.waiting_on_you, 1);
-        assert_eq!(unseen.queue.counters.closed, 0);
-
-        let seen = HashSet::from(["r1".to_owned()]);
-        let seen_snapshot = load(&service, &workspace, "", seen, None).expect("load");
-        assert_eq!(seen_snapshot.queue.counters.waiting_on_you, 0);
-        assert_eq!(seen_snapshot.queue.counters.closed, 1);
+        let snapshot = load(&service, &workspace, "", None).expect("load");
+        assert_eq!(snapshot.queue.counters.waiting_on_you, 1);
+        assert_eq!(snapshot.queue.counters.closed, 0);
     }
 }
