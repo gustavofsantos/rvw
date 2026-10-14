@@ -18,7 +18,6 @@ pub const TOP_BAR_HEIGHT: Pixels = px(48.);
 pub const RAIL_WIDTH: Pixels = px(56.);
 pub const LEFT_PANEL_WIDTH: Pixels = px(300.);
 pub const RIGHT_PANEL_WIDTH: Pixels = px(340.);
-pub const KEY_STRIP_HEIGHT: Pixels = px(56.);
 pub const PANEL_PADDING: Pixels = px(24.);
 
 pub const BASE_FONT_SIZE: f32 = 13.5;

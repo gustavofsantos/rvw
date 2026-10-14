@@ -51,7 +51,7 @@ Out, on purpose:
 - **Never write to a terminal unless the user did.** rvw sends no text and
   presses no Enter.
 - **Keys.** With a terminal focused it receives every key except the few rvw
-  chords (`⌘J`, `⌘T`, `⌘W`, `⌘1` to `⌘9`, `⌘K`). The key strip says so.
+  chords (`⌘J`, `⌘T`, `⌘W`, `⌘1` to `⌘9`, `⌘K`). The palette lists them.
 - **Child process.** Own session and process group. Closing a terminal sends
   SIGHUP to the group, then SIGKILL after a grace period, and the child is
   reaped. `TERM` and `COLORTERM` are set for the child only; rvw's own

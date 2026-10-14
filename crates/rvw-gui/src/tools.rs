@@ -36,11 +36,6 @@ impl Tools {
         self.branches.is_some() || self.palette.is_some() || self.workspaces.is_some()
     }
 
-    /// Any picker is open, for the key strip.
-    pub fn open(&self) -> bool {
-        self.field_open() || self.compare_menu.is_some()
-    }
-
     pub fn close_all(&mut self) {
         self.compare_menu = None;
         self.branches = None;

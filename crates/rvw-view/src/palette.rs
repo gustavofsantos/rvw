@@ -57,6 +57,8 @@ pub enum Action {
     NewWorktree,
     RemoveWorktree,
     OpenTerminal,
+    ToggleTerminalDock,
+    NewTerminal,
     OpenDiffTool,
 }
 
@@ -68,7 +70,7 @@ const FINISH_OR_ABORT: &str = "Finish or abort the merge or cherry-pick first";
 
 impl Action {
     /// Every action, in palette order.
-    pub const ALL: [Action; 50] = [
+    pub const ALL: [Action; 52] = [
         Action::GoToQueue,
         Action::GoToReview,
         Action::GoToFiles,
@@ -118,6 +120,8 @@ impl Action {
         Action::NewWorktree,
         Action::RemoveWorktree,
         Action::OpenTerminal,
+        Action::ToggleTerminalDock,
+        Action::NewTerminal,
         Action::OpenDiffTool,
     ];
 
@@ -174,6 +178,8 @@ impl Action {
             Action::NewWorktree => "New worktree…",
             Action::RemoveWorktree => "Remove a worktree…",
             Action::OpenTerminal => "Open a terminal in this repository",
+            Action::ToggleTerminalDock => "Show or hide the terminal dock",
+            Action::NewTerminal => "New terminal in the dock…",
             Action::OpenDiffTool => "Open this file in the diff tool",
         }
     }
@@ -213,7 +219,10 @@ impl Action {
             | Action::FinishOperation
             | Action::AbortOperation
             | Action::OpenMergeTool => "Git",
-            Action::OpenTerminal | Action::OpenDiffTool => "Tools",
+            Action::OpenTerminal
+            | Action::ToggleTerminalDock
+            | Action::NewTerminal
+            | Action::OpenDiffTool => "Tools",
             Action::StashChanges | Action::ApplyStash | Action::DropStash => "Stash",
             Action::NewBranch
             | Action::RenameBranch
@@ -240,6 +249,8 @@ impl Action {
             Action::Commit => Some("⇧⌘C"),
             Action::RestoreCheckpoint => Some("⌘Z"),
             Action::SwitchWorkspace => Some("⌘O"),
+            Action::ToggleTerminalDock => Some("⌘J"),
+            Action::NewTerminal => Some("⌘T"),
             _ => None,
         }
     }
@@ -394,7 +405,9 @@ pub fn unavailable(action: Action, state: &State) -> Option<&'static str> {
         | Action::SearchCommits
         | Action::NewWorktree
         | Action::RemoveWorktree
-        | Action::OpenTerminal => None,
+        | Action::OpenTerminal
+        | Action::ToggleTerminalDock
+        | Action::NewTerminal => None,
     }
 }
 
@@ -539,7 +552,7 @@ mod tests {
 
     #[test]
     fn all_has_forty_two_distinct_actions_with_titles_and_groups() {
-        assert_eq!(Action::ALL.len(), 50);
+        assert_eq!(Action::ALL.len(), 52);
         let mut seen = std::collections::HashSet::new();
         for action in Action::ALL {
             assert!(seen.insert(action), "duplicate {action:?}");
@@ -586,6 +599,8 @@ mod tests {
                 Action::NewWorktree,
                 Action::RemoveWorktree,
                 Action::OpenTerminal,
+                Action::ToggleTerminalDock,
+                Action::NewTerminal,
                 Action::OpenDiffTool,
             ]
         );
@@ -682,6 +697,8 @@ mod tests {
         assert_eq!(Action::RestoreCheckpoint.chord(), Some("⌘Z"));
         assert_eq!(Action::GoToChanges.chord(), None);
         assert_eq!(Action::Push.chord(), None);
+        assert_eq!(Action::ToggleTerminalDock.chord(), Some("⌘J"));
+        assert_eq!(Action::NewTerminal.chord(), Some("⌘T"));
     }
 
     #[test]
@@ -1103,7 +1120,7 @@ mod tests {
     #[test]
     fn empty_query_lists_all_actions_in_order() {
         let got = entries("", &state(Screen::Diff));
-        assert_eq!(got.len(), 50);
+        assert_eq!(got.len(), 52);
         let order: Vec<Action> = got.iter().map(|e| e.action).collect();
         assert_eq!(order, Action::ALL);
         assert!(got.iter().all(|e| e.matches.is_empty() && e.score == 0));
@@ -1245,9 +1262,11 @@ mod tests {
                 "History",
                 "Tools",
                 "Tools",
+                "Tools",
+                "Tools",
             ]
         );
-        assert_eq!(got.len(), 50);
+        assert_eq!(got.len(), 52);
     }
 
     #[test]

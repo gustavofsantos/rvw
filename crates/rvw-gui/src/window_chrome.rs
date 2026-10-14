@@ -10,7 +10,6 @@ use gpui::{
     Stateful, Tiling, Window, WindowControlArea,
 };
 
-use crate::key_strip::HintCard;
 use crate::theme;
 
 /// Width of the invisible resize band along each edge.
@@ -19,6 +18,26 @@ const RESIZE_BAND: Pixels = px(6.);
 const RESIZE_CORNER: Pixels = px(12.);
 const CONTROL_SIZE: Pixels = px(28.);
 const ICON_SIZE: Pixels = px(14.);
+
+/// The card a hint shows in: a small paper-coloured tooltip.
+struct HintCard {
+    text: &'static str,
+}
+
+impl Render for HintCard {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px(px(10.))
+            .py(px(6.))
+            .rounded(theme::CONTROL_RADIUS)
+            .border_1()
+            .border_color(theme::hairline())
+            .bg(theme::paper())
+            .text_size(px(12.))
+            .text_color(theme::text())
+            .child(self.text)
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Control {

@@ -13,7 +13,7 @@ use gpui::{
     UniformListScrollHandle, Window,
 };
 use rvw_core::Service;
-use rvw_view::keys::{Context as KeyContext, Screen};
+use rvw_view::keys::Screen;
 use rvw_view::queue::{Filter, Queue, State};
 use rvw_view::selection::Pos;
 use rvw_view::viewmode::ViewMode;
@@ -31,7 +31,6 @@ use crate::frame::{self, Panels};
 use crate::git_tools::{GitTools, RepoFacts};
 use crate::highlights::Highlighter;
 use crate::history_state::HistoryState;
-use crate::key_strip::key_strip;
 use crate::live::{self, Fingerprint};
 use crate::outcome_screen::{self, Outcome};
 use crate::palette_overlay::OpenPalette;
@@ -628,14 +627,8 @@ impl Render for Shell {
         self.sync_highlights(cx);
         self.sync_diff_list(window);
         let panels = self.panels(cx);
-        let terminal_focused = self.terminal_focused(window, cx);
         let dock = self.terminal_dock(cx);
         let rail_screen = self.rail_screen();
-        let key_screen = if self.finder.is_some() || self.tools.open() {
-            Screen::Search
-        } else {
-            self.screen
-        };
         let resize_layer = crate::window_chrome::resize_layer(window);
         let window = frame::window(
             frame::top_bar(
@@ -648,7 +641,6 @@ impl Render for Shell {
             frame::rail(rail_screen, cx),
             panels,
             dock,
-            key_strip(&self.key_context(key_screen), terminal_focused),
         );
 
         div()
@@ -820,20 +812,6 @@ impl Shell {
     /// Gives the keyboard back to the shell, so S, J and K reach it.
     pub(crate) fn focus_shell(&self, window: &mut Window) {
         self.focus.focus(window);
-    }
-
-    /// The facts the key strip lights its keys from.
-    fn key_context(&self, screen: Screen) -> KeyContext {
-        KeyContext {
-            screen,
-            composing: self.composer.is_some(),
-            draft_count: self.snapshot.queue.counters.draft,
-            comment_done: false,
-            staged_count: self.changes.lists.staged.len(),
-            can_undo: !self.git.facts.checkpoints.is_empty(),
-            can_move: true,
-            can_open_file: false,
-        }
     }
 
     /// The three panels of the screen shown.

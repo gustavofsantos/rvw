@@ -225,6 +225,8 @@ impl Shell {
             }
             Action::EditHistory => self.open_rewrite(window, cx),
             Action::OpenTerminal => self.open_terminal(cx),
+            Action::ToggleTerminalDock => self.toggle_terminal(window, cx),
+            Action::NewTerminal => self.open_launcher(window, cx),
             Action::OpenDiffTool => {
                 if let Some(path) = self.open_file_path() {
                     self.open_diff_tool(&path, cx);

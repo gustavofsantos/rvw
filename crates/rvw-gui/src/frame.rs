@@ -1,5 +1,5 @@
 //! The chrome every screen sits in: top bar, rail, the two side panels, the
-//! centre and the key strip. A screen supplies its three panels; the frame
+//! centre. A screen supplies its three panels; the frame
 //! supplies everything around them.
 
 use gpui::prelude::*;
@@ -23,8 +23,8 @@ pub struct Panels {
 }
 
 /// The whole window: top bar, the body of rail and panels, the terminal dock
-/// when shown, then the key strip.
-pub fn window(top: Div, rail: Div, panels: Panels, dock: Option<AnyElement>, keys: Div) -> Div {
+/// when shown.
+pub fn window(top: Div, rail: Div, panels: Panels, dock: Option<AnyElement>) -> Div {
     let body = div()
         .flex()
         .flex_1()
@@ -43,7 +43,6 @@ pub fn window(top: Div, rail: Div, panels: Panels, dock: Option<AnyElement>, key
         .child(top)
         .child(body)
         .children(dock)
-        .child(keys)
 }
 
 pub fn top_bar(
