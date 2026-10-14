@@ -10,7 +10,7 @@
 //! a timer.
 
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::prelude::*;
 use gpui::{
@@ -49,6 +49,8 @@ const PADDING: Pixels = px(12.);
 const FONT_SIZE: f32 = 13.;
 const LINE_HEIGHT_RATIO: f32 = 1.4;
 /// How often a shown, live terminal is looked at: one frame.
+/// How often a tab asks which program is in front.
+const PROGRAM_EVERY: Duration = Duration::from_millis(500);
 const FRAME: Duration = Duration::from_millis(16);
 /// How often a hidden dock's terminals are looked at, to learn of their end.
 const HIDDEN_FRAME: Duration = Duration::from_millis(250);
@@ -172,6 +174,8 @@ pub(crate) struct Live {
     dirty: bool,
     /// The grid the PTY has.
     grid: (u16, u16),
+    /// When the foreground program was last asked for.
+    program_at: Instant,
 }
 
 /// The terminals of the workspace: their tabs and the active one painted.
@@ -326,6 +330,7 @@ impl TerminalView {
                     launch: launch.clone(),
                     dirty: false,
                     grid: (cols, rows),
+                    program_at: Instant::now(),
                 });
                 self.marked = None;
                 window.focus(&self.focus);
@@ -447,6 +452,15 @@ impl TerminalView {
                 };
                 self.model.notify(live.id, &text);
                 changed = true;
+            }
+            if live.program_at.elapsed() >= PROGRAM_EVERY {
+                live.program_at = Instant::now();
+                if self
+                    .model
+                    .set_program(live.id, live.term.foreground_program())
+                {
+                    changed = true;
+                }
             }
             // A tab on screen is already looked at.
             if self.model.watching(live.id) && self.model.clear_attention(live.id) {

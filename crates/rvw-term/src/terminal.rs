@@ -350,6 +350,10 @@ pub struct Terminal {
     shared: Arc<Shared>,
     events: Receiver<Event>,
     search: Mutex<Option<Search>>,
+    /// Our own descriptor on the PTY master, to ask who runs in the
+    /// foreground; the loop thread owns the original.
+    #[cfg(unix)]
+    tty: Option<std::os::fd::OwnedFd>,
     thread: Option<LoopHandle>,
     grace: Duration,
 }
@@ -390,6 +394,12 @@ impl Terminal {
         };
         let pty = tty::new(&pty_options, window, id.0)?;
 
+        #[cfg(unix)]
+        let tty = {
+            use std::os::fd::AsFd;
+            pty.file().as_fd().try_clone_to_owned().ok()
+        };
+
         let (events_tx, events_rx) = mpsc::channel();
         let shared = Arc::new(Shared::new(events_tx, options.cols, options.rows));
         #[cfg(unix)]
@@ -419,6 +429,8 @@ impl Terminal {
             shared,
             events: events_rx,
             search: Mutex::new(None),
+            #[cfg(unix)]
+            tty,
             thread: Some(thread),
             grace: options.kill_grace,
         })
@@ -511,6 +523,27 @@ impl Terminal {
         snapshot.title.clone_from(&lock(&self.shared.title));
         snapshot.exit = self.exit_status();
         snapshot
+    }
+
+    /// The name of the program in the terminal's foreground, as the system
+    /// knows it (at most 15 bytes on Linux). `None` when the child's own
+    /// process group is there (the shell at its prompt), when the child is
+    /// gone, or where the system cannot tell.
+    #[must_use]
+    pub fn foreground_program(&self) -> Option<String> {
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsRawFd;
+            let fd = self.tty.as_ref()?.as_raw_fd();
+            // SAFETY: tcgetpgrp takes a descriptor we own and returns an int.
+            let pgid = unsafe { libc::tcgetpgrp(fd) };
+            if pgid <= 0 || pgid == self.shared.pgid.load(Ordering::Acquire) {
+                return None;
+            }
+            program_name(pgid)
+        }
+        #[cfg(not(unix))]
+        None
     }
 
     /// The notification requests since the last call, oldest first. At most
@@ -646,4 +679,25 @@ impl Drop for Terminal {
     fn drop(&mut self) {
         self.kill();
     }
+}
+
+#[cfg(target_os = "linux")]
+fn program_name(pid: i32) -> Option<String> {
+    let name = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
+    let name = name.trim();
+    (!name.is_empty()).then(|| name.to_owned())
+}
+
+#[cfg(target_os = "macos")]
+fn program_name(pid: i32) -> Option<String> {
+    let mut buf = [0u8; 256];
+    // SAFETY: the buffer is valid for its stated length.
+    let len = unsafe { libc::proc_name(pid, buf.as_mut_ptr().cast(), 256) };
+    let len = usize::try_from(len).ok().filter(|&len| len > 0)?;
+    Some(String::from_utf8_lossy(&buf[..len]).into_owned())
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
+fn program_name(_pid: i32) -> Option<String> {
+    None
 }

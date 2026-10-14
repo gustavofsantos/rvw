@@ -358,3 +358,21 @@ fn a_notification_request_reaches_the_owner() {
     // The request is not on the screen.
     assert!(!term.snapshot().text().contains("build done"));
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn the_foreground_program_is_named_while_it_runs() {
+    // An interactive shell gives each job its own process group.
+    let mut term = sh_with("exec sh -i", SpawnOptions::default());
+    assert_eq!(term.foreground_program(), None);
+    term.write(b"sleep 30\n").expect("write");
+    let deadline = Instant::now() + WAIT;
+    while term.foreground_program().as_deref() != Some("sleep") {
+        assert!(
+            Instant::now() < deadline,
+            "never saw sleep in the foreground"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    term.kill();
+}

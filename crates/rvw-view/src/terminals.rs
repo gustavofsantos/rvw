@@ -37,6 +37,9 @@ pub struct Terminal {
     /// What the program asked the user's attention with, until the tab is
     /// looked at. Only the latest is kept.
     pub attention: Option<String>,
+    /// The program in the foreground of a running terminal, when it is not
+    /// the one the terminal started with (a shell that runs `claude`).
+    pub program: Option<String>,
 }
 
 impl Terminal {
@@ -47,6 +50,10 @@ impl Terminal {
             return self.command.clone();
         }
         match self.status {
+            // Only the user's shell hands its terminal to other programs.
+            Status::Running if self.command == SHELL_LABEL => {
+                self.program.clone().unwrap_or_else(|| self.command.clone())
+            }
             Status::Running => self.command.clone(),
             Status::Exited(Some(code)) => format!("{} (exit {code})", self.command),
             Status::Exited(None) => format!("{} (ended by signal)", self.command),
@@ -201,6 +208,7 @@ impl Terminals {
             command: command.to_owned(),
             status: Status::Running,
             attention: None,
+            program: None,
         });
         self.active = Some(id);
         self.shown = true;
@@ -231,6 +239,7 @@ impl Terminals {
             command: GIT_LABEL.to_owned(),
             status: Status::Running,
             attention: None,
+            program: None,
         });
         self.active = Some(id);
         self.shown = true;
@@ -282,6 +291,18 @@ impl Terminals {
                 true
             }
             None => false,
+        }
+    }
+
+    /// Records the foreground program of `id`, `None` when the terminal's own
+    /// command is back. Returns true when the tab's text may have changed.
+    pub fn set_program(&mut self, id: TerminalId, program: Option<String>) -> bool {
+        match self.list.iter_mut().find(|t| t.id == id) {
+            Some(t) if t.program != program => {
+                t.program = program;
+                true
+            }
+            _ => false,
         }
     }
 
@@ -416,6 +437,22 @@ mod tests {
         t.add(B, "cargo test");
         t.add(C, "zsh");
         t
+    }
+
+    #[test]
+    fn a_shell_tab_names_the_program_in_front() {
+        let mut t = three();
+        let shell = TerminalId(4);
+        t.add(shell, SHELL_LABEL);
+        assert!(t.set_program(shell, Some("claude".into())));
+        assert!(!t.set_program(shell, Some("claude".into())));
+        assert_eq!(t.get(shell).unwrap().title(), "claude");
+        // A tab that was started with a command keeps it.
+        assert!(t.set_program(B, Some("rustc".into())));
+        assert_eq!(t.get(B).unwrap().title(), "cargo test");
+        assert!(t.set_program(shell, None));
+        assert_eq!(t.get(shell).unwrap().title(), "shell");
+        assert!(!t.set_program(TerminalId(9), None));
     }
 
     #[test]
