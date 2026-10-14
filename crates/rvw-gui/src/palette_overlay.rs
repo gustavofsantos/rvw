@@ -12,6 +12,7 @@ use rvw_git::merge::Operation;
 use rvw_view::changes::Compare;
 use rvw_view::keys::Screen;
 use rvw_view::palette::{self, Action, Entry, State};
+use rvw_view::panels::Side;
 
 use crate::shell::Shell;
 use crate::text_input::{TextInput, TextInputEvent};
@@ -227,6 +228,8 @@ impl Shell {
             Action::OpenTerminal => self.open_terminal(cx),
             Action::ToggleTerminalDock => self.toggle_terminal(window, cx),
             Action::NewTerminal => self.open_launcher(window, cx),
+            Action::ToggleLeftPanel => self.toggle_panel(Side::Left, cx),
+            Action::ToggleRightPanel => self.toggle_panel(Side::Right, cx),
             Action::OpenDiffTool => {
                 if let Some(path) = self.open_file_path() {
                     self.open_diff_tool(&path, cx);

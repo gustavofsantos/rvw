@@ -20,6 +20,7 @@ pub mod keys;
 pub mod nav;
 pub mod outcome;
 pub mod palette;
+pub mod panels;
 pub mod patch;
 pub mod queue;
 pub mod selection;

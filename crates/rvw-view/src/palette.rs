@@ -60,6 +60,8 @@ pub enum Action {
     ToggleTerminalDock,
     NewTerminal,
     OpenDiffTool,
+    ToggleLeftPanel,
+    ToggleRightPanel,
 }
 
 /// The reason a network action waits while a fetch, pull or push is running.
@@ -70,7 +72,7 @@ const FINISH_OR_ABORT: &str = "Finish or abort the merge or cherry-pick first";
 
 impl Action {
     /// Every action, in palette order.
-    pub const ALL: [Action; 52] = [
+    pub const ALL: [Action; 54] = [
         Action::GoToQueue,
         Action::GoToReview,
         Action::GoToFiles,
@@ -123,6 +125,8 @@ impl Action {
         Action::ToggleTerminalDock,
         Action::NewTerminal,
         Action::OpenDiffTool,
+        Action::ToggleLeftPanel,
+        Action::ToggleRightPanel,
     ];
 
     /// The name shown in the palette.
@@ -181,6 +185,8 @@ impl Action {
             Action::ToggleTerminalDock => "Show or hide the terminal dock",
             Action::NewTerminal => "New terminal in the dock…",
             Action::OpenDiffTool => "Open this file in the diff tool",
+            Action::ToggleLeftPanel => "Toggle left panel",
+            Action::ToggleRightPanel => "Toggle right panel",
         }
     }
 
@@ -222,7 +228,9 @@ impl Action {
             Action::OpenTerminal
             | Action::ToggleTerminalDock
             | Action::NewTerminal
-            | Action::OpenDiffTool => "Tools",
+            | Action::OpenDiffTool
+            | Action::ToggleLeftPanel
+            | Action::ToggleRightPanel => "Tools",
             Action::StashChanges | Action::ApplyStash | Action::DropStash => "Stash",
             Action::NewBranch
             | Action::RenameBranch
@@ -251,6 +259,8 @@ impl Action {
             Action::SwitchWorkspace => Some("⌘O"),
             Action::ToggleTerminalDock => Some("⌘J"),
             Action::NewTerminal => Some("⌘T"),
+            Action::ToggleLeftPanel => Some("⌘B"),
+            Action::ToggleRightPanel => Some("⇧⌘B"),
             _ => None,
         }
     }
@@ -407,6 +417,8 @@ pub fn unavailable(action: Action, state: &State) -> Option<&'static str> {
         | Action::RemoveWorktree
         | Action::OpenTerminal
         | Action::ToggleTerminalDock
+        | Action::ToggleLeftPanel
+        | Action::ToggleRightPanel
         | Action::NewTerminal => None,
     }
 }
@@ -551,8 +563,8 @@ mod tests {
     }
 
     #[test]
-    fn all_has_forty_two_distinct_actions_with_titles_and_groups() {
-        assert_eq!(Action::ALL.len(), 52);
+    fn all_has_fifty_four_distinct_actions_with_titles_and_groups() {
+        assert_eq!(Action::ALL.len(), 54);
         let mut seen = std::collections::HashSet::new();
         for action in Action::ALL {
             assert!(seen.insert(action), "duplicate {action:?}");
@@ -602,6 +614,8 @@ mod tests {
                 Action::ToggleTerminalDock,
                 Action::NewTerminal,
                 Action::OpenDiffTool,
+                Action::ToggleLeftPanel,
+                Action::ToggleRightPanel,
             ]
         );
     }
@@ -699,6 +713,8 @@ mod tests {
         assert_eq!(Action::Push.chord(), None);
         assert_eq!(Action::ToggleTerminalDock.chord(), Some("⌘J"));
         assert_eq!(Action::NewTerminal.chord(), Some("⌘T"));
+        assert_eq!(Action::ToggleLeftPanel.chord(), Some("⌘B"));
+        assert_eq!(Action::ToggleRightPanel.chord(), Some("⇧⌘B"));
     }
 
     #[test]
@@ -1120,7 +1136,7 @@ mod tests {
     #[test]
     fn empty_query_lists_all_actions_in_order() {
         let got = entries("", &state(Screen::Diff));
-        assert_eq!(got.len(), 52);
+        assert_eq!(got.len(), 54);
         let order: Vec<Action> = got.iter().map(|e| e.action).collect();
         assert_eq!(order, Action::ALL);
         assert!(got.iter().all(|e| e.matches.is_empty() && e.score == 0));
@@ -1264,9 +1280,11 @@ mod tests {
                 "Tools",
                 "Tools",
                 "Tools",
+                "Tools",
+                "Tools",
             ]
         );
-        assert_eq!(got.len(), 52);
+        assert_eq!(got.len(), 54);
     }
 
     #[test]

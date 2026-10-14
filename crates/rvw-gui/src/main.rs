@@ -195,6 +195,7 @@ fn show_window(
             palette_overlay::bind_keys(cx);
             changes_state::bind_keys(cx);
             terminal_dock::bind_keys(cx);
+            frame::bind_keys(cx);
             workspace_picker::bind_keys(cx);
             quit_with_the_window(cx);
             let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);

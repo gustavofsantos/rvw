@@ -4,9 +4,11 @@
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, AnyElement, ClickEvent, Context, Div, FontWeight, Pixels, Rgba, Stateful, Window,
+    actions, div, px, AnyElement, App, ClickEvent, Context, Div, FontWeight, KeyBinding, Pixels,
+    Rgba, Stateful, Window,
 };
 use rvw_view::keys::Screen;
+use rvw_view::panels::{Panels as Shown, Side};
 
 use crate::compare_picker::{self, CompareMenu};
 use crate::data::Snapshot;
@@ -15,6 +17,22 @@ use crate::icon::{self, Icon};
 use crate::shell::Shell;
 use crate::theme;
 use crate::window_chrome;
+
+actions!(rvw_panels, [ToggleLeftPanel, ToggleRightPanel]);
+
+/// ⌘B and ⇧⌘B collapse the left and the right panel. Off macOS the left one
+/// is Ctrl-B, which a shell needs, so it acts outside the terminal only; the
+/// right one is Ctrl-Shift-B, which acts everywhere.
+pub fn bind_keys(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new(
+            "secondary-b",
+            ToggleLeftPanel,
+            crate::terminal_dock::rvw_chord_context(),
+        ),
+        KeyBinding::new("secondary-shift-b", ToggleRightPanel, None),
+    ]);
+}
 
 /// What a screen fills in the body of the frame.
 pub struct Panels {
@@ -25,15 +43,23 @@ pub struct Panels {
 
 /// The whole window: top bar, the body of rail and panels, the terminal dock
 /// when shown.
-pub fn window(top: Div, rail: Div, panels: Panels, dock: Option<AnyElement>) -> Div {
+pub fn window(top: Div, rail: Div, panels: Panels, shown: Shown, dock: Option<AnyElement>) -> Div {
     let body = div()
         .flex()
         .flex_1()
         .min_h(px(0.))
         .child(rail)
-        .child(side(theme::LEFT_PANEL_WIDTH, Side::Left, panels.left))
+        .children(
+            shown
+                .left
+                .then(|| side(theme::LEFT_PANEL_WIDTH, Side::Left, panels.left)),
+        )
         .child(div().flex().flex_1().min_w(px(0.)).child(panels.centre))
-        .child(side(theme::RIGHT_PANEL_WIDTH, Side::Right, panels.right));
+        .children(
+            shown
+                .right
+                .then(|| side(theme::RIGHT_PANEL_WIDTH, Side::Right, panels.right)),
+        );
 
     div()
         .flex()
@@ -50,6 +76,7 @@ pub fn top_bar(
     snapshot: &Snapshot,
     git: &GitTools,
     menu: Option<&CompareMenu>,
+    shown: Shown,
     window: &Window,
     cx: &Context<Shell>,
 ) -> Div {
@@ -68,6 +95,7 @@ pub fn top_bar(
                 .text_color(theme::ink())
                 .child("rvw"),
         )
+        .child(window_chrome::no_drag(panel_toggle(Side::Left, shown, cx)))
         .child(window_chrome::no_drag(workspace_chip(
             &snapshot.workspace,
             cx,
@@ -95,6 +123,7 @@ pub fn top_bar(
                     theme::pending(),
                 )),
         ))
+        .child(window_chrome::no_drag(panel_toggle(Side::Right, shown, cx)))
         .children(window_chrome::controls(window));
     window_chrome::drag_region(bar, window)
 }
@@ -263,10 +292,39 @@ pub fn rail(screen: Screen, cx: &mut Context<Shell>) -> Div {
         }))
 }
 
-#[derive(Clone, Copy)]
-enum Side {
-    Left,
-    Right,
+/// The button that collapses or shows a side panel; lit while it is shown.
+fn panel_toggle(side: Side, shown: Shown, cx: &Context<Shell>) -> Stateful<Div> {
+    let on = shown.shown(side);
+    let (id, mirrored) = match side {
+        Side::Left => ("toggle-left-panel", false),
+        Side::Right => ("toggle-right-panel", true),
+    };
+    let mut glyph = icon::view(
+        Icon::Sidebar,
+        icon::SIZE,
+        if on { theme::ink() } else { theme::faint() },
+    );
+    if mirrored {
+        // The icon's bar is on the left; turned half way round it is on the right.
+        glyph = glyph.with_transformation(gpui::Transformation::rotate(gpui::radians(
+            std::f32::consts::PI,
+        )));
+    }
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .justify_center()
+        .size(px(24.))
+        .rounded(theme::ROW_RADIUS)
+        .cursor_pointer()
+        .hover(|style| style.bg(theme::hairline()))
+        .on_click(cx.listener(
+            move |this: &mut Shell, _: &ClickEvent, _: &mut Window, cx: &mut Context<Shell>| {
+                this.toggle_panel(side, cx);
+            },
+        ))
+        .child(glyph)
 }
 
 fn side(width: Pixels, side: Side, content: Div) -> Div {

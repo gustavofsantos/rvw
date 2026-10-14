@@ -38,6 +38,7 @@ const ICONS: &[(&str, &[u8])] = icons![
     "square",
     "minus",
     "copy",
+    "sidebar-simple",
 ];
 
 pub struct Assets;

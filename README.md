@@ -78,6 +78,11 @@ htop) gets it; hold Shift to select instead. `⌘`-click (`Ctrl`-click) opens an
 http, https or file link under the pointer. Quitting with terminals running
 asks first.
 
+`⌘B` collapses or shows the left panel and `⇧⌘B` the right one (`Ctrl+B` and
+`Ctrl+Shift+B` on Linux; with a terminal focused only the Ctrl+Shift form acts).
+The buttons at the top bar's two ends do the same, and the centre takes the
+room. The panels stay collapsed across screens until the window closes.
+
 ## Examples
 
 ![rvw from a shell: add, submit, pull, resolve, show](docs/demo/cli.gif)

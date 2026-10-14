@@ -38,12 +38,13 @@ pub enum Icon {
     Maximize,
     Restore,
     Close,
+    Sidebar,
 }
 
 impl Icon {
     /// Every icon, for the tests that check each one is bundled.
     #[cfg(test)]
-    pub const ALL: [Icon; 25] = [
+    pub const ALL: [Icon; 26] = [
         Self::Queue,
         Self::QueueFill,
         Self::Review,
@@ -69,6 +70,7 @@ impl Icon {
         Self::Maximize,
         Self::Restore,
         Self::Close,
+        Self::Sidebar,
     ];
 
     /// The asset path of the icon's SVG.
@@ -96,6 +98,7 @@ impl Icon {
             Self::Unchecked | Self::Maximize => "icons/square.svg",
             Self::Minimize => "icons/minus.svg",
             Self::Restore => "icons/copy.svg",
+            Self::Sidebar => "icons/sidebar-simple.svg",
         }
     }
 

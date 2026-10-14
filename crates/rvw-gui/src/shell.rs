@@ -14,6 +14,7 @@ use gpui::{
 };
 use rvw_core::Service;
 use rvw_view::keys::Screen;
+use rvw_view::panels::{Panels as Shown, Side};
 use rvw_view::queue::{Filter, Queue, State};
 use rvw_view::selection::Pos;
 use rvw_view::viewmode::ViewMode;
@@ -27,7 +28,7 @@ use crate::draft_edit::Removal;
 use crate::file_view;
 use crate::files_panel::{self, FileList};
 use crate::finder::{self, Finder, OpenFinder};
-use crate::frame::{self, Panels};
+use crate::frame::{self, Panels, ToggleLeftPanel, ToggleRightPanel};
 use crate::git_tools::{GitTools, RepoFacts};
 use crate::highlights::Highlighter;
 use crate::history_state::HistoryState;
@@ -90,6 +91,8 @@ pub struct Shell {
     /// Done and rejected comments are drawn in the diff too. Off by default,
     /// so a file with many decided comments stays readable; for the session.
     pub(crate) show_resolved: bool,
+    /// Which side panels are shown; the window's, for every screen.
+    pub(crate) shown: Shown,
     /// The view the reviewer chose for a file this session; see `file_view`.
     pub(crate) file_modes: BTreeMap<String, ViewMode>,
     /// The press-drag selection in progress; see `diff_list::drag`.
@@ -186,6 +189,7 @@ impl Shell {
             diff_list: None,
             diff_generation: 0,
             show_resolved: false,
+            shown: Shown::default(),
             code_advance: crate::code_scroll::advance(window),
             file_modes: BTreeMap::new(),
             drag: DragState::default(),
@@ -635,11 +639,13 @@ impl Render for Shell {
                 &self.snapshot,
                 &self.git,
                 self.tools.compare_menu.as_ref(),
+                self.shown,
                 window,
                 cx,
             ),
             frame::rail(rail_screen, cx),
             panels,
+            self.shown,
             dock,
         );
 
@@ -697,6 +703,8 @@ impl Render for Shell {
             .on_action(cx.listener(|this: &mut Self, _: &RestoreLatest, _, cx| {
                 this.restore_latest(cx);
             }))
+            .on_action(cx.listener(Self::on_toggle_left_panel))
+            .on_action(cx.listener(Self::on_toggle_right_panel))
             .on_action(cx.listener(Self::on_toggle_terminal))
             .on_action(cx.listener(Self::on_new_terminal))
             .on_action(cx.listener(Self::on_quit))
@@ -761,6 +769,35 @@ impl Shell {
     /// terminals are running.
     fn on_quit(&mut self, _: &crate::Quit, window: &mut Window, cx: &mut Context<Self>) {
         self.request_quit(window, cx);
+    }
+
+    /// ⌘B, or Ctrl-B: the left panel.
+    fn on_toggle_left_panel(
+        &mut self,
+        _: &ToggleLeftPanel,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_panel(Side::Left, cx);
+    }
+
+    /// ⇧⌘B, or Ctrl-Shift-B: the right panel.
+    fn on_toggle_right_panel(
+        &mut self,
+        _: &ToggleRightPanel,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_panel(Side::Right, cx);
+    }
+
+    /// Collapses a side panel, or shows it again; the centre takes its room.
+    pub(crate) fn toggle_panel(&mut self, side: Side, cx: &mut Context<Self>) {
+        // The history edit card is modal.
+        if self.rewrite.is_none() {
+            self.shown.toggle(side);
+            cx.notify();
+        }
     }
 
     /// The terminal dock, when it is shown.
