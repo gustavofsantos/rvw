@@ -8,15 +8,16 @@ use gpui::{
     div, px, AnyElement, App, ClickEvent, CursorStyle, Div, FontWeight, MouseButton,
     MouseDownEvent, MouseMoveEvent, Pixels, Rgba, Stateful, StyledText, WeakEntity, Window,
 };
-use rvw_core::types::{Comment, Status};
+use rvw_core::types::{Comment, Location, Status};
 use rvw_view::diff::{Line, LineKind};
 use rvw_view::diffrows::{DiffRow, TRUNCATED_NOTE};
 use rvw_view::highlight::Span;
+use rvw_view::points_at;
 use rvw_view::queue::is_draft;
 use rvw_view::selection::{Pos, Selection};
 
 use crate::code_scroll;
-use crate::composer;
+use crate::composer::{self, PointsRow};
 use crate::diff_list::{ComposerSlot, Model};
 use crate::highlights;
 use crate::icon::{self, Icon};
@@ -73,6 +74,7 @@ pub fn row(
     index: usize,
     selection: Selection,
     shell: &WeakEntity<Shell>,
+    cx: &App,
 ) -> AnyElement {
     let Some(row) = model.rows.get(index) else {
         return div().into_any_element();
@@ -117,10 +119,20 @@ pub fn row(
                 return div().into_any_element();
             };
             let caption = caption(model, &selection, slot);
+            // The "Points at" field is read here, so a problem shows as it is typed.
+            let points = slot.points.as_ref().map(|field| PointsRow {
+                field,
+                problem: composer::points_spec(field.read(cx).text()).err(),
+            });
             div()
                 .w_full()
                 .py(px(6.))
-                .child(composer::view(&slot.input, slot.error.as_deref(), &caption))
+                .child(composer::view(
+                    &slot.input,
+                    slot.error.as_deref(),
+                    &caption,
+                    points,
+                ))
                 .into_any_element()
         }
         DiffRow::OutsideTitle => div()
@@ -308,6 +320,19 @@ fn thread(comment: &Comment, indent: Pixels, shell: &WeakEntity<Shell>) -> Div {
                 .text_color(theme::text())
                 .child(comment.comment.clone()),
         )
+        .when_some(comment.points_at.as_ref(), |thread, at| {
+            thread.child(points_note(at))
+        })
+}
+
+/// The muted line "Points at `file:N-M`" under a comment that names a changed
+/// location. The draft panel draws it too.
+pub(crate) fn points_note(at: &Location) -> Div {
+    div()
+        .font_family(theme::code_font())
+        .text_size(px(theme::CODE_FONT_SIZE))
+        .text_color(theme::faint())
+        .child(format!("Points at {}", points_at::label(at)))
 }
 
 /// A small text action in a draft's header: faint, ink on hover.

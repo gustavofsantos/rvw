@@ -6,7 +6,7 @@ use std::path::Path;
 use rvw_core::operations::{
     AddInput, EditInput, PullInput, QueryInput, RemoveInput, ReviewSheet, SheetsInput, SubmitInput,
 };
-use rvw_core::types::Comment;
+use rvw_core::types::{Comment, Location};
 use rvw_core::Service;
 use rvw_git::gitx;
 use rvw_view::changes::{self, ChangedFile, Compare};
@@ -156,21 +156,24 @@ pub struct Identity {
 }
 
 /// Enqueues one comment on the lines `start..=end` of `file`, which is a path
-/// relative to the workspace, as the changed files list it.
+/// relative to the workspace, as the changed files list it. `points_at` is the
+/// changed location the comment is about, when it is about one.
 ///
 /// # Errors
 ///
-/// Fails with the service's message when the comment is refused.
+/// Fails with the service's message when the comment is refused, for example
+/// when `points_at` names a file that is not in the workspace.
 pub fn add_comment(
     service: &Service,
     identity: &Identity,
     file: &str,
     lines: (i64, i64),
     text: &str,
+    points_at: Option<Location>,
 ) -> Result<(), String> {
     service
         .add(AddInput {
-            points_at: None,
+            points_at,
             workspace: identity.workspace.clone(),
             file: file.to_owned(),
             start_line: lines.0,
@@ -320,8 +323,15 @@ pub(crate) mod tests {
             author: "gus".into(),
             lane: "feat".into(),
         };
-        add_comment(&service, &identity, "app.py", (1, 2), "name this better")
-            .expect("add comment");
+        add_comment(
+            &service,
+            &identity,
+            "app.py",
+            (1, 2),
+            "name this better",
+            None,
+        )
+        .expect("add comment");
 
         let list = service
             .list(QueryInput {
@@ -348,8 +358,8 @@ pub(crate) mod tests {
             workspace: dir.path().to_string_lossy().into_owned(),
             ..Identity::default()
         };
-        let error =
-            add_comment(&service, &identity, "missing.py", (1, 1), "hi").expect_err("no such file");
+        let error = add_comment(&service, &identity, "missing.py", (1, 1), "hi", None)
+            .expect_err("no such file");
         assert!(!error.is_empty());
     }
 
@@ -382,10 +392,75 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn add_comment_stores_the_points_at_reference() {
+        let (_dir, service, identity) = workspace_with_store();
+        let at = Location {
+            file: "app.py".into(),
+            start_line: 2,
+            end_line: 3,
+        };
+        add_comment(
+            &service,
+            &identity,
+            "app.py",
+            (1, 1),
+            "see the range",
+            Some(at.clone()),
+        )
+        .expect("add");
+        let comments = service
+            .list(QueryInput {
+                workspace: identity.workspace.clone(),
+                status: "all".into(),
+                ..QueryInput::default()
+            })
+            .expect("list")
+            .comments;
+        assert_eq!(comments.len(), 1);
+        assert_eq!(comments[0].points_at, Some(at));
+    }
+
+    #[test]
+    fn add_comment_refuses_a_points_at_the_service_cannot_resolve() {
+        let (_dir, service, identity) = workspace_with_store();
+        let missing = Location {
+            file: "nope.rs".into(),
+            start_line: 1,
+            end_line: 1,
+        };
+        let past_end = Location {
+            file: "app.py".into(),
+            start_line: 9,
+            end_line: 9,
+        };
+        for at in [missing, past_end] {
+            let error = add_comment(
+                &service,
+                &identity,
+                "app.py",
+                (1, 1),
+                "see this",
+                Some(at.clone()),
+            )
+            .expect_err("refused");
+            assert!(!error.is_empty(), "{at:?}");
+        }
+        let queued = service
+            .list(QueryInput {
+                workspace: identity.workspace.clone(),
+                status: "all".into(),
+                ..QueryInput::default()
+            })
+            .expect("list")
+            .comments;
+        assert!(queued.is_empty());
+    }
+
+    #[test]
     fn busiest_workspace_is_a_stored_workspace_that_still_exists() {
         let (dir, service, identity) = workspace_with_store();
         assert_eq!(busiest_workspace(&service), None);
-        add_comment(&service, &identity, "app.py", (1, 1), "first").expect("add");
+        add_comment(&service, &identity, "app.py", (1, 1), "first", None).expect("add");
         assert_eq!(busiest_workspace(&service), Some(identity.workspace));
         fs::remove_dir_all(dir.path().join("proj")).expect("remove workspace");
         assert_eq!(busiest_workspace(&service), None);
@@ -394,8 +469,8 @@ pub(crate) mod tests {
     #[test]
     fn submit_review_links_two_draft_comments_as_request_changes() {
         let (_dir, service, identity) = workspace_with_store();
-        add_comment(&service, &identity, "app.py", (1, 1), "first").expect("add");
-        add_comment(&service, &identity, "app.py", (2, 2), "second").expect("add");
+        add_comment(&service, &identity, "app.py", (1, 1), "first", None).expect("add");
+        add_comment(&service, &identity, "app.py", (2, 2), "second", None).expect("add");
         let ids: Vec<String> = service
             .list(QueryInput {
                 workspace: identity.workspace.clone(),
@@ -454,7 +529,7 @@ pub(crate) mod tests {
     #[test]
     fn a_decided_comment_waits_on_the_reviewer_until_judged() {
         let (_dir, service, identity) = workspace_with_store();
-        add_comment(&service, &identity, "app.py", (1, 1), "first").expect("add");
+        add_comment(&service, &identity, "app.py", (1, 1), "first", None).expect("add");
         let workspace = identity.workspace.clone();
         service
             .pull(PullInput {
@@ -483,8 +558,8 @@ pub(crate) mod tests {
             lane: "other".into(),
             ..feat.clone()
         };
-        add_comment(&service, &feat, "app.py", (1, 1), "in feat").expect("add");
-        add_comment(&service, &other, "app.py", (2, 2), "in other").expect("add");
+        add_comment(&service, &feat, "app.py", (1, 1), "in feat", None).expect("add");
+        add_comment(&service, &other, "app.py", (2, 2), "in other", None).expect("add");
 
         let snapshot = load(&service, &feat.workspace, "feat", None).expect("load");
         assert_eq!(snapshot.handoff.will_take(), 1);

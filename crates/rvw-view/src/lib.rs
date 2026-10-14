@@ -23,6 +23,7 @@ pub mod outcome;
 pub mod palette;
 pub mod panels;
 pub mod patch;
+pub mod points_at;
 pub mod queue;
 pub mod resize;
 pub mod selection;

@@ -16,6 +16,7 @@ use rvw_view::outcome::{self, Moment, Story};
 use rvw_view::queue::{glyph_of, Row, State};
 
 use crate::data::Snapshot;
+use crate::diff_view;
 use crate::icon::{self, Icon};
 use crate::outcome_story::{code_block, diff_block};
 use crate::shell::Shell;
@@ -303,6 +304,9 @@ fn header(story: &Story) -> Div {
                     icon::labelled(icon, icon::SIZE, status_colour(story.status), text)
                 }),
         )
+        .when_some(story.points_at.as_ref(), |d, at| {
+            d.child(diff_view::points_note(at))
+        })
         .when_some(story.reopens.clone(), |d, id| {
             d.child(
                 div()
@@ -747,6 +751,7 @@ mod tests {
             awaits_verdict,
             verdict,
             reopens: None,
+            points_at: None,
         }
     }
 

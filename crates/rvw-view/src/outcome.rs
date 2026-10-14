@@ -3,7 +3,7 @@
 //! I/O; the times are shown in short form.
 
 use rvw_core::operations::Evidence;
-use rvw_core::types::{Comment, Status, Verdict, VerdictKind};
+use rvw_core::types::{Comment, Location, Status, Verdict, VerdictKind};
 
 use crate::diff::{self, FileDiff};
 use crate::queue::{self, Filter, Group, Queue};
@@ -45,6 +45,8 @@ pub struct Story {
     pub verdict: Option<Verdict>,
     /// id of the decided comment this one reopens, or None
     pub reopens: Option<String>,
+    /// the changed location the comment points at, or None
+    pub points_at: Option<Location>,
 }
 
 /// One moment in a comment's life, as a timeline row.
@@ -78,6 +80,7 @@ pub fn story(ev: &Evidence) -> Story {
         awaits_verdict: c.awaits_verdict(),
         verdict: c.verdict.clone(),
         reopens: c.reopens.clone(),
+        points_at: c.points_at.clone(),
     }
 }
 
@@ -328,6 +331,31 @@ mod tests {
             story(&evidence(c, &[], false)).reopens.as_deref(),
             Some("r3")
         );
+    }
+
+    #[test]
+    fn story_carries_the_points_at_reference_or_none() {
+        assert_eq!(
+            story(&evidence(comment(Status::Done), &[], false)).points_at,
+            None
+        );
+        let mut c = comment(Status::Pending);
+        c.points_at = Some(Location {
+            file: "src/service.rs".into(),
+            start_line: 90,
+            end_line: 96,
+        });
+        let s = story(&evidence(c, &[], false));
+        assert_eq!(
+            s.points_at,
+            Some(Location {
+                file: "src/service.rs".into(),
+                start_line: 90,
+                end_line: 96,
+            })
+        );
+        // the story's own location is the commented file, not the reference
+        assert_eq!(s.location, "src/tx.rs:40-41");
     }
 
     #[test]

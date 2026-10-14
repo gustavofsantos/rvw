@@ -28,6 +28,7 @@ use crate::diff_view;
 use crate::highlights::Shared;
 use crate::shell::Shell;
 use crate::text_area::TextArea;
+use crate::text_input::TextInput;
 
 /// The width before a line's code: the number, the marker and the padding.
 const CODE_GUTTER: Pixels = px(62.);
@@ -35,12 +36,14 @@ const CODE_GUTTER: Pixels = px(62.);
 /// How far past the viewport rows are measured, so a scroll does not pop.
 const OVERDRAW: f32 = 800.;
 
-/// The composer's field and the error of its last failed add.
+/// The composer's field, the error of its last failed add, and its "Points
+/// at" field when it has one.
 pub struct ComposerSlot {
     pub input: Entity<TextArea>,
     pub error: Option<String>,
     /// The id of the comment the composer edits, if it edits one.
     pub editing: Option<String>,
+    pub points: Option<Entity<TextInput>>,
 }
 
 /// What the rows are drawn from; replaced whole when the list is rebuilt.
@@ -90,8 +93,8 @@ impl DiffList {
     pub fn element(&self, shell: WeakEntity<Shell>) -> List {
         let model = Rc::clone(&self.model);
         let selection = Rc::clone(&self.selection);
-        list(self.state.clone(), move |index, _, _| {
-            diff_view::row(&model, index, selection.get(), &shell)
+        list(self.state.clone(), move |index, _, cx| {
+            diff_view::row(&model, index, selection.get(), &shell, cx)
         })
     }
 
@@ -308,6 +311,7 @@ impl Shell {
                 input: composer.input.clone(),
                 error: composer.error.clone(),
                 editing: composer.editing.clone(),
+                points: composer.points.as_ref().map(|points| points.input.clone()),
             }),
             spans: Rc::clone(&self.highlights.shared),
         });

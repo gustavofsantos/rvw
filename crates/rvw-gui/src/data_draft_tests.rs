@@ -21,7 +21,7 @@ fn only_comment(service: &Service, identity: &Identity) -> Comment {
 #[test]
 fn editing_changes_the_text_and_keeps_the_range() {
     let (_dir, service, identity) = workspace_with_store();
-    add_comment(&service, &identity, "app.py", (1, 2), "first").expect("add");
+    add_comment(&service, &identity, "app.py", (1, 2), "first", None).expect("add");
     let edited = edit_comment(&service, &identity, "r1", "second\n").expect("edit");
     assert_eq!(edited.comment, "second");
     let stored = only_comment(&service, &identity);
@@ -32,7 +32,7 @@ fn editing_changes_the_text_and_keeps_the_range() {
 #[test]
 fn a_blank_edit_is_refused_and_changes_nothing() {
     let (_dir, service, identity) = workspace_with_store();
-    add_comment(&service, &identity, "app.py", (1, 1), "keep me").expect("add");
+    add_comment(&service, &identity, "app.py", (1, 1), "keep me", None).expect("add");
     let error = edit_comment(&service, &identity, "r1", " \n ").expect_err("blank");
     assert_eq!(error, "Write something, or delete the comment.");
     assert_eq!(only_comment(&service, &identity).comment, "keep me");
@@ -41,7 +41,7 @@ fn a_blank_edit_is_refused_and_changes_nothing() {
 #[test]
 fn removing_a_draft_deletes_it_and_returns_it() {
     let (_dir, service, identity) = workspace_with_store();
-    add_comment(&service, &identity, "app.py", (2, 3), "drop this").expect("add");
+    add_comment(&service, &identity, "app.py", (2, 3), "drop this", None).expect("add");
     let removed = remove_comment(&service, &identity, "r1").expect("remove");
     assert_eq!(removed.id, "r1");
     assert_eq!(removed.comment, "drop this");
@@ -58,7 +58,7 @@ fn removing_a_draft_deletes_it_and_returns_it() {
 #[test]
 fn removing_or_editing_a_pulled_comment_returns_the_services_message() {
     let (_dir, service, identity) = workspace_with_store();
-    add_comment(&service, &identity, "app.py", (1, 1), "taken").expect("add");
+    add_comment(&service, &identity, "app.py", (1, 1), "taken", None).expect("add");
     service
         .pull(PullInput {
             workspace: identity.workspace.clone(),

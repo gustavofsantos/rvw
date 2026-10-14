@@ -3,11 +3,11 @@
 //! reload; the rules are in the service and in `rvw_view::queue::is_draft`.
 
 use gpui::{AppContext, Context, Window};
-use rvw_core::types::Comment;
+use rvw_core::types::{Comment, Location};
 use rvw_view::queue::is_draft;
 use rvw_view::selection;
 
-use crate::composer::Composer;
+use crate::composer::{self, Composer, PointsField};
 use crate::data;
 use crate::shell::Shell;
 use crate::text_area::{TextArea, TextAreaEvent};
@@ -19,6 +19,8 @@ pub struct Removed {
     pub file: String,
     pub lines: (i64, i64),
     pub text: String,
+    /// The "points at" reference, so an undo keeps it.
+    pub points_at: Option<Location>,
 }
 
 impl Removed {
@@ -28,6 +30,7 @@ impl Removed {
             file: comment.file.clone(),
             lines: (comment.start_line, comment.end_line),
             text: comment.comment.clone(),
+            points_at: comment.points_at.clone(),
         }
     }
 }
@@ -54,6 +57,13 @@ impl Shell {
         // The composer belongs to the file on screen, so a read still running
         // for another file is dropped rather than replacing it under the text.
         self.file_pending = None;
+        // A new comment on a file outside the change gets the context example
+        // in its "Points at" field. An edit keeps the reference, so has none.
+        let outside = self
+            .selected
+            .as_ref()
+            .is_some_and(|selected| selected.outside);
+        let points = editing.is_none().then(|| PointsField::new(outside, cx));
         let input = cx.new(|cx| {
             let mut area = TextArea::new("Write a comment", cx).with_lines(2, 8);
             if !text.is_empty() {
@@ -72,7 +82,7 @@ impl Shell {
             },
         );
         input.update(cx, |area, cx| area.focus(window, cx));
-        self.composer = Some(Composer::new(input, events, editing));
+        self.composer = Some(Composer::new(input, events, editing, points));
         cx.notify();
     }
 
@@ -80,9 +90,14 @@ impl Shell {
     /// comment being edited. A blank new comment keeps the composer open; a
     /// refused write shows its message in the composer.
     pub(crate) fn submit_comment(&mut self, cx: &mut Context<Self>) {
-        let Some((text, editing)) = self.composer.as_ref().map(|composer| {
+        let Some((text, points_text, editing)) = self.composer.as_ref().map(|composer| {
             (
                 composer.input.read(cx).text().trim_end().to_owned(),
+                composer
+                    .points
+                    .as_ref()
+                    .map(|points| points.input.read(cx).text().to_owned())
+                    .unwrap_or_default(),
                 composer.editing.clone(),
             )
         }) else {
@@ -91,7 +106,11 @@ impl Shell {
         let result = match editing {
             Some(id) => data::edit_comment(&self.service, &self.identity, &id, &text).map(|_| ()),
             None if text.is_empty() => return,
-            None => self.add_selected(&text),
+            // The "Points at" field shows its own problem; nothing is added.
+            None => match composer::points_spec(&points_text) {
+                Ok(points_at) => self.add_selected(&text, points_at),
+                Err(_) => return,
+            },
         };
         match result {
             Ok(()) => self.reload(cx),
@@ -104,7 +123,7 @@ impl Shell {
         }
     }
 
-    fn add_selected(&self, text: &str) -> Result<(), String> {
+    fn add_selected(&self, text: &str, points_at: Option<Location>) -> Result<(), String> {
         let selected = self.selected.as_ref().ok_or("no file is open")?;
         let diff = selected.diff.as_ref().map_err(Clone::clone)?;
         let (lo, hi) = selected
@@ -112,7 +131,14 @@ impl Shell {
             .lines(diff)
             .ok_or("select a line first")?;
         let lines = (i64::from(lo), i64::from(hi));
-        data::add_comment(&self.service, &self.identity, &selected.path, lines, text)
+        data::add_comment(
+            &self.service,
+            &self.identity,
+            &selected.path,
+            lines,
+            text,
+            points_at,
+        )
     }
 
     /// Opens the composer on draft `id`, prefilled, under the comment's last
@@ -190,6 +216,7 @@ impl Shell {
             &removed.file,
             removed.lines,
             &removed.text,
+            removed.points_at.clone(),
         );
         match added {
             Ok(()) => {
@@ -214,7 +241,11 @@ mod tests {
     #[test]
     fn the_re_add_request_carries_file_range_and_text() {
         let comment = Comment {
-            points_at: None,
+            points_at: Some(Location {
+                file: "src/service.rs".into(),
+                start_line: 90,
+                end_line: 96,
+            }),
             reopens: None,
             verdict: None,
             id: "r4".into(),
@@ -246,6 +277,11 @@ mod tests {
                 file: "src/a.rs".into(),
                 lines: (7, 9),
                 text: "rename this".into(),
+                points_at: Some(Location {
+                    file: "src/service.rs".into(),
+                    start_line: 90,
+                    end_line: 96,
+                }),
             }
         );
     }

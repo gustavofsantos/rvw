@@ -3,9 +3,11 @@
 
 use gpui::prelude::*;
 use gpui::{div, px, ClickEvent, Context, Div, FontWeight, SharedString, Stateful, Window};
+use rvw_core::types::Location;
 use rvw_view::queue::Row;
 
 use crate::data::Snapshot;
+use crate::diff_view;
 use crate::draft_edit::Removal;
 use crate::icon;
 use crate::shell::Shell;
@@ -20,10 +22,10 @@ pub fn right(snapshot: &Snapshot, removal: Option<&Removal>, cx: &Context<Shell>
             .text_color(theme::muted())
             .child("No comments in your draft yet.")
     } else {
-        div()
-            .flex()
-            .flex_col()
-            .children(rows.iter().map(|row| draft_row(row, cx)))
+        div().flex().flex_col().children(
+            rows.iter()
+                .map(|row| draft_row(row, points_at(snapshot, &row.id), cx)),
+        )
     };
 
     div()
@@ -80,8 +82,17 @@ fn removal_line(removal: &Removal, cx: &Context<Shell>) -> Div {
     }
 }
 
+/// The changed location draft `id` points at, if it has one.
+fn points_at<'a>(snapshot: &'a Snapshot, id: &str) -> Option<&'a Location> {
+    snapshot
+        .comments
+        .iter()
+        .find(|comment| comment.id == id)
+        .and_then(|comment| comment.points_at.as_ref())
+}
+
 /// One draft comment. A click opens its outcome screen.
-fn draft_row(row: &Row, cx: &Context<Shell>) -> Stateful<Div> {
+fn draft_row(row: &Row, points: Option<&Location>, cx: &Context<Shell>) -> Stateful<Div> {
     let id = row.id.clone();
     let on_click = cx.listener(
         move |this: &mut Shell, _: &ClickEvent, _: &mut Window, cx: &mut Context<Shell>| {
@@ -117,7 +128,10 @@ fn draft_row(row: &Row, cx: &Context<Shell>) -> Stateful<Div> {
                         .text_size(px(theme::CODE_FONT_SIZE))
                         .text_color(theme::faint())
                         .child(row.location.clone()),
-                ),
+                )
+                .when_some(points, |column, at| {
+                    column.child(diff_view::points_note(at))
+                }),
         )
 }
 
