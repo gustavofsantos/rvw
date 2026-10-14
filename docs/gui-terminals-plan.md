@@ -32,8 +32,9 @@ Out, on purpose:
   one, titles, the quit guard's wording.
 - `rvw-gui`: the dock, the tabs, the palette entry and the view that paints a
   snapshot and forwards keys. No terminal logic.
-- Emulation is `alacritty_terminal`. The PTY is its own `tty` and event loop,
-  or `portable-pty` if its Windows story is needed. Decided in slice 1.
+- Emulation is `alacritty_terminal`. The PTY is alacritty's `tty::Pty` with
+  rvw's own read pump (alacritty's loop drops output when the grid lock is
+  busy). No Windows support.
 
 ## Decisions
 
@@ -77,7 +78,7 @@ The three milestones are in the locked order.
 2. Which commands the `⌘T` palette lists: this repository's history and a
    per-repository file. The file's name and format are not decided; rvw takes
    no environment variables.
-3. Windows: ConPTY through `portable-pty`, or not supported in the first cut.
+3. ~~Windows~~ Decided 2026-10-13: not supported. Unix only (Linux, macOS).
 
 ## Later
 
