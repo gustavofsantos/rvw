@@ -882,7 +882,7 @@ impl Shell {
             _ => Panels {
                 left: queue_screen::left(&self.snapshot, &self.filter, cx),
                 centre: queue_screen::centre(&self.snapshot, &self.queue, cx),
-                right: queue_screen::right(&self.snapshot.next_pull),
+                right: queue_screen::right(&self.snapshot.handoff),
             },
         }
     }

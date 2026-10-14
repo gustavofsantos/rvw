@@ -6,13 +6,14 @@ use std::collections::HashMap;
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, AnyElement, App, ClickEvent, Context, Div, ElementId, FontWeight, SharedString,
+    div, px, AnyElement, App, ClickEvent, Context, Div, ElementId, FontWeight, Rgba, SharedString,
     Stateful, Window,
 };
 use rvw_core::types::{Comment, Review, Status};
+use rvw_view::handoff::{CommentItem, LanePreview, Preview, ReviewItem};
 use rvw_view::queue::{glyph_of, Filter, Group, Queue, Row, State};
 
-use crate::data::{NextPull, Snapshot};
+use crate::data::Snapshot;
 use crate::icon;
 use crate::shell::Shell;
 use crate::theme;
@@ -303,10 +304,19 @@ fn row_view(row: &Row, by_id: &HashMap<&str, &Comment>, cx: &Context<Shell>) -> 
     // Two lines, so the title has the row's width: the glyph, the title and
     // the state on the first; the id and the location, faint, on the second.
     // Five columns on one line left the title no room.
-    let meta = if row.location.is_empty() {
+    let mut meta = if row.location.is_empty() {
         row.id.clone()
     } else {
         format!("{}  ·  {}", row.id, row.location)
+    };
+    if !row.author.is_empty() {
+        meta = format!("{meta}  ·  {}", row.author);
+    }
+    // A closed row says how its decision was judged; a follow-up says what it
+    // reopens. Both are small and muted, after the faint meta line.
+    let verdict = match row.state {
+        State::Closed => row.verdict,
+        _ => None,
     };
     div()
         .id(SharedString::from(format!("queue-row-{}", row.id)))
@@ -334,11 +344,22 @@ fn row_view(row: &Row, by_id: &HashMap<&str, &Comment>, cx: &Context<Shell>) -> 
                 )
                 .child(
                     div()
-                        .truncate()
-                        .font_family(theme::code_font())
-                        .text_size(px(12.))
-                        .text_color(theme::faint())
-                        .child(meta),
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .min_w(px(0.))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(px(0.))
+                                .truncate()
+                                .font_family(theme::code_font())
+                                .text_size(px(12.))
+                                .text_color(theme::faint())
+                                .child(meta),
+                        )
+                        .children(verdict.map(|kind| tag(kind.as_str().to_owned())))
+                        .children(row.reopens.as_ref().map(|id| tag(format!("reopens {id}")))),
                 ),
         )
         .child(
@@ -349,98 +370,184 @@ fn row_view(row: &Row, by_id: &HashMap<&str, &Comment>, cx: &Context<Shell>) -> 
         )
 }
 
-pub fn right(next: &NextPull) -> Div {
-    let heading = if next.lane.is_empty() {
-        "Next pull".to_owned()
-    } else {
-        format!("Next pull, lane {}", next.lane)
-    };
-    let summary = if next.count == 0 {
-        "Nothing waits to be taken.".to_owned()
-    } else {
-        "The next pull takes these, and they leave the queue.".to_owned()
-    };
+/// The right panel: what a pull would take, lane by lane, and what waits in
+/// other lanes. The heading and the notice stay in place; the lanes scroll.
+pub fn right(preview: &Preview) -> Div {
+    let pinned = preview.pinned.as_str();
+    let taken = preview
+        .lanes
+        .iter()
+        .filter(|lane| pinned.is_empty() || lane.lane == pinned)
+        .filter(|lane| !lane.is_empty())
+        .map(|lane| lane_view(lane, theme::ink()));
+    let waiting: Vec<&LanePreview> = preview
+        .lanes
+        .iter()
+        .filter(|lane| !pinned.is_empty() && lane.lane != pinned && !lane.is_empty())
+        .collect();
 
-    let mut panel = div()
-        .flex()
-        .flex_col()
-        .gap(px(26.))
-        .p(theme::PANEL_PADDING)
-        .child(
+    let mut lanes = div().flex().flex_col().gap(px(24.)).children(taken);
+    if !waiting.is_empty() {
+        lanes = lanes.child(
             div()
                 .flex()
                 .flex_col()
-                .gap(px(8.))
-                .child(div().text_color(theme::muted()).child(heading))
-                .child(
-                    div()
-                        .text_size(px(22.))
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(theme::ink())
-                        .child(format!(
-                            "{} {}",
-                            next.count,
-                            noun(next.count, "comment", "comments")
-                        )),
-                )
-                .child(div().text_color(theme::muted()).child(summary)),
-        );
-
-    if next.elsewhere > 0 {
-        panel = panel.child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(4.))
+                .gap(px(16.))
                 .pt(px(14.))
                 .border_t_1()
                 .border_color(theme::hairline_control())
                 .child(
                     div()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(theme::ink())
-                        .child(format!(
-                            "{} {} in another lane",
-                            next.elsewhere,
-                            elsewhere_verb(next.elsewhere)
-                        )),
-                )
-                .child(
-                    div()
                         .text_color(theme::muted())
-                        .child(elsewhere_detail(next)),
+                        .child("Waits in other lanes"),
+                )
+                .children(
+                    waiting
+                        .into_iter()
+                        .map(|lane| lane_view(lane, theme::muted())),
                 ),
         );
     }
-    panel
+
+    div()
+        .flex()
+        .flex_col()
+        .h_full()
+        .p(theme::PANEL_PADDING)
+        .gap(px(18.))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_none()
+                .gap(px(8.))
+                .child(
+                    div()
+                        .text_size(px(22.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::ink())
+                        .child("Next pull"),
+                )
+                .child(div().text_color(theme::text()).child(preview.notice())),
+        )
+        .child(
+            // A long list of handoffs scrolls here, not off the panel.
+            div()
+                .id("next-pull-lanes")
+                .flex_1()
+                .min_h(px(0.))
+                .overflow_y_scroll()
+                .child(lanes),
+        )
 }
 
-fn elsewhere_verb(count: usize) -> &'static str {
-    if count == 1 {
-        "comment waits"
-    } else {
-        "comments wait"
-    }
+/// One lane: its label and count, then its reviews and standalone comments.
+/// `colour` is for the text; a lane waiting elsewhere is drawn muted.
+fn lane_view(lane: &LanePreview, colour: Rgba) -> Div {
+    let count = lane.handoffs();
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(8.))
+        .child(
+            div()
+                .flex()
+                .items_baseline()
+                .gap(px(8.))
+                .pb(px(6.))
+                .border_b_1()
+                .border_color(theme::hairline())
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.))
+                        .truncate()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(colour)
+                        .child(lane.label()),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .text_color(theme::muted())
+                        .child(format!("{count} {}", noun(count, "handoff", "handoffs"))),
+                ),
+        )
+        .children(lane.reviews.iter().map(|review| review_row(review, colour)))
+        .children(
+            lane.comments
+                .iter()
+                .map(|comment| comment_row(comment, colour)),
+        )
 }
 
-fn elsewhere_detail(next: &NextPull) -> String {
-    let lanes: Vec<&str> = next
-        .elsewhere_lanes
-        .iter()
-        .map(|lane| {
-            if lane.is_empty() {
-                "no lane"
-            } else {
-                lane.as_str()
-            }
-        })
-        .collect();
-    // the notice only shows for a pinned pull, so a lane is always set here
-    format!(
-        "{} holds them. A pull pinned to {} will not take them.",
-        lanes.join(", "),
-        next.lane
-    )
+/// `rv2 comment · Looks good · 2 comments`, on one line.
+fn review_row(review: &ReviewItem, colour: Rgba) -> Div {
+    let comments = format!(
+        "{} {}",
+        review.comments,
+        noun(review.comments, "comment", "comments")
+    );
+    div().truncate().text_color(colour).child(format!(
+        "{} {} · {} · {}",
+        review.id, review.decision, review.title, comments
+    ))
+}
+
+/// `r9 src/a.rs:3-5` with its tags, then the title under it.
+fn comment_row(comment: &CommentItem, colour: Rgba) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(2.))
+        .min_w(px(0.))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .min_w(px(0.))
+                .child(
+                    div()
+                        .flex_none()
+                        .font_family(theme::code_font())
+                        .text_size(px(12.))
+                        .text_color(theme::muted())
+                        .child(comment.id.clone()),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.))
+                        .truncate()
+                        .font_family(theme::code_font())
+                        .text_size(px(12.))
+                        .text_color(theme::faint())
+                        .child(comment.location.clone()),
+                )
+                .children(comment.draft.then(|| tag("your draft".to_owned())))
+                .children(
+                    comment
+                        .reopens
+                        .as_ref()
+                        .map(|id| tag(format!("reopens {id}"))),
+                ),
+        )
+        .child(
+            div()
+                .truncate()
+                .text_color(colour)
+                .child(comment.title.clone()),
+        )
+}
+
+/// A small muted word after a row's text: a verdict, a follow-up's origin.
+fn tag(text: String) -> Div {
+    div()
+        .flex_none()
+        .text_size(px(12.))
+        .text_color(theme::muted())
+        .child(text)
 }
 
 pub(crate) fn noun(count: usize, one: &'static str, many: &'static str) -> &'static str {

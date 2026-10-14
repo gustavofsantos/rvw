@@ -11,6 +11,7 @@ use rvw_core::Service;
 use rvw_git::gitx;
 use rvw_view::changes::{self, ChangedFile, Compare};
 use rvw_view::diff::{self, FileDiff};
+use rvw_view::handoff::{self, Preview};
 use rvw_view::queue::{self, Facets, Filter, Queue};
 
 pub struct Snapshot {
@@ -21,7 +22,8 @@ pub struct Snapshot {
     /// The queue under the default filter: the counters and the empty check.
     pub queue: Queue,
     pub facets: Facets,
-    pub next_pull: NextPull,
+    /// What a pull would take, per lane, for the lane the window is pinned to.
+    pub handoff: Preview,
     /// The files that differ from the base, in tree order.
     pub changes: Vec<ChangedFile>,
     /// The commit id the changes are taken against; empty when there is none.
@@ -33,15 +35,6 @@ pub struct Snapshot {
     pub compare: Option<Compare>,
     /// Why the changes cannot be shown, when they cannot.
     pub changes_note: Option<String>,
-}
-
-/// What a pull pinned to the lane would take, read without taking it.
-pub struct NextPull {
-    pub lane: String,
-    pub count: usize,
-    /// handoffs waiting in other lanes; zero when no lane is pinned
-    pub elsewhere: usize,
-    pub elsewhere_lanes: Vec<String>,
 }
 
 impl Snapshot {
@@ -84,10 +77,12 @@ pub fn load(
             ..SheetsInput::default()
         })
         .map_err(|e| e.message)?;
+    // One peek with no lane sees every handoff; the preview groups them by
+    // lane and works out what a pull pinned to `lane` would take.
     let peek = service
         .pull(PullInput {
             workspace: workspace.to_owned(),
-            lane: lane.to_owned(),
+            lane: String::new(),
             peek: true,
             ..PullInput::default()
         })
@@ -95,11 +90,7 @@ pub fn load(
 
     let queue = queue::build(&list.comments, &sheets.sheets, &Filter::default());
     let facets = queue::facets(&list.comments);
-    let count = peek.count();
-    let (elsewhere, elsewhere_lanes) = match peek.elsewhere {
-        Some(found) => (usize::try_from(found.count).unwrap_or(0), found.lanes),
-        None => (0, Vec::new()),
-    };
+    let handoff = handoff::preview(&peek.reviews, &peek.comments, lane);
     let read = read_changes(Path::new(workspace), &list.comments, compare);
 
     Ok(Snapshot {
@@ -109,12 +100,7 @@ pub fn load(
         sheets: sheets.sheets,
         queue,
         facets,
-        next_pull: NextPull {
-            lane: lane.to_owned(),
-            count,
-            elsewhere,
-            elsewhere_lanes,
-        },
+        handoff,
         changes: read.changes,
         base_id: read.base_id,
         base_name: read.base_name,
@@ -488,5 +474,24 @@ pub(crate) mod tests {
         let snapshot = load(&service, &workspace, "", None).expect("load");
         assert_eq!(snapshot.queue.counters.waiting_on_you, 1);
         assert_eq!(snapshot.queue.counters.closed, 0);
+    }
+
+    #[test]
+    fn the_preview_takes_the_pinned_lane_and_counts_what_waits_elsewhere() {
+        let (_dir, service, feat) = workspace_with_store();
+        let other = Identity {
+            lane: "other".into(),
+            ..feat.clone()
+        };
+        add_comment(&service, &feat, "app.py", (1, 1), "in feat").expect("add");
+        add_comment(&service, &other, "app.py", (2, 2), "in other").expect("add");
+
+        let snapshot = load(&service, &feat.workspace, "feat", None).expect("load");
+        assert_eq!(snapshot.handoff.will_take(), 1);
+        assert_eq!(snapshot.handoff.elsewhere(), 1);
+        assert_eq!(snapshot.handoff.elsewhere_lanes(), vec!["other"]);
+        // a GUI comment is a pending standalone comment, so the pull takes it
+        // as a draft of the reviewer's own
+        assert_eq!(snapshot.handoff.drafts(), 1);
     }
 }
