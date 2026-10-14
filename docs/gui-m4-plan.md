@@ -124,9 +124,10 @@ Develop only against a scratch `--db`.
 Slices 0 to 15 are done and `make check` is green: clippy (`-D warnings`),
 `fmt --check`, `cargo audit`, `cargo test --workspace`, 144 bats tests, and the
 two parity scripts (now part of `make check`, against references captured from
-rvw itself). The non-GUI crates also compile on Rust 1.93. The window has NOT
-been run: GUI slices were checked by compiling and by unit tests on their
-pure parts.
+rvw itself). The non-GUI crates also compile on Rust 1.93. When this was
+written the window had not been run: GUI slices were checked by compiling and
+by unit tests on their pure parts. Since then the user has run it for daily
+work (2026-10-14) and it works; fixes from that use are on `develop`.
 
 | Done | Where |
 |---|---|
