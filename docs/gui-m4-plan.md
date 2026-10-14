@@ -118,3 +118,59 @@ builds in its own `CARGO_TARGET_DIR` under the main checkout's `target/`, and
 only the crate it works on. Only the orchestrator builds `rvw-gui`. Non-GUI
 crates compile on Rust 1.93, edition 2021 (no let-chains). Tests come first.
 Develop only against a scratch `--db`.
+
+## Status at the end of the session (2026-10-14)
+
+Slices 0 to 15 are done and `make check` is green: clippy (`-D warnings`),
+`fmt --check`, `cargo audit`, `cargo test --workspace`, 144 bats tests, and the
+two parity scripts (now part of `make check`, against references captured from
+rvw itself). The non-GUI crates also compile on Rust 1.93. The window has NOT
+been run: GUI slices were checked by compiling and by unit tests on their
+pure parts.
+
+| Done | Where |
+|---|---|
+| Verdict types, `Service::judge` (accept, reopen with a linked follow-up) | `rvw-core::{types, verdict}` |
+| Commit gate and recorded overrides | `rvw-core::gate`, `gate_overrides` table |
+| Points at: validation on `add`, `remove` refuses a follow-up | `rvw-core::service` |
+| Schema v2, upgrade from v1 with a one-time `<db>.v1.bak` | `rvw-store` |
+| MCP `judge`, `gate`, `override_gate` (15 tools; actor is always `agent`) | `rvw-mcp` |
+| CLI `accept`, `reopen`, `gate`, `gate override`, `add --points-at` | `rvw-cli`, `test/rvw.bats` |
+| Rendering of points at, reopens and verdicts | `rvw-render` |
+| Verdict-aware states, handoff grouping, gate wording, points-at parsing | `rvw-view::{queue, outcome, handoff, commit_screen, points_at}` |
+| Accept and Reopen on the outcome screen and in the palette | `rvw-gui::{outcome_screen, outcome_flow}` |
+| Next-pull preview per lane, row badges | `rvw-gui::{queue_screen, data}` |
+| Gate card before commit, amend, push and publish | `rvw-gui::gate_card` |
+| Points-at field in the composer, shown in threads, drafts and the outcome header | `rvw-gui::{composer, diff_list, draft_panel}` |
+| Skill, README, AGENTS, design doc | docs |
+
+Changes the user should know about:
+
+- The GUI's "seen" file is retired: opening an outcome no longer closes a
+  decided comment. Only a verdict does. The `<db>.seen` file is left on disk.
+- The submit dialog says "Decision" where it said "Verdict", so "verdict" means
+  only accept or reopen.
+- The follow-up that a reopen creates takes the judge's name as its author.
+- Queue rows now show their author on the second line.
+- Publish is gated like a push. Tag push is not gated.
+
+Open, in priority order for the first person who runs it:
+
+1. Back up the database, then run the new build once: it upgrades to v2 and
+   writes `<db>.v1.bak`. The old GUI, `rvw` and `rvw mcp serve` refuse the new
+   schema, so update all three together. Clear the old done comments:
+   `rvw list --status done --format ids | xargs -n1 rvw accept --note "reviewed before verdicts"`.
+2. Look at the outcome screen with Accept and Reopen, the reopen note field and
+   its focus, the next-pull panel, the gate card, and the points-at field:
+   layout, focus, keys. Accept from the palette while the reopen note is open
+   discards the typed note (untested).
+3. Run the loop for real: an agent resolves, you reopen, the agent pulls the
+   follow-up once; then commit with an open comment and override the gate.
+4. The gate card shows "set --author" when the GUI has no author; check what
+   the default author is for a normal launch.
+5. GUI drafts are still pullable before the review is submitted. The preview
+   labels them; a "held" flag in core is later work.
+6. The "human required" policy for the gate (D3) and a "commit dropped" marker
+   wait for M6.
+7. `mcp-compare.sh` needs `jq` (added to `scripts/setup-dev.sh`). CI does not
+   run `make check`; it still runs `cargo test` and bats directly.
