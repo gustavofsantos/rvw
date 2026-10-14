@@ -52,37 +52,49 @@ pub fn left(open: &Outcome, snapshot: &Snapshot, cx: &Context<Shell>) -> Div {
         .map(|row| list_row(row, by_id.get(row.id.as_str()).copied(), &open.id, cx))
         .collect();
 
+    // The heading and summary scroll with the rows: a long summary must not
+    // push the list off screen. Only Back stays fixed.
     div()
         .flex()
         .flex_col()
         .h_full()
+        .min_h(px(0.))
         .py(px(20.))
         .child(back_link(cx))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .px(px(24.))
-                .pb(px(14.))
-                .child(
-                    div()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(theme::ink())
-                        .child(heading),
-                )
-                .when(!detail.trim().is_empty(), |d| {
-                    d.child(div().text_color(theme::muted()).child(detail))
-                }),
-        )
         .child(
             div()
                 .id("outcome-rows")
                 .flex()
                 .flex_col()
-                .gap(px(2.))
+                .flex_1()
+                .min_h(px(0.))
                 .overflow_y_scroll()
-                .children(rows),
+                .child(
+                    div()
+                        .flex()
+                        .flex_none()
+                        .flex_col()
+                        .gap(px(4.))
+                        .px(px(24.))
+                        .pb(px(14.))
+                        .child(
+                            div()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(theme::ink())
+                                .child(heading),
+                        )
+                        .when(!detail.trim().is_empty(), |d| {
+                            d.child(div().text_color(theme::muted()).child(detail))
+                        }),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_none()
+                        .flex_col()
+                        .gap(px(2.))
+                        .children(rows),
+                ),
         )
 }
 
