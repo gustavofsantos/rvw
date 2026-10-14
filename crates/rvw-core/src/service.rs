@@ -17,8 +17,8 @@ use crate::operations::{
 };
 use crate::repository::{Repository, Tx};
 use crate::types::{
-    comment_id, review_id, statuses_of, validate_decision, Comment, Handoff, LineRange, Review,
-    ReviewStatus, Status, OUTCOME_DONE, OUTCOME_REJECTED,
+    comment_id, review_id, statuses_of, validate_decision, Comment, Handoff, LineRange, Location,
+    Review, ReviewStatus, Status, OUTCOME_DONE, OUTCOME_REJECTED,
 };
 
 /// The largest file, or buffer, a comment snapshots.
@@ -107,6 +107,12 @@ impl Service {
         }
         let end = lines.end_line.min(total);
         let code = source_lines[to_index(lines.start_line - 1)..to_index(end)].join("\n");
+        // Checked before anything is written: the git blob and the queue.
+        let points_at = input
+            .points_at
+            .as_ref()
+            .map(|loc| Self::points_at_location(&input.workspace, loc))
+            .transpose()?;
 
         let file_version = snapshot_reviewed(&input.workspace, &rel, &source)?;
 
@@ -116,7 +122,7 @@ impl Service {
             input.filetype.clone()
         };
         let c = Comment {
-            points_at: None,
+            points_at,
             reopens: None,
             verdict: None,
             id: String::new(),
@@ -503,9 +509,9 @@ impl Service {
         })
     }
 
-    /// Deletes a comment that is still in the reviewer's draft: pending and
-    /// not part of a submitted review. Returns it as it was. Its id is not
-    /// issued again.
+    /// Deletes a comment that is still in the reviewer's draft: pending, not
+    /// part of a submitted review, and not the follow-up of a reopen (a verdict
+    /// points at that). Returns it as it was. Its id is not issued again.
     pub fn remove(&self, input: RemoveInput) -> Result<Comment> {
         self.write(&input.workspace, |tx| {
             let c = find(tx, &input.id)?;
@@ -519,6 +525,12 @@ impl Service {
                 return Err(Error::conflict(format!(
                     "{} belongs to review {} — only a comment outside a submitted review can be removed",
                     c.id, c.review_id
+                )));
+            }
+            if let Some(reopened) = &c.reopens {
+                return Err(Error::conflict(format!(
+                    "{} reopens {reopened} — withdraw it by rejecting it instead",
+                    c.id
                 )));
             }
             tx.delete_comment(&c.id)?;
@@ -550,6 +562,40 @@ impl Service {
         let path =
             rvw_git::workspace::canonical(&joined).map_err(|e| Error::internal(e.to_string()))?;
         Ok(path.to_string_lossy().into_owned())
+    }
+
+    /// Resolves a points-at range: a regular file inside the workspace, stored
+    /// relative to it, with the lines inside the file. A reversed range is
+    /// swapped and the end clamped to the file's last line.
+    fn points_at_location(ws: &str, loc: &Location) -> Result<Location> {
+        let lines = LineRange {
+            start_line: loc.start_line,
+            end_line: loc.end_line,
+        }
+        .normalized()
+        .map_err(|_| Error::invalid("points-at lines are 1-indexed; N must be >= 1"))?;
+        let path = Self::file_path(ws, &loc.file)?;
+        let rel =
+            rvw_git::workspace::in_workspace(Path::new(ws), Path::new(&path)).ok_or_else(|| {
+                Error::invalid(format!("points-at {path} is outside the workspace {ws}"))
+            })?;
+        if !Path::new(&path).exists() {
+            return Err(Error::not_found(format!("points-at {path} does not exist")));
+        }
+        let source = read_source(&path, None)
+            .map_err(|e| Error::new(e.kind, format!("points-at {}", e.message)))?;
+        let total = to_i64(split_source(&source).len());
+        if lines.start_line > total {
+            return Err(Error::invalid(format!(
+                "points-at lines {} is past the end of {path} ({total} lines)",
+                lines.label()
+            )));
+        }
+        Ok(Location {
+            file: rel,
+            start_line: lines.start_line,
+            end_line: lines.end_line.min(total),
+        })
     }
 }
 
@@ -1910,6 +1956,33 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn remove_refuses_the_follow_up_of_a_reopen() {
+        let f = setup();
+        f.add_at(1, "decided", "", "");
+        f.add_at(2, "reopened", "", "");
+        f.svc
+            .write(&f.ws, |tx| {
+                let mut follow_up = find(tx, "r2")?;
+                follow_up.reopens = Some("r1".into());
+                tx.update_comment(&follow_up)
+            })
+            .expect("link");
+        let err = f
+            .svc
+            .remove(RemoveInput {
+                workspace: f.ws.clone(),
+                id: "r2".into(),
+            })
+            .unwrap_err();
+        assert_eq!(err.kind, ErrorKind::Conflict);
+        assert_eq!(
+            err.message,
+            "r2 reopens r1 — withdraw it by rejecting it instead"
+        );
+        assert_eq!(f.pending(""), 2, "the follow-up stays in the queue");
+    }
+
+    #[test]
     fn sheets_filter_by_state() {
         let f = setup();
         f.add_at(1, "a", "", "");
@@ -2155,6 +2228,93 @@ pub(crate) mod tests {
         assert!(err
             .message
             .ends_with(&format!("is outside the workspace {}", f.ws)));
+    }
+
+    fn at(file: &str, start_line: i64, end_line: i64) -> Location {
+        Location {
+            file: file.into(),
+            start_line,
+            end_line,
+        }
+    }
+
+    fn add_pointing(f: &Fixture, points_at: Option<Location>) -> Result<Comment> {
+        f.svc.add(AddInput {
+            points_at,
+            workspace: f.ws.clone(),
+            file: "app.py".into(),
+            start_line: 1,
+            comment: "x".into(),
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn points_at_is_stored_relative_and_null_when_absent() {
+        let f = setup();
+        fs::write(f.root.join("lib.py"), "a\nb\nc\nd\n").expect("write");
+        let c = add_pointing(&f, Some(at("lib.py", 2, 3))).expect("add");
+        assert_eq!(c.points_at, Some(at("lib.py", 2, 3)));
+        // An absolute path inside the workspace is stored relative too.
+        let abs = format!("{}/lib.py", f.ws);
+        let c = add_pointing(&f, Some(at(&abs, 4, 4))).expect("add absolute");
+        assert_eq!(c.points_at, Some(at("lib.py", 4, 4)));
+        assert_eq!(add_pointing(&f, None).expect("add").points_at, None);
+    }
+
+    #[test]
+    fn points_at_swaps_a_reversed_range_and_clamps_the_end() {
+        let f = setup();
+        fs::write(f.root.join("lib.py"), "a\nb\nc\nd\n").expect("write");
+        let stored = |p| add_pointing(&f, p).expect("add").points_at;
+        assert_eq!(stored(Some(at("lib.py", 3, 2))), Some(at("lib.py", 2, 3)));
+        assert_eq!(stored(Some(at("lib.py", 3, 99))), Some(at("lib.py", 3, 4)));
+    }
+
+    #[test]
+    fn points_at_refusals_leave_the_queue_empty() {
+        let f = setup();
+        fs::write(f.root.join("lib.py"), "a\nb\nc\nd\n").expect("write");
+        fs::create_dir_all(f.root.join("sub")).expect("mkdir");
+
+        let err = add_pointing(&f, Some(at("/etc/hostname", 1, 1))).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::Invalid);
+        assert_eq!(
+            err.message,
+            format!("points-at /etc/hostname is outside the workspace {}", f.ws)
+        );
+
+        let err = add_pointing(&f, Some(at("missing.py", 1, 1))).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::NotFound);
+        assert_eq!(
+            err.message,
+            format!("points-at {}/missing.py does not exist", f.ws)
+        );
+
+        let err = add_pointing(&f, Some(at("sub", 1, 1))).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::Invalid);
+        assert_eq!(
+            err.message,
+            format!("points-at {}/sub is not a regular file", f.ws)
+        );
+
+        let err = add_pointing(&f, Some(at("lib.py", 9, 9))).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::Invalid);
+        assert_eq!(
+            err.message,
+            format!(
+                "points-at lines 9 is past the end of {}/lib.py (4 lines)",
+                f.ws
+            )
+        );
+
+        for (start, end) in [(0, 2), (1, 0)] {
+            let err = add_pointing(&f, Some(at("lib.py", start, end))).unwrap_err();
+            assert_eq!(err.kind, ErrorKind::Invalid);
+            assert_eq!(err.message, "points-at lines are 1-indexed; N must be >= 1");
+        }
+
+        assert_eq!(f.pending(""), 0, "a refused comment is never enqueued");
     }
 
     #[test]
