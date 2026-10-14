@@ -35,9 +35,13 @@ const LANE_WIDTH: f32 = 14.;
 /// The diameter of a commit's dot.
 const DOT: Pixels = px(9.);
 const SHA_WIDTH: Pixels = px(58.);
-const AUTHOR_MAX: Pixels = px(120.);
+/// The commit list's fixed columns. The subject takes what is left, so every
+/// other cell sits at the same x on every row and under its header.
+const AUTHOR_WIDTH: Pixels = px(120.);
 const AGO_WIDTH: Pixels = px(40.);
-const REVIEW_WIDTH: Pixels = px(96.);
+const REVIEW_WIDTH: Pixels = px(56.);
+/// The gap between the list's cells and the padding of a row.
+const COLUMN_GAP: f32 = 12.;
 /// The line-number columns and the sign of a diff line; with the 6px before
 /// the code they make `HISTORY_CODE_GUTTER`.
 const GUTTER: Pixels = px(46.);
@@ -812,29 +816,37 @@ fn empty_list(state: &HistoryState) -> Div {
         .child(text)
 }
 
-/// The list's column titles: "Commit" over the short ids, and "Review" at the
-/// right. The graph's first lane is allowed for when the log has a graph.
+/// A fixed-width cell of the commit list, clipped so it never pushes its
+/// neighbours.
+fn fixed_cell(width: Pixels) -> Div {
+    div().w(width).flex_none().overflow_hidden().truncate()
+}
+
+/// The list's column titles, over the cells of a row: the same widths, gap
+/// and padding, so each title sits above its column. The graph's lanes are
+/// allowed for when the log has a graph.
 fn column_header(lanes: Option<usize>) -> Div {
     div()
         .flex()
         .flex_none()
         .items_center()
-        .gap(px(12.))
+        .gap(px(COLUMN_GAP))
         .h(HEADER_ROW_HEIGHT)
         .mx(px(8.))
         .px(px(12.))
+        .overflow_hidden()
         .text_size(px(SMALL))
         .text_color(theme::muted())
         .when_some(lanes, |d, lanes| {
             d.child(div().w(lanes_px(lanes)).flex_none())
         })
-        .child(div().w(SHA_WIDTH).flex_none().child("Commit"))
-        .child(div().flex_1())
+        .child(fixed_cell(SHA_WIDTH).child("Commit"))
+        .child(div().flex_1().min_w(px(0.)).truncate().child("Subject"))
+        .child(fixed_cell(AUTHOR_WIDTH).child("Author"))
+        .child(fixed_cell(AGO_WIDTH).text_right().child("Date"))
         .child(
-            div()
-                .w(REVIEW_WIDTH)
-                .flex_none()
-                .text_right()
+            fixed_cell(REVIEW_WIDTH)
+                .text_center()
                 .text_color(theme::faint())
                 .child("Review"),
         )
@@ -874,10 +886,11 @@ fn history_row(
         .id(("history-row", index))
         .flex()
         .items_center()
-        .gap(px(12.))
+        .gap(px(COLUMN_GAP))
         .h(ROW_HEIGHT)
         .mx(px(8.))
         .px(px(12.))
+        .overflow_hidden()
         .rounded(theme::ROW_RADIUS)
         .cursor_pointer()
         .when(selected, |d| d.bg(theme::selected_line()))
@@ -894,45 +907,45 @@ fn history_row(
         line = line.child(graph_cell(&row.graph, lanes));
     }
     line.child(
-        div()
-            .w(SHA_WIDTH)
-            .flex_none()
+        fixed_cell(SHA_WIDTH)
             .font_family(theme::code_font())
             .text_size(px(SMALL))
             .text_color(theme::faint())
             .child(short(&row.entry.id).to_owned()),
     )
-    .children(label_group(&row.labels))
+    // The subject starts at the same x on every row; the ref labels follow it
+    // and the subject gives way to them.
     .child(
         div()
+            .flex()
             .flex_1()
             .min_w(px(0.))
-            .truncate()
-            .text_color(theme::text())
-            .child(row.entry.subject.clone()),
+            .items_center()
+            .gap(px(8.))
+            .overflow_hidden()
+            .child(
+                div()
+                    .min_w(px(0.))
+                    .truncate()
+                    .text_color(theme::text())
+                    .child(row.entry.subject.clone()),
+            )
+            .children(label_group(&row.labels)),
     )
     .child(
-        div()
-            .flex_none()
-            .max_w(AUTHOR_MAX)
-            .min_w(px(0.))
-            .truncate()
+        fixed_cell(AUTHOR_WIDTH)
             .text_color(theme::muted())
             .child(row.entry.author.clone()),
     )
     .child(
-        div()
-            .w(AGO_WIDTH)
-            .flex_none()
+        fixed_cell(AGO_WIDTH)
             .text_right()
             .text_color(theme::faint())
             .child(ago(now, row.entry.time)),
     )
     .child(
-        div()
-            .w(REVIEW_WIDTH)
-            .flex_none()
-            .text_right()
+        fixed_cell(REVIEW_WIDTH)
+            .text_center()
             .text_color(theme::faint())
             .child("\u{2013}"),
     )
