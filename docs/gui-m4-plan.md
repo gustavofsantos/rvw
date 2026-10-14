@@ -158,7 +158,8 @@ Open, in priority order for the first person who runs it:
 
 1. Back up the database, then run the new build once: it upgrades to v2 and
    writes `<db>.v1.bak`. The old GUI, `rvw` and `rvw mcp serve` refuse the new
-   schema, so update all three together. Clear the old done comments:
+   schema, so update all three together. Old done comments are cleared (2026-10-14,
+   by the user); to repeat it on another database:
    `rvw list --status done --format ids | xargs -n1 rvw accept --note "reviewed before verdicts"`.
 2. Look at the outcome screen with Accept and Reopen, the reopen note field and
    its focus, the next-pull panel, the gate card, and the points-at field:
