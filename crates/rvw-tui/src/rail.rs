@@ -103,6 +103,9 @@ mod tests {
     /// A pending comment on lines `start..=end` of one file.
     fn comment(id: &str, start: i64, end: i64) -> Comment {
         Comment {
+            points_at: None,
+            reopens: None,
+            verdict: None,
             id: id.to_owned(),
             status: Status::Pending,
             workspace: "/ws".to_owned(),

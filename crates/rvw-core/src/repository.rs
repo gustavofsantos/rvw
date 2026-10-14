@@ -2,7 +2,7 @@
 //! `update`, so concurrent editors and agents serialize on it.
 
 use crate::error::Result;
-use crate::types::{Comment, Review, ReviewStatus, Status};
+use crate::types::{Comment, GateOverride, Review, ReviewStatus, Status};
 
 pub trait Repository: Send + Sync {
     /// Runs `f` in one write transaction on the workspace, creating the
@@ -41,4 +41,9 @@ pub trait Tx {
     fn insert_review(&mut self, r: &Review) -> Result<()>;
     /// Rewrites a review's lifecycle. Its links never change.
     fn update_review(&mut self, r: &Review) -> Result<()>;
+
+    /// Appends a recorded gate override.
+    fn insert_override(&mut self, o: &GateOverride) -> Result<()>;
+    /// Every recorded override of the workspace, oldest first.
+    fn overrides(&mut self) -> Result<Vec<GateOverride>>;
 }

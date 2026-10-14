@@ -3,7 +3,9 @@
 
 use rusqlite::types::{Type, Value};
 use rusqlite::{params, params_from_iter, OptionalExtension, Row, Transaction};
-use rvw_core::types::{comment_id, parse_seq, review_id, Comment, Review, ReviewStatus, Status};
+use rvw_core::types::{
+    comment_id, parse_seq, review_id, Comment, GateOverride, Review, ReviewStatus, Status,
+};
 use rvw_core::{Error, Result, Tx};
 
 use crate::internal;
@@ -268,6 +270,14 @@ impl Tx for SqlTx<'_> {
             .map(drop)
             .map_err(internal)
     }
+
+    fn insert_override(&mut self, _: &GateOverride) -> Result<()> {
+        Err(Error::internal("gate overrides are not stored yet"))
+    }
+
+    fn overrides(&mut self) -> Result<Vec<GateOverride>> {
+        Ok(Vec::new())
+    }
 }
 
 /// The sequence number of a comment id, or an internal error for a malformed one.
@@ -282,6 +292,9 @@ fn scan_comment(row: &Row<'_>, workspace: &str) -> rusqlite::Result<Comment> {
         .ok_or_else(|| bad_column(1, format!("unknown status {raw_status:?}")))?;
     let review_seq: Option<i64> = row.get(19)?;
     Ok(Comment {
+        points_at: None,
+        reopens: None,
+        verdict: None,
         id: comment_id(seq),
         status,
         workspace: workspace.to_owned(),

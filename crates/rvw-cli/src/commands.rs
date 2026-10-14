@@ -509,6 +509,7 @@ fn add(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
     let svc = app.svc()?;
     let c = svc
         .add(AddInput {
+            points_at: None,
             workspace: ws,
             file,
             start_line: range.start_line,

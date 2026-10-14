@@ -324,6 +324,9 @@ mod tests {
 
     fn comment(file: &str, start: i64, end: i64, status: Status) -> Comment {
         Comment {
+            points_at: None,
+            reopens: None,
+            verdict: None,
             id: "r1".into(),
             status,
             workspace: "/ws".into(),

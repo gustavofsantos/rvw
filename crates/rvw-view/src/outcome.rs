@@ -159,6 +159,9 @@ mod tests {
 
     fn comment(status: Status) -> Comment {
         Comment {
+            points_at: None,
+            reopens: None,
+            verdict: None,
             id: "r9".into(),
             status,
             workspace: "/ws".into(),

@@ -647,6 +647,7 @@ impl Model {
                     .opts
                     .service
                     .add(AddInput {
+                        points_at: None,
                         workspace,
                         file: req.file.clone(),
                         start_line: req.start,

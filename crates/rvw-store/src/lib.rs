@@ -223,6 +223,9 @@ mod tests {
 
     fn comment(seq: i64, lane: Option<&str>) -> Comment {
         Comment {
+            points_at: None,
+            reopens: None,
+            verdict: None,
             id: comment_id(seq),
             status: Status::Pending,
             workspace: WS.to_owned(),
@@ -365,6 +368,9 @@ mod tests {
     fn every_comment_field_round_trips() {
         let (_dir, store) = fresh();
         let original = Comment {
+            points_at: None,
+            reopens: None,
+            verdict: None,
             id: "r7".to_owned(),
             status: Status::Pulled,
             workspace: WS.to_owned(),

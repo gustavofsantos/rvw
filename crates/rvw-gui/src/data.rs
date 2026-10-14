@@ -202,6 +202,7 @@ pub fn add_comment(
 ) -> Result<(), String> {
     service
         .add(AddInput {
+            points_at: None,
             workspace: identity.workspace.clone(),
             file: file.to_owned(),
             start_line: lines.0,

@@ -537,6 +537,9 @@ mod tests {
     #[test]
     fn a_missing_snapshot_is_not_available() {
         let c = Comment {
+            points_at: None,
+            reopens: None,
+            verdict: None,
             file_version: String::new(),
             ..blank_comment()
         };
@@ -545,6 +548,9 @@ mod tests {
 
     pub(crate) fn blank_comment() -> Comment {
         Comment {
+            points_at: None,
+            reopens: None,
+            verdict: None,
             id: "r1".into(),
             status: crate::types::Status::Done,
             workspace: "/nonexistent".into(),

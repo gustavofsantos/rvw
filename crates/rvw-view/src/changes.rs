@@ -610,6 +610,9 @@ mod tests {
 
     fn comment(file: &str, status: Status) -> Comment {
         Comment {
+            points_at: None,
+            reopens: None,
+            verdict: None,
             id: format!("{file}-{status:?}"),
             status,
             workspace: "/ws".into(),

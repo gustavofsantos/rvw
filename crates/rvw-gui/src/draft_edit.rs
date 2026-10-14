@@ -214,6 +214,9 @@ mod tests {
     #[test]
     fn the_re_add_request_carries_file_range_and_text() {
         let comment = Comment {
+            points_at: None,
+            reopens: None,
+            verdict: None,
             id: "r4".into(),
             status: rvw_core::types::Status::Pending,
             workspace: "/ws".into(),

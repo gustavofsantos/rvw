@@ -91,6 +91,7 @@ impl Fixture {
     pub fn add(&self, file: &str, start: i64, end: i64, text: &str, author: &str) -> Comment {
         self.svc
             .add(AddInput {
+                points_at: None,
                 workspace: self.ws.clone(),
                 file: file.to_owned(),
                 start_line: start,

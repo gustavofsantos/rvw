@@ -66,6 +66,9 @@ mod tests {
 
     fn comment(file: &str, status: Status) -> Comment {
         Comment {
+            points_at: None,
+            reopens: None,
+            verdict: None,
             id: "r1".into(),
             status,
             workspace: "/ws".into(),

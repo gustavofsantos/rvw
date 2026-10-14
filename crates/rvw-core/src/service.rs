@@ -116,6 +116,9 @@ impl Service {
             input.filetype.clone()
         };
         let c = Comment {
+            points_at: None,
+            reopens: None,
+            verdict: None,
             id: String::new(),
             status: Status::Pending,
             workspace: input.workspace.clone(),
@@ -990,10 +993,11 @@ pub(crate) mod testing {
 
     use crate::error::{Error, Result};
     use crate::repository::{Repository, Tx};
-    use crate::types::{Comment, Review, ReviewStatus, Status};
+    use crate::types::{Comment, GateOverride, Review, ReviewStatus, Status};
 
     #[derive(Default, Clone)]
     struct WorkspaceData {
+        overrides: Vec<GateOverride>,
         comments: Vec<Comment>,
         reviews: Vec<Review>,
         comment_seq: i64,
@@ -1139,6 +1143,15 @@ pub(crate) mod testing {
                 None => Err(Error::internal(format!("no review {}", r.id))),
             }
         }
+
+        fn insert_override(&mut self, o: &GateOverride) -> Result<()> {
+            self.data.overrides.push(o.clone());
+            Ok(())
+        }
+
+        fn overrides(&mut self) -> Result<Vec<GateOverride>> {
+            Ok(self.data.overrides.clone())
+        }
     }
 
     /// Every stamp reads 2026-10-12T09:00:00+00:00.
@@ -1161,6 +1174,7 @@ mod tests {
     use super::testing::{fixed_clock, MemRepo};
     use super::*;
     use crate::error::ErrorKind;
+    use crate::types::{Actor, Verdict, VerdictKind};
 
     struct Fixture {
         svc: Service,
@@ -1207,6 +1221,7 @@ mod tests {
         fn add_at(&self, line: i64, text: &str, lane_name: &str, who: &str) -> Comment {
             self.svc
                 .add(AddInput {
+                    points_at: None,
                     workspace: self.ws.clone(),
                     file: "app.py".into(),
                     start_line: line,
@@ -1580,6 +1595,9 @@ mod tests {
             pulled_at: None,
         };
         let comment = |id: &str, at: &str| Comment {
+            points_at: None,
+            reopens: None,
+            verdict: None,
             id: id.into(),
             status: Status::Pending,
             workspace: "/w".into(),
@@ -1993,6 +2011,7 @@ mod tests {
         let err = f
             .svc
             .add(AddInput {
+                points_at: None,
                 workspace: f.ws.clone(),
                 file: "app.py".into(),
                 start_line: 99,
@@ -2019,6 +2038,7 @@ mod tests {
         let err = f
             .svc
             .add(AddInput {
+                points_at: None,
                 workspace: "proj".into(),
                 file: "app.py".into(),
                 start_line: 1,
@@ -2035,6 +2055,7 @@ mod tests {
         let err = f
             .svc
             .add(AddInput {
+                points_at: None,
                 workspace: f.ws.clone(),
                 file: "app.py".into(),
                 start_line: 1,
@@ -2046,6 +2067,7 @@ mod tests {
         let err = f
             .svc
             .add(AddInput {
+                points_at: None,
                 workspace: f.ws.clone(),
                 file: "app.py".into(),
                 start_line: 0,
@@ -2062,6 +2084,7 @@ mod tests {
         let c = f
             .svc
             .add(AddInput {
+                points_at: None,
                 workspace: f.ws.clone(),
                 file: "app.py".into(),
                 start_line: 4,
@@ -2085,6 +2108,7 @@ mod tests {
         let err = f
             .svc
             .add(AddInput {
+                points_at: None,
                 workspace: f.ws.clone(),
                 file: "missing.py".into(),
                 start_line: 1,
@@ -2100,6 +2124,7 @@ mod tests {
         let err = f
             .svc
             .add(AddInput {
+                points_at: None,
                 workspace: f.ws.clone(),
                 file: "app.py".into(),
                 start_line: 1,
@@ -2117,6 +2142,7 @@ mod tests {
         let err = f
             .svc
             .add(AddInput {
+                points_at: None,
                 workspace: f.ws.clone(),
                 file: "/etc/hostname".into(),
                 start_line: 1,
@@ -2137,6 +2163,7 @@ mod tests {
         let c = f
             .svc
             .add(AddInput {
+                points_at: None,
                 workspace: f.ws.clone(),
                 file: "notes.MD".into(),
                 start_line: 1,
@@ -2160,6 +2187,9 @@ mod tests {
             "resolved_at",
             "resolved_by",
             "resolution_note",
+            "points_at",
+            "reopens",
+            "verdict",
         ] {
             assert!(
                 fields.get(k).is_some_and(serde_json::Value::is_null),
@@ -2186,6 +2216,32 @@ mod tests {
             serde_json::to_value(&list.comments).expect("json"),
             serde_json::json!([])
         );
+    }
+
+    #[test]
+    fn awaits_verdict_and_is_open_follow_the_decision() {
+        let f = setup();
+        let mut c = f.add_at(1, "x", "", "alice");
+        assert!(c.is_open());
+        assert!(!c.awaits_verdict(), "a draft awaits nothing");
+        c.status = Status::Done;
+        assert!(!c.is_open());
+        assert!(!c.awaits_verdict(), "never handed over: a withdrawal");
+        c.pulled_at = Some("t".into());
+        c.resolved_by = Some("claude".into());
+        assert!(c.awaits_verdict());
+        c.resolved_by = Some("alice".into());
+        assert!(!c.awaits_verdict(), "its own author decided it");
+        c.resolved_by = Some("claude".into());
+        c.verdict = Some(Verdict {
+            kind: VerdictKind::Accepted,
+            by: "alice".into(),
+            actor: Actor::Human,
+            at: "t".into(),
+            note: None,
+            followup: None,
+        });
+        assert!(!c.awaits_verdict(), "judged");
     }
 
     #[test]

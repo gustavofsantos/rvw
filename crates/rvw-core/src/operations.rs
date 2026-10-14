@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::types::{Comment, Handoff, Review};
+use crate::types::{Comment, Handoff, Location, Review};
 
 #[allow(clippy::trivially_copy_pass_by_ref)] // serde's skip_serializing_if takes a reference
 fn is_false(b: &bool) -> bool {
@@ -45,6 +45,9 @@ pub struct AddInput {
     /// who raises the comment
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub author: String,
+    /// another file range this comment refers to, e.g. the changed code a note on an unchanged file is about
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub points_at: Option<Location>,
 }
 
 /// Groups pending comments under one review.
@@ -298,4 +301,84 @@ pub struct WorkspaceSummary {
     pub pending: i64,
     /// comments handed over and not yet decided
     pub pulled: i64,
+}
+
+/// Judges a decided comment: accepts the decision, or reopens the comment.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct VerdictInput {
+    /// absolute workspace path
+    pub workspace: String,
+    /// comment id, e.g. r3, decided as done or rejected after a handoff
+    pub id: String,
+    /// accepted, or reopened (which needs a note)
+    pub verdict: String,
+    /// accept: an optional remark; reopen: what is still wrong, which becomes the follow-up comment's text
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
+    /// reopen only: first line of the follow-up's range; 0 keeps the original range
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub start_line: i64,
+    /// reopen only: last line of the follow-up's range; 0 keeps the original range
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub end_line: i64,
+    /// who judges; must not be the one who decided the comment
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub author: String,
+}
+
+/// The judged comment, and the follow-up a reopen created.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct VerdictOutput {
+    /// the comment with its verdict
+    pub comment: Comment,
+    /// the new pending comment a reopen created, null for an accept
+    #[schemars(required)]
+    pub followup: Option<Comment>,
+}
+
+/// Asks what stands between the workspace and a commit or push.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct GateInput {
+    /// absolute workspace path
+    pub workspace: String,
+    /// only this lane's comments; empty means every lane
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub lane: String,
+}
+
+/// Comments that still need a decision or a verdict.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct GateOutput {
+    /// absolute workspace path
+    pub workspace: String,
+    /// the lane looked at, null for every lane
+    #[schemars(required, schema_with = "nullable_string_schema")]
+    pub lane: Option<String>,
+    /// pending or pulled comment ids (drafts included)
+    pub open: Vec<String>,
+    /// decided comment ids still waiting for a verdict
+    pub unjudged: Vec<String>,
+    /// true when nothing is open or unjudged
+    pub clear: bool,
+}
+
+/// Records going ahead with an action although the gate was not clear.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct OverrideInput {
+    /// absolute workspace path
+    pub workspace: String,
+    /// commit or push
+    pub action: String,
+    /// why the action goes ahead
+    pub reason: String,
+    /// only this lane's comments; empty means every lane
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub lane: String,
+    /// who overrides
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub author: String,
+}
+
+fn nullable_string_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({ "type": ["string", "null"] })
 }

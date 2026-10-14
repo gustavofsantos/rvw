@@ -28,6 +28,9 @@ pub(crate) mod fixtures {
         note: &str,
     ) -> Comment {
         Comment {
+            points_at: None,
+            reopens: None,
+            verdict: None,
             id: id.into(),
             status,
             workspace: "/ws".into(),

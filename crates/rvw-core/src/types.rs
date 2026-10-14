@@ -139,6 +139,15 @@ pub struct Comment {
     #[schemars(required, schema_with = "nullable_string")]
     /// what was done, or why not
     pub resolution_note: Option<String>,
+    #[schemars(required)]
+    /// another file range this comment refers to, null when it points nowhere
+    pub points_at: Option<Location>,
+    #[schemars(required, schema_with = "nullable_string")]
+    /// id of the decided comment this one reopens, null when it reopens none
+    pub reopens: Option<String>,
+    #[schemars(required)]
+    /// the reviewer's judgement of the decision, null until one is given
+    pub verdict: Option<Verdict>,
 
     #[serde(default, skip_serializing_if = "String::is_empty")]
     /// git blob of the whole file as reviewed
@@ -155,6 +164,21 @@ pub struct Comment {
 }
 
 impl Comment {
+    /// Whether the comment still waits for an agent: pending or pulled.
+    pub fn is_open(&self) -> bool {
+        matches!(self.status, Status::Pending | Status::Pulled)
+    }
+
+    /// Whether a reviewer still owes a verdict: an agent decided it after a
+    /// handoff and nobody has judged that decision. A comment its own author
+    /// decided, and a pending comment withdrawn before any handoff, never wait.
+    pub fn awaits_verdict(&self) -> bool {
+        self.status.resolved()
+            && self.pulled_at.is_some()
+            && self.verdict.is_none()
+            && !(self.author.is_some() && self.author == self.resolved_by)
+    }
+
     /// `file:N` or `file:N-M`.
     pub fn location(&self) -> String {
         if self.start_line == self.end_line {
@@ -163,6 +187,118 @@ impl Comment {
             format!("{}:{}-{}", self.file, self.start_line, self.end_line)
         }
     }
+}
+
+/// A reviewer's judgement of a decision: accepted, or reopened as a follow-up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum VerdictKind {
+    Accepted,
+    Reopened,
+}
+
+impl VerdictKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            VerdictKind::Accepted => "accepted",
+            VerdictKind::Reopened => "reopened",
+        }
+    }
+    pub fn parse(s: &str) -> Option<VerdictKind> {
+        Some(match s {
+            "accepted" => VerdictKind::Accepted,
+            "reopened" => VerdictKind::Reopened,
+            _ => return None,
+        })
+    }
+}
+
+/// The verdicts a reviewer may give.
+pub const VERDICTS: [&str; 2] = ["accepted", "reopened"];
+
+/// The kind of party behind a write: the surface it came through, not an
+/// authenticated identity. MCP is an agent; the CLI, TUI and GUI are a human.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Actor {
+    Human,
+    Agent,
+}
+
+impl Actor {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Actor::Human => "human",
+            Actor::Agent => "agent",
+        }
+    }
+    pub fn parse(s: &str) -> Option<Actor> {
+        Some(match s {
+            "human" => Actor::Human,
+            "agent" => Actor::Agent,
+            _ => return None,
+        })
+    }
+}
+
+/// A reviewer's verdict on a decided comment. Final once given.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Verdict {
+    #[schemars(with = "String")]
+    /// accepted or reopened
+    pub kind: VerdictKind,
+    /// who gave the verdict
+    pub by: String,
+    #[schemars(with = "String")]
+    /// human or agent, by the surface the verdict came through
+    pub actor: Actor,
+    /// RFC 3339 UTC timestamp
+    pub at: String,
+    #[schemars(required, schema_with = "nullable_string")]
+    /// the reviewer's note; the reason a comment was reopened
+    pub note: Option<String>,
+    #[schemars(required, schema_with = "nullable_string")]
+    /// id of the follow-up comment a reopen created
+    pub followup: Option<String>,
+}
+
+/// A file range, as another comment's "points at" reference.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Location {
+    /// path relative to the workspace
+    pub file: String,
+    /// first line of the range, 1-indexed
+    pub start_line: i64,
+    /// last line of the range, inclusive
+    pub end_line: i64,
+}
+
+/// The actions the commit gate guards.
+pub const GATE_ACTIONS: [&str; 2] = ["commit", "push"];
+
+/// A recorded decision to go ahead past the gate, with the reason.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct GateOverride {
+    /// absolute workspace path
+    pub workspace: String,
+    #[schemars(required, schema_with = "nullable_string")]
+    /// the lane the gate looked at, null for every lane
+    pub lane: Option<String>,
+    /// commit or push
+    pub action: String,
+    /// why the action went ahead
+    pub reason: String,
+    /// who overrode the gate
+    pub by: String,
+    #[schemars(with = "String")]
+    /// human or agent
+    pub actor: Actor,
+    /// RFC 3339 UTC timestamp
+    pub at: String,
+    /// open comment ids when the gate was overridden
+    pub open: Vec<String>,
+    /// decided comments still waiting for a verdict
+    pub unjudged: Vec<String>,
 }
 
 /// Where a submitted review stands; its comments carry their own resolution.
