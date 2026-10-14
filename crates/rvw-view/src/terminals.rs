@@ -230,6 +230,7 @@ impl Terminals {
             kind: Kind::Git,
             command: GIT_LABEL.to_owned(),
             status: Status::Running,
+            attention: None,
         });
         self.active = Some(id);
         self.shown = true;
