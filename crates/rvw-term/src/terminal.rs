@@ -20,6 +20,9 @@ use alacritty_terminal::tty::{self, Options as PtyOptions, Shell};
 use alacritty_terminal::Term;
 
 use crate::pump::{self, Pump, PumpError};
+use crate::scroll::{self, Scroll};
+use crate::search::Search;
+use crate::select::{self, GridPoint, SelectionKind, Side};
 use crate::snapshot::{capture, Snapshot};
 
 /// The most scrollback a terminal may be given, in lines.
@@ -297,9 +300,9 @@ fn libc_sighup() -> i32 {
 }
 
 /// The grid size handed to the emulation.
-struct Size {
-    cols: usize,
-    rows: usize,
+pub(crate) struct Size {
+    pub(crate) cols: usize,
+    pub(crate) rows: usize,
 }
 
 impl Dimensions for Size {
@@ -322,6 +325,7 @@ pub struct Terminal {
     term: Arc<FairMutex<Term<Listener>>>,
     shared: Arc<Shared>,
     events: Receiver<Event>,
+    search: Mutex<Option<Search>>,
     thread: Option<LoopHandle>,
     grace: Duration,
 }
@@ -390,6 +394,7 @@ impl Terminal {
             term,
             shared,
             events: events_rx,
+            search: Mutex::new(None),
             thread: Some(thread),
             grace: options.kill_grace,
         })
@@ -407,8 +412,32 @@ impl Terminal {
         lock(&self.shared.input).clone().ok_or(Error::Closed)
     }
 
-    /// Queue bytes for the child's input. Returns once queued, not written.
+    /// Queue typed or pasted bytes for the child's input. Typing returns the
+    /// viewport to the live screen and clears the selection. Returns once
+    /// queued, not written. Mouse and focus reports use [`write_report`].
+    ///
+    /// [`write_report`]: Terminal::write_report
     pub fn write(&self, bytes: &[u8]) -> Result<(), Error> {
+        if bytes.len() > MAX_WRITE {
+            return Err(Error::TooLarge);
+        }
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        {
+            let mut term = self.term.lock();
+            term.selection = None;
+            if term.grid().display_offset() > 0 {
+                scroll::apply(&mut term, Scroll::Bottom);
+            }
+        }
+        self.shared.mark_changed();
+        self.write_report(bytes)
+    }
+
+    /// Queue bytes for the child's input without touching the viewport or
+    /// the selection: mouse reports, focus reports.
+    pub fn write_report(&self, bytes: &[u8]) -> Result<(), Error> {
         if bytes.len() > MAX_WRITE {
             return Err(Error::TooLarge);
         }
@@ -450,11 +479,93 @@ impl Terminal {
         // Before the copy: a change during it queues a fresh event.
         self.shared.dirty.store(false, Ordering::Release);
         let bell = self.shared.bell.swap(false, Ordering::AcqRel);
-        let mut snapshot = capture(&*self.term.lock());
+        let mut snapshot = {
+            let term = self.term.lock();
+            capture(&term, lock(&self.search).as_mut())
+        };
         snapshot.bell = bell;
         snapshot.title.clone_from(&lock(&self.shared.title));
         snapshot.exit = self.exit_status();
         snapshot
+    }
+
+    /// Move the viewport over the scrollback. The alternate screen has none,
+    /// so this does nothing there. New output while scrolled up keeps the
+    /// same content in view until the history is full.
+    pub fn scroll(&self, scroll: Scroll) {
+        scroll::apply(&mut self.term.lock(), scroll);
+        self.shared.mark_changed();
+    }
+
+    /// Return to the live screen.
+    pub fn scroll_to_bottom(&self) {
+        self.scroll(Scroll::Bottom);
+    }
+
+    /// Search scrollback and screen for `query` (plain text; case-sensitive
+    /// only when it has an uppercase letter). An empty or invalid query
+    /// clears the search and returns false. Nothing is focused until
+    /// [`search_next`](Terminal::search_next) or `search_prev`.
+    pub fn set_search(&self, query: &str) -> bool {
+        let term = self.term.lock();
+        let search = Search::new(query).map(|mut search| {
+            search.recount(&term);
+            search
+        });
+        let set = search.is_some();
+        *lock(&self.search) = search;
+        drop(term);
+        self.shared.mark_changed();
+        set
+    }
+
+    pub fn clear_search(&self) {
+        *lock(&self.search) = None;
+        self.shared.mark_changed();
+    }
+
+    /// Focus the next match below, wrapping, and scroll it into view. False
+    /// when there is no search or no match.
+    pub fn search_next(&self) -> bool {
+        self.search_step(true)
+    }
+
+    /// Focus the previous match above, wrapping.
+    pub fn search_prev(&self) -> bool {
+        self.search_step(false)
+    }
+
+    fn search_step(&self, forward: bool) -> bool {
+        let mut term = self.term.lock();
+        let found = lock(&self.search)
+            .as_mut()
+            .is_some_and(|search| search.step(&mut term, forward));
+        drop(term);
+        self.shared.mark_changed();
+        found
+    }
+
+    /// Start a selection at a viewport cell, replacing any other.
+    pub fn start_selection(&self, kind: SelectionKind, at: GridPoint, side: Side) {
+        select::start(&mut self.term.lock(), kind, at, side);
+        self.shared.mark_changed();
+    }
+
+    /// Move the selection's end. Does nothing without a selection.
+    pub fn update_selection(&self, at: GridPoint, side: Side) {
+        select::update(&mut self.term.lock(), at, side);
+        self.shared.mark_changed();
+    }
+
+    pub fn clear_selection(&self) {
+        self.term.lock().selection = None;
+        self.shared.mark_changed();
+    }
+
+    /// The selected text, `None` when nothing (or an empty range) is selected.
+    #[must_use]
+    pub fn selected_text(&self) -> Option<String> {
+        select::text(&self.term.lock())
     }
 
     /// The channel of [`Event`]s, for the owner to wait on.

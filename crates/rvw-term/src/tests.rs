@@ -315,3 +315,31 @@ fn killing_after_exit_is_quiet_and_repeatable() {
         })
     );
 }
+
+#[test]
+fn typing_returns_to_live_and_reports_do_not() {
+    let options = SpawnOptions {
+        rows: 5,
+        ..Default::default()
+    };
+    let term = sh_with("seq 1 50; exec cat", options);
+    wait_for(&term, |s| s.text().contains("50"));
+    term.scroll(crate::Scroll::Up(5));
+    term.start_selection(
+        crate::SelectionKind::Line,
+        crate::GridPoint { row: 0, col: 0 },
+        crate::Side::Left,
+    );
+    let s = term.snapshot();
+    assert_eq!(s.display_offset, 5);
+    assert!(!s.selection.is_empty());
+    assert!(term.selected_text().is_some());
+
+    term.write_report(b"\x1b[I").expect("report");
+    assert_eq!(term.snapshot().display_offset, 5);
+
+    term.write(b"zz\n").expect("write");
+    let s = wait_for(&term, |s| s.text().contains("zz"));
+    assert_eq!(s.display_offset, 0);
+    assert!(s.selection.is_empty());
+}

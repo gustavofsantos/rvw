@@ -7,6 +7,8 @@ use alacritty_terminal::term::cell::{Cell as TermCell, Flags};
 use alacritty_terminal::term::{Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color as TermColor, CursorShape, NamedColor};
 
+use crate::search::Search;
+use crate::select;
 use crate::terminal::Exit;
 
 /// A color as the program asked for it. Resolving it to RGB, and what the
@@ -39,6 +41,8 @@ impl CellFlags {
     pub const WIDE: Self = Self(1 << 7);
     /// The cell is the right half of a double-width character: paint nothing.
     pub const WIDE_SPACER: Self = Self(1 << 8);
+    /// The line continues on the next row (the program's text wrapped).
+    pub const WRAPLINE: Self = Self(1 << 9);
 
     #[must_use]
     pub fn contains(self, other: Self) -> bool {
@@ -46,7 +50,7 @@ impl CellFlags {
     }
 
     fn from_term(flags: Flags) -> Self {
-        const MAP: [(Flags, CellFlags); 9] = [
+        const MAP: [(Flags, CellFlags); 10] = [
             (Flags::BOLD, CellFlags::BOLD),
             (Flags::ITALIC, CellFlags::ITALIC),
             (Flags::ALL_UNDERLINES, CellFlags::UNDERLINE),
@@ -56,6 +60,7 @@ impl CellFlags {
             (Flags::STRIKEOUT, CellFlags::STRIKEOUT),
             (Flags::WIDE_CHAR, CellFlags::WIDE),
             (Flags::WIDE_CHAR_SPACER, CellFlags::WIDE_SPACER),
+            (Flags::WRAPLINE, CellFlags::WRAPLINE),
         ];
         let mut out = 0;
         for (from, to) in MAP {
@@ -115,6 +120,40 @@ pub struct Mode {
     pub sgr_mouse: bool,
     /// Wheel events become arrow keys on the alternate screen.
     pub alternate_scroll: bool,
+    /// Mouse reporting includes motion with a button held (1002).
+    pub mouse_drag: bool,
+    /// Mouse reporting includes all motion (1003).
+    pub mouse_motion: bool,
+}
+
+/// Cells `start..=end` of one viewport row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RowSpan {
+    pub row: usize,
+    pub start: usize,
+    pub end: usize,
+}
+
+/// A search match's cells on one viewport row. A match that wraps has one
+/// span per row; `current` is set on all of the focused match's spans.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MatchSpan {
+    pub row: usize,
+    pub start: usize,
+    pub end: usize,
+    pub current: bool,
+}
+
+/// The search as of its last `set_search` or step.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SearchStatus {
+    pub query: String,
+    /// Matches in scrollback and screen, at most `MAX_MATCHES`.
+    pub count: usize,
+    /// More than `MAX_MATCHES` exist.
+    pub capped: bool,
+    /// Position of the focused match among `count`, 0-based.
+    pub current: Option<usize>,
 }
 
 /// What a terminal shows at one moment. Row-major, `rows * cols` cells.
@@ -131,6 +170,15 @@ pub struct Snapshot {
     pub bell: bool,
     /// Lines of history above the visible rows.
     pub history_lines: usize,
+    /// How many lines the viewport is scrolled up from the live screen; 0 is
+    /// live. The cells are the scrolled viewport's.
+    pub display_offset: usize,
+    /// The selected cells in the viewport.
+    pub selection: Vec<RowSpan>,
+    /// The active search, if any.
+    pub search: Option<SearchStatus>,
+    /// Search matches in the viewport.
+    pub matches: Vec<MatchSpan>,
     /// Set once the child has exited.
     pub exit: Option<Exit>,
 }
@@ -222,19 +270,23 @@ fn convert_mode(mode: TermMode) -> Mode {
         mouse_reporting: mode.intersects(TermMode::MOUSE_MODE),
         sgr_mouse: mode.contains(TermMode::SGR_MOUSE),
         alternate_scroll: mode.contains(TermMode::ALTERNATE_SCROLL),
+        mouse_drag: mode.contains(TermMode::MOUSE_DRAG),
+        mouse_motion: mode.contains(TermMode::MOUSE_MOTION),
     }
 }
 
 /// Copy the visible grid out of a locked terminal. The title, bell and exit
 /// status live outside the emulation and are filled in by the caller.
-pub(crate) fn capture<L>(term: &Term<L>) -> Snapshot {
+pub(crate) fn capture<L>(term: &Term<L>, search: Option<&mut Search>) -> Snapshot {
     let grid = term.grid();
     let rows = grid.screen_lines();
     let cols = grid.columns();
+    let offset = grid.display_offset();
+    // A grid never has more than i32::MAX lines.
+    let shift = i32::try_from(offset).unwrap_or(i32::MAX);
     let mut cells = Vec::with_capacity(rows * cols);
     for line in 0..rows {
-        // A grid never has more than i32::MAX lines.
-        let row = &grid[Line(i32::try_from(line).unwrap_or(i32::MAX))];
+        let row = &grid[Line(i32::try_from(line).unwrap_or(i32::MAX) - shift)];
         for col in 0..cols {
             cells.push(convert_cell(&row[Column(col)]));
         }
@@ -248,21 +300,32 @@ pub(crate) fn capture<L>(term: &Term<L>) -> Snapshot {
         CursorShape::HollowBlock => CursorKind::HollowBlock,
         CursorShape::Block | CursorShape::Hidden => CursorKind::Block,
     };
+    let cursor_row = usize::try_from(point.line.0 + shift).unwrap_or(0);
+    let (search, matches) = match search {
+        Some(search) => (Some(search.status()), search.visible(term)),
+        None => (None, Vec::new()),
+    };
     Snapshot {
         rows,
         cols,
         cells,
         cursor: Cursor {
-            row: usize::try_from(point.line.0).unwrap_or(0),
+            row: cursor_row.min(rows.saturating_sub(1)),
             col: point.column.0,
             kind,
-            visible: mode.contains(TermMode::SHOW_CURSOR) && style.shape != CursorShape::Hidden,
+            visible: mode.contains(TermMode::SHOW_CURSOR)
+                && style.shape != CursorShape::Hidden
+                && cursor_row < rows,
             blinking: style.blinking,
         },
         mode: convert_mode(mode),
         title: None,
         bell: false,
         history_lines: grid.history_size(),
+        display_offset: offset,
+        selection: select::spans(term),
+        search,
+        matches,
         exit: None,
     }
 }

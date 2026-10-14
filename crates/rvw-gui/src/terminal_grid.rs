@@ -278,6 +278,10 @@ mod tests {
             title: None,
             bell: false,
             history_lines: 0,
+            display_offset: 0,
+            selection: Vec::new(),
+            search: None,
+            matches: Vec::new(),
             exit: None,
         }
     }
