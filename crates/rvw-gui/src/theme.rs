@@ -141,6 +141,14 @@ pub fn selected_panel() -> Rgba {
 pub fn text_selection() -> Rgba {
     by_mode(rgba(0x006c_bc40), rgba(0x4a9e_ff55))
 }
+/// A search match in the terminal.
+pub fn terminal_match() -> Rgba {
+    by_mode(rgba(0xd9a4_0066), rgba(0xd9a4_0055))
+}
+/// The focused search match in the terminal.
+pub fn terminal_match_current() -> Rgba {
+    by_mode(rgba(0xf08c_00cc), rgba(0xf5a6_2399))
+}
 /// The dim layer behind a dialog or overlay.
 pub fn scrim() -> Rgba {
     by_mode(rgba(0x1614_1433), rgba(0x0000_0099))

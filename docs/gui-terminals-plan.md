@@ -1,6 +1,8 @@
 # GUI terminals plan: terminals in the workspace
 
-Status: order locked on 2026-10-13, at the user's request. T2.2 built; manual run pending.
+Status: order locked on 2026-10-13, at the user's request. T3 built (T3.1 and T3.2); manual run pending.
+Known: the tab number chords (`⌘1`..`⌘9`) did not fire in the user's first run, who does not use them; IME is unverified;
+focus reporting (`CSI I`/`CSI O`) is not sent.
 Look: boards 5 and 6 of the V2 canvas (https://claude.ai/artifact/MnJ1HhFLLqx45kzuokJWYn,
 private): the review desk with a terminal dock, and the `⌘T` palette.
 

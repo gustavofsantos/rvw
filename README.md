@@ -69,7 +69,14 @@ The desktop app has a terminal dock (Unix only). `⌘J` shows or hides it, `⌘T
 opens a new terminal (a shell, or a typed command run with `/bin/sh -c`),
 `⌘W` closes the tab, `⌘1`..`⌘9` switch tabs. On Linux the chords are
 `Ctrl+Shift+J`, `T`, `W` and `1`..`9`, so the shell keeps plain Ctrl keys.
-Quitting with terminals running asks first.
+Drag selects (double click a word, triple click a line, Alt-drag a block) and
+`⌘C` (`Ctrl+Shift+C`) copies; on Linux a selection is also the primary
+selection and middle click pastes it. The wheel and `Shift+PageUp/PageDown`
+scroll the scrollback, and `⌘F` (`Ctrl+Shift+F`) finds in it: Enter and
+Shift+Enter step, Esc closes. A program that asks for the mouse (vim, less,
+htop) gets it; hold Shift to select instead. `⌘`-click (`Ctrl`-click) opens an
+http, https or file link under the pointer. Quitting with terminals running
+asks first.
 
 ## Examples
 

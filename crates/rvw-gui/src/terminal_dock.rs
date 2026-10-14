@@ -15,16 +15,19 @@ use std::time::Duration;
 use gpui::prelude::*;
 use gpui::{
     actions, div, fill, font, outline, point, px, relative, rgb, size, App, BorderStyle, Bounds,
-    Context, ElementId, ElementInputHandler, Entity, EntityInputHandler, FocusHandle, Focusable,
-    GlobalElementId, KeyBinding, KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, PaintQuad,
-    Pixels, Point, Rgba, ShapedLine, StrikethroughStyle, Style, Subscription, Task, TextRun,
-    UTF16Selection, UnderlineStyle, Window,
+    ClipboardItem, Context, CursorStyle, DispatchPhase, ElementId, ElementInputHandler, Entity,
+    EntityInputHandler, FocusHandle, Focusable, GlobalElementId, Hitbox, HitboxBehavior,
+    KeyBinding, KeyDownEvent, LayoutId, ModifiersChangedEvent, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, Rgba, ScrollWheelEvent, ShapedLine,
+    StrikethroughStyle, Style, Subscription, Task, TextRun, UTF16Selection, UnderlineStyle, Window,
 };
-use rvw_term::{Color, CursorKind, Event, Snapshot, SpawnOptions, Terminal};
+use rvw_term::{Color, CursorKind, Event, Scroll, Snapshot, SpawnOptions, Terminal, UrlMatch};
 use rvw_view::terminals::{Launch, TerminalId, Terminals};
 
 use crate::terminal_grid::{self, Layout, Run, Width};
 use crate::terminal_input::{translate, Translated};
+use crate::terminal_mouse::PointerState;
+use crate::terminal_pointer::{self, SearchBar};
 use crate::theme;
 
 /// The key context of a focused terminal. Chords of rvw that a shell also
@@ -47,6 +50,7 @@ actions!(
     [
         ToggleTerminal,
         TerminalCopy,
+        TerminalFind,
         TerminalPaste,
         NewTerminal,
         CloseTerminal,
@@ -95,6 +99,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new(&chord("t"), NewTerminal, None),
         KeyBinding::new(&chord("c"), TerminalCopy, ctx),
         KeyBinding::new(&chord("v"), TerminalPaste, ctx),
+        KeyBinding::new(&chord("f"), TerminalFind, ctx),
         KeyBinding::new(&chord("w"), CloseTerminal, ctx),
         KeyBinding::new(&chord("1"), Terminal1, ctx),
         KeyBinding::new(&chord("2"), Terminal2, ctx),
@@ -149,11 +154,11 @@ fn first_grid(window: &Window) -> (u16, u16) {
 }
 
 /// One running terminal and what the view keeps of it.
-struct Live {
+pub(crate) struct Live {
     id: TerminalId,
-    term: Terminal,
+    pub(crate) term: Terminal,
     launch: Launch,
-    snapshot: Snapshot,
+    pub(crate) snapshot: Snapshot,
     /// The screen changed since `snapshot` was taken.
     dirty: bool,
     /// The grid the PTY has.
@@ -169,13 +174,19 @@ pub struct TerminalView {
     /// Why no terminal started.
     error: Option<String>,
     /// A line the header shows after the tabs: what a paste could not do.
-    notice: Option<String>,
+    pub(crate) notice: Option<String>,
     workspace: PathBuf,
     /// Where the grid was painted and the size of a cell, for the input
     /// method's candidate window.
-    painted: Option<(Bounds<Pixels>, Pixels, Pixels)>,
+    pub(crate) painted: Option<(Bounds<Pixels>, Pixels, Pixels)>,
     /// Text an input method has composed and not committed.
     marked: Option<String>,
+    /// The pointer between events: drags, wheel remainders.
+    pub(crate) pointer: PointerState,
+    /// The link under the pointer while the open-link key is held.
+    pub(crate) hover_url: Option<UrlMatch>,
+    /// The find bar over the grid.
+    search: SearchBar,
     next_id: u64,
     poll: Option<Task<()>>,
     /// Kills every process when the application quits.
@@ -208,6 +219,9 @@ impl TerminalView {
             workspace,
             painted: None,
             marked: None,
+            pointer: PointerState::default(),
+            hover_url: None,
+            search: SearchBar::default(),
             next_id: 1,
             poll: None,
             _quit: quit,
@@ -224,7 +238,7 @@ impl TerminalView {
         self.focus.contains_focused(window, cx)
     }
 
-    fn active_live(&self) -> Option<&Live> {
+    pub(crate) fn active_live(&self) -> Option<&Live> {
         let id = self.model.active()?;
         self.live.iter().find(|live| live.id == id)
     }
@@ -235,7 +249,7 @@ impl TerminalView {
     }
 
     /// The screen of the active terminal.
-    fn snapshot(&self) -> Option<&Snapshot> {
+    pub(crate) fn snapshot(&self) -> Option<&Snapshot> {
         self.active_live().map(|live| &live.snapshot)
     }
 
@@ -297,6 +311,9 @@ impl TerminalView {
     /// Closes a tab. A running process is ended, off the UI thread; a
     /// finished one is just removed.
     fn close_tab(&mut self, id: TerminalId, cx: &mut Context<Self>) {
+        if self.search.is_open() {
+            self.close_search(cx);
+        }
         self.model.close(id);
         if let Some(at) = self.live.iter().position(|live| live.id == id) {
             let gone = self.live.remove(at);
@@ -316,6 +333,9 @@ impl TerminalView {
 
     fn after_switch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.marked = None;
+        if self.search.is_open() {
+            self.close_search(cx);
+        }
         self.notice = None;
         self.refresh_active();
         window.focus(&self.focus);
@@ -394,6 +414,8 @@ impl TerminalView {
             }
         }
         if changed {
+            // Where the link was is no longer known to be where it is.
+            self.hover_url = None;
             cx.notify();
         }
         !self.model.running().is_empty()
@@ -407,7 +429,7 @@ impl TerminalView {
         self.model.quit_guard()
     }
 
-    fn exited(&self) -> bool {
+    pub(crate) fn exited(&self) -> bool {
         self.active_live()
             .is_some_and(|live| live.term.exit_status().is_some())
     }
@@ -422,6 +444,10 @@ impl TerminalView {
 
     fn key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let keystroke = &event.keystroke;
+        if self.search.is_open() {
+            self.search_key(event, cx);
+            return;
+        }
         if self.exited() {
             // A finished terminal takes no input: Enter runs it again.
             if keystroke.key == "enter" && keystroke.modifiers.number_of_modifiers() == 0 {
@@ -432,6 +458,9 @@ impl TerminalView {
             return;
         }
         let app_cursor = self.snapshot().is_some_and(|s| s.mode.app_cursor);
+        if self.scroll_page(keystroke, cx) {
+            return;
+        }
         match translate(keystroke, app_cursor, cfg!(target_os = "macos")) {
             Translated::Send(bytes) => {
                 self.write(&bytes);
@@ -443,16 +472,28 @@ impl TerminalView {
     }
 
     fn paste(&mut self, _: &TerminalPaste, _: &mut Window, cx: &mut Context<Self>) {
-        if self.exited() {
-            return;
-        }
         let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
             return;
         };
+        self.paste_text(&text, cx);
+    }
+
+    /// Pastes `text` as the program wants it, or into the find bar while
+    /// that is open.
+    pub(crate) fn paste_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        if self.search.is_open() {
+            if self.search.insert(text) {
+                self.search_changed(cx);
+            }
+            return;
+        }
+        if self.exited() {
+            return;
+        }
         let bracketed = self
             .snapshot()
             .is_some_and(|shot| shot.mode.bracketed_paste);
-        let bytes = rvw_term::encode_paste(&text, bracketed);
+        let bytes = rvw_term::encode_paste(text, bracketed);
         if bytes.len() > rvw_term::MAX_WRITE {
             self.notice = Some("Paste is too large".to_owned());
             cx.notify();
@@ -462,9 +503,104 @@ impl TerminalView {
         self.write(&bytes);
     }
 
-    /// Copy waits for the selection model. Until then the chord is taken, so
-    /// it does not reach the program as Ctrl-C does.
-    fn copy(_: &mut Self, _: &TerminalCopy, _: &mut Window, _: &mut Context<Self>) {}
+    /// Puts the selection on the clipboard. With none selected the chord is
+    /// still taken, so it does not reach the program as Ctrl-C does.
+    fn copy(&mut self, _: &TerminalCopy, _: &mut Window, cx: &mut Context<Self>) {
+        let text = self
+            .active_live()
+            .and_then(|live| live.term.selected_text());
+        if let Some(text) = text {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+        }
+    }
+
+    /// Shift with `PageUp` or `PageDown` scrolls the scrollback by a screen.
+    /// A full-screen program has no scrollback, so it gets the key.
+    fn scroll_page(&mut self, keystroke: &gpui::Keystroke, cx: &mut Context<Self>) -> bool {
+        let held = keystroke.modifiers;
+        let plain_shift = held.shift && !held.control && !held.alt && !held.platform;
+        let page = match keystroke.key.as_str() {
+            "pageup" => Scroll::PageUp,
+            "pagedown" => Scroll::PageDown,
+            _ => return false,
+        };
+        if !plain_shift || self.snapshot().is_some_and(|s| s.mode.alt_screen) {
+            return false;
+        }
+        if let Some(live) = self.active_live() {
+            live.term.scroll(page);
+        }
+        cx.stop_propagation();
+        cx.notify();
+        true
+    }
+
+    /// Opens the find bar over the grid.
+    fn find(&mut self, _: &TerminalFind, _: &mut Window, cx: &mut Context<Self>) {
+        self.search.open();
+        cx.notify();
+    }
+
+    /// While the bar is open it has the keys: Enter and Shift-Enter step,
+    /// Escape closes, Backspace edits. Typed text arrives through the input
+    /// handler; nothing reaches the program.
+    fn search_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
+        let keystroke = &event.keystroke;
+        match keystroke.key.as_str() {
+            "escape" => self.close_search(cx),
+            "enter" => {
+                if let Some(live) = self.active_live() {
+                    if keystroke.modifiers.shift {
+                        live.term.search_prev();
+                    } else {
+                        live.term.search_next();
+                    }
+                }
+                self.refresh_active();
+                cx.notify();
+            }
+            "backspace" => {
+                if self.search.backspace() {
+                    self.search_changed(cx);
+                }
+            }
+            _ => {
+                // Chords that would be bytes for the program are not.
+                if matches!(
+                    translate(keystroke, false, cfg!(target_os = "macos")),
+                    Translated::Send(_)
+                ) {
+                    cx.stop_propagation();
+                }
+                return;
+            }
+        }
+        cx.stop_propagation();
+    }
+
+    /// The query changed: search again and show the first match.
+    fn search_changed(&mut self, cx: &mut Context<Self>) {
+        let query = self.search.query().to_owned();
+        if let Some(live) = self.active_live() {
+            if query.is_empty() {
+                live.term.clear_search();
+            } else if live.term.set_search(&query) {
+                live.term.search_next();
+            }
+        }
+        self.refresh_active();
+        cx.notify();
+    }
+
+    /// Closes the bar and clears the search on every terminal.
+    fn close_search(&mut self, cx: &mut Context<Self>) {
+        self.search.close();
+        for live in &self.live {
+            live.term.clear_search();
+        }
+        self.refresh_active();
+        cx.notify();
+    }
 
     fn close_active(&mut self, _: &CloseTerminal, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(id) = self.model.active() {
@@ -499,6 +635,59 @@ impl TerminalView {
                 live.grid = (cols, rows);
             }
         }
+    }
+
+    /// What floats over the grid: the find bar and the scrolled note.
+    fn overlays(&self) -> Vec<gpui::AnyElement> {
+        let mut out = Vec::new();
+        let chip = || {
+            div()
+                .absolute()
+                .right(px(24.))
+                .px(px(8.))
+                .py(px(4.))
+                .rounded(theme::CONTROL_RADIUS)
+                .border_1()
+                .border_color(theme::hairline())
+                .bg(theme::paper())
+                .text_size(px(12.))
+                .font_family(theme::code_font())
+        };
+        if self.search.is_open() {
+            let status = self.snapshot().and_then(|shot| shot.search.as_ref());
+            let query = self.search.query();
+            let shown = if query.is_empty() {
+                div().text_color(theme::faint()).child("Find")
+            } else {
+                div().text_color(theme::ink()).child(query.to_owned())
+            };
+            out.push(
+                chip()
+                    .top(px(8.))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .child(shown)
+                    .child(div().text_color(theme::ink()).child("\u{258f}"))
+                    .child(
+                        div()
+                            .text_color(theme::muted())
+                            .child(self.search.label(status)),
+                    )
+                    .into_any_element(),
+            );
+        }
+        let offset = self.snapshot().map_or(0, |shot| shot.display_offset);
+        if offset > 0 {
+            out.push(
+                chip()
+                    .bottom(px(8.))
+                    .text_color(theme::muted())
+                    .child(terminal_pointer::scrolled_label(offset))
+                    .into_any_element(),
+            );
+        }
+        out
     }
 
     /// The tab row, then what the active terminal says about itself.
@@ -601,16 +790,19 @@ impl Focusable for TerminalView {
 
 impl Render for TerminalView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let overlays = self.overlays();
         let body = match self.error.as_ref() {
             Some(error) => div()
                 .p(PADDING)
                 .text_color(theme::needs_you())
                 .child(error.clone()),
             None => div()
+                .relative()
                 .flex_1()
                 .min_h(px(0.))
                 .px(PADDING)
-                .child(GridElement { view: cx.entity() }),
+                .child(GridElement { view: cx.entity() })
+                .children(overlays),
         };
         let mut dock = div()
             .flex()
@@ -626,6 +818,14 @@ impl Render for TerminalView {
             .on_key_down(cx.listener(Self::key_down))
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::copy))
+            .on_action(cx.listener(Self::find))
+            .on_modifiers_changed(cx.listener(
+                |this: &mut Self, event: &ModifiersChangedEvent, _, cx| {
+                    if !event.modifiers.secondary() && this.hover_url.take().is_some() {
+                        cx.notify();
+                    }
+                },
+            ))
             .on_action(cx.listener(Self::close_active))
             .on_action(cx.listener(Self::next))
             .on_action(cx.listener(Self::previous))
@@ -707,6 +907,12 @@ impl EntityInputHandler for TerminalView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.search.is_open() {
+            if self.search.insert(text) {
+                self.search_changed(cx);
+            }
+            return;
+        }
         if self.marked.take().is_some() {
             cx.notify();
         }
@@ -723,6 +929,9 @@ impl EntityInputHandler for TerminalView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.search.is_open() {
+            return;
+        }
         self.marked = (!new_text.is_empty()).then(|| new_text.to_owned());
         cx.notify();
     }
@@ -777,6 +986,12 @@ struct Prepaint {
     lines: Vec<(ShapedLine, Point<Pixels>)>,
     cursor: Option<PaintQuad>,
     marked: Option<(PaintQuad, ShapedLine, Point<Pixels>)>,
+    /// Selection and search matches: under the text.
+    marks: Vec<PaintQuad>,
+    /// The link under the pointer.
+    underlines: Vec<PaintQuad>,
+    hitbox: Hitbox,
+    pointer_style: CursorStyle,
     line_height: Pixels,
 }
 
@@ -828,6 +1043,58 @@ impl GridElement {
             .shape_line(run.text.clone().into(), px(FONT_SIZE), &[text_run], force)
     }
 
+    /// Quads for the selection, the search matches (both under the text) and
+    /// the link under the pointer (over it).
+    fn decorations(
+        snapshot: &Snapshot,
+        link: Option<&UrlMatch>,
+        origin: Point<Pixels>,
+        cell: (Pixels, Pixels),
+    ) -> (Vec<PaintQuad>, Vec<PaintQuad>) {
+        let span = |row: usize, start: usize, end: usize| {
+            Bounds::new(
+                point(
+                    origin.x + cell.0 * terminal_grid::cells(start),
+                    origin.y + cell.1 * terminal_grid::cells(row),
+                ),
+                size(cell.0 * terminal_grid::cells(end + 1 - start), cell.1),
+            )
+        };
+        let fits = |row: usize, start: usize, end: usize| {
+            row < snapshot.rows && start <= end && end < snapshot.cols
+        };
+        let (mut marks, mut underlines) = (Vec::new(), Vec::new());
+        for found in &snapshot.matches {
+            if fits(found.row, found.start, found.end) {
+                let colour = if found.current {
+                    theme::terminal_match_current()
+                } else {
+                    theme::terminal_match()
+                };
+                marks.push(fill(span(found.row, found.start, found.end), colour));
+            }
+        }
+        for selected in &snapshot.selection {
+            if fits(selected.row, selected.start, selected.end) {
+                marks.push(fill(
+                    span(selected.row, selected.start, selected.end),
+                    theme::text_selection(),
+                ));
+            }
+        }
+        if let Some(url) = link {
+            for line in terminal_pointer::url_spans(url, snapshot.cols) {
+                if fits(line.row, line.start, line.end) {
+                    let mut under = span(line.row, line.start, line.end);
+                    under.origin.y += cell.1 - px(1.);
+                    under.size.height = px(1.);
+                    underlines.push(fill(under, theme::ink()));
+                }
+            }
+        }
+        (marks, underlines)
+    }
+
     fn cursor_quad(
         snapshot: &Snapshot,
         origin: Point<Pixels>,
@@ -859,6 +1126,40 @@ impl GridElement {
             )),
             CursorKind::Beam => Some(fill(Bounds::new(at, size(px(2.), cell.1)), colour)),
         }
+    }
+}
+
+impl GridElement {
+    /// The pointer's listeners for this frame. Moves and releases are taken
+    /// anywhere, so a drag that leaves the grid keeps going.
+    fn listen(&self, hitbox: &Hitbox, window: &mut Window) {
+        let (view, hit) = (self.view.clone(), hitbox.clone());
+        window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
+            if phase == DispatchPhase::Bubble {
+                let hovered = hit.is_hovered(window);
+                view.update(cx, |this, cx| this.mouse_down(event, hovered, cx));
+            }
+        });
+        let (view, hit) = (self.view.clone(), hitbox.clone());
+        window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
+            if phase == DispatchPhase::Bubble {
+                let hovered = hit.is_hovered(window);
+                view.update(cx, |this, cx| this.mouse_move(event, hovered, cx));
+            }
+        });
+        let view = self.view.clone();
+        window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
+            if phase == DispatchPhase::Bubble {
+                view.update(cx, |this, cx| this.mouse_up(event, cx));
+            }
+        });
+        let (view, hit) = (self.view.clone(), hitbox.clone());
+        window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, cx| {
+            if phase == DispatchPhase::Bubble {
+                let hovered = hit.should_handle_scroll(window);
+                view.update(cx, |this, cx| this.wheel(event, hovered, cx));
+            }
+        });
     }
 }
 
@@ -900,11 +1201,22 @@ impl Element for GridElement {
         self.view.update(cx, |view, _| view.fit(bounds, cell));
         let view = self.view.read(cx);
         let focused = view.has_focus(window, cx);
+        let pointer_style = if view.hover_url.is_some() {
+            CursorStyle::PointingHand
+        } else if view.snapshot().is_some_and(|s| s.mode.mouse_reporting) {
+            CursorStyle::Arrow
+        } else {
+            CursorStyle::IBeam
+        };
         let mut prepaint = Prepaint {
             fills: Vec::new(),
             lines: Vec::new(),
             cursor: None,
             marked: None,
+            marks: Vec::new(),
+            underlines: Vec::new(),
+            hitbox: window.insert_hitbox(bounds, HitboxBehavior::Normal),
+            pointer_style,
             line_height: cell.1,
         };
         let Some(snapshot) = view.snapshot() else {
@@ -926,6 +1238,10 @@ impl Element for GridElement {
                 resolve(span.color),
             ));
         }
+        let (marks, underlines) =
+            Self::decorations(snapshot, view.hover_url.as_ref(), bounds.origin, cell);
+        prepaint.marks = marks;
+        prepaint.underlines = underlines;
         for run in &layout.runs {
             prepaint
                 .lines
@@ -980,14 +1296,22 @@ impl Element for GridElement {
         for quad in prepaint.fills.drain(..) {
             window.paint_quad(quad);
         }
+        for quad in prepaint.marks.drain(..) {
+            window.paint_quad(quad);
+        }
         for (line, origin) in prepaint.lines.drain(..) {
             // A failed paint leaves this frame without that text; the next
             // frame draws it again.
             let _ = line.paint(origin, prepaint.line_height, window, cx);
         }
+        for quad in prepaint.underlines.drain(..) {
+            window.paint_quad(quad);
+        }
         if let Some(cursor) = prepaint.cursor.take() {
             window.paint_quad(cursor);
         }
+        window.set_cursor_style(prepaint.pointer_style, &prepaint.hitbox);
+        self.listen(&prepaint.hitbox, window);
         if let Some((backing, line, origin)) = prepaint.marked.take() {
             window.paint_quad(backing);
             let _ = line.paint(origin, prepaint.line_height, window, cx);

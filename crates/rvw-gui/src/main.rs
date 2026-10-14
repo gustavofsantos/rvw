@@ -46,6 +46,8 @@ mod terminal_dock;
 mod terminal_grid;
 mod terminal_input;
 mod terminal_launcher;
+mod terminal_mouse;
+mod terminal_pointer;
 mod text_area;
 mod text_area_element;
 mod text_area_math;

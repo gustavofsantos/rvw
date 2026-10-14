@@ -13,10 +13,12 @@ use crate::theme;
 /// are the usual ones; elsewhere they are the Ctrl-Shift forms, so Ctrl alone
 /// stays the shell's.
 pub fn terminal_chords(is_mac: bool) -> Vec<(String, &'static str)> {
-    let keys: [(&str, &str, &'static str); 10] = [
+    let keys: [(&str, &str, &'static str); 12] = [
         ("\u{2318}J", "J", "Hide dock"),
         ("\u{2318}T", "T", "New"),
         ("\u{2318}W", "W", "Close"),
+        ("\u{2318}C", "C", "Copy"),
+        ("\u{2318}F", "F", "Find"),
         ("\u{2318}1-9", "1-9", "Switch"),
         ("\u{2318}P", "P", "Find file"),
         ("\u{2318}K", "K", "Actions"),
