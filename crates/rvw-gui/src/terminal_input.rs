@@ -75,6 +75,11 @@ fn single(text: &str) -> Option<char> {
 /// is Meta and sends ESC before the key.
 pub fn translate(keystroke: &Keystroke, app_cursor: bool, is_mac: bool) -> Translated {
     let held = keystroke.modifiers;
+    if is_mac {
+        if let Some(bytes) = mac_text_editing(keystroke) {
+            return Translated::Send(bytes.to_vec());
+        }
+    }
     // The command key never reaches a program, and the super key on Linux is
     // the window manager's.
     if held.platform {
@@ -100,6 +105,26 @@ pub fn translate(keystroke: &Keystroke, app_cursor: bool, is_mac: bool) -> Trans
     } else {
         Translated::Pass
     }
+}
+
+/// The macOS "natural text editing" chords, as Ghostty and Terminal.app bind
+/// them: line editing keys a shell's readline understands, sent whatever the
+/// program's key encoding. Command-Backspace deletes to the start of the
+/// line, Command-arrows go to its start or end, Option-arrows move by word.
+fn mac_text_editing(keystroke: &Keystroke) -> Option<&'static [u8]> {
+    let held = keystroke.modifiers;
+    if held.control || held.shift || held.function || (held.platform && held.alt) {
+        return None;
+    }
+    let bytes: &[u8] = match (held.platform, held.alt, keystroke.key.as_str()) {
+        (true, false, "backspace") => b"\x15",
+        (true, false, "left") => b"\x01",
+        (true, false, "right") => b"\x05",
+        (false, true, "left") => b"\x1bb",
+        (false, true, "right") => b"\x1bf",
+        _ => return None,
+    };
+    Some(bytes)
 }
 
 fn encoded(key: Key, mods: Modifiers, app_cursor: bool) -> Translated {
@@ -188,8 +213,50 @@ mod tests {
             Translated::Text
         );
         assert_eq!(
-            translate(&press("left", None, alt()), false, true),
+            translate(&press("left", None, alt()), false, false),
             send(b"\x1b[1;3D")
+        );
+    }
+
+    #[test]
+    fn mac_text_editing_chords_are_readline_keys() {
+        let command = Held {
+            platform: true,
+            ..Held::default()
+        };
+        assert_eq!(
+            translate(&press("backspace", None, command), false, true),
+            send(b"\x15")
+        );
+        assert_eq!(
+            translate(&press("left", None, command), true, true),
+            send(b"\x01")
+        );
+        assert_eq!(
+            translate(&press("right", None, command), false, true),
+            send(b"\x05")
+        );
+        assert_eq!(
+            translate(&press("left", None, alt()), false, true),
+            send(b"\x1bb")
+        );
+        assert_eq!(
+            translate(&press("right", None, alt()), true, true),
+            send(b"\x1bf")
+        );
+        let command_shift = Held {
+            platform: true,
+            shift: true,
+            ..Held::default()
+        };
+        assert_eq!(
+            translate(&press("left", None, command_shift), false, true),
+            Translated::Pass
+        );
+        // Elsewhere the super key stays the window manager's.
+        assert_eq!(
+            translate(&press("backspace", None, command), false, false),
+            Translated::Pass
         );
     }
 

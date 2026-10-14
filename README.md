@@ -84,8 +84,10 @@ selection and middle click pastes it. The wheel and `Shift+PageUp/PageDown`
 scroll the scrollback, and `⌘F` (`Ctrl+Shift+F`) finds in it: Enter and
 Shift+Enter step, Esc closes. A program that asks for the mouse (vim, less,
 htop) gets it; hold Shift to select instead. `⌘`-click (`Ctrl`-click) opens an
-http, https or file link under the pointer. Quitting with terminals running
-asks first.
+http, https or file link under the pointer. On macOS, `⌘⌫` deletes to the
+start of the line, `⌘←`/`⌘→` go to its start or end and `⌥←`/`⌥→` move by
+word, as in Ghostty and Terminal.app. Quitting with terminals running asks
+first.
 
 `⌘B` collapses or shows the left panel and `⇧⌘B` the right one (`Ctrl+B` and
 `Ctrl+Shift+B` on Linux; with a terminal focused only the Ctrl+Shift form acts).
