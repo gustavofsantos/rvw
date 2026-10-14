@@ -96,6 +96,14 @@ fn run() -> Result<(), String> {
         None => rvw_store::default_path().map_err(|e| e.message)?,
     };
     git_log::start();
+    // A window opened from the Finder has no `PATH` from the shell's startup
+    // files, and a commit hook may need it. Read in the background: the
+    // window does not wait, and a failure shows in the git tab.
+    if let Ok(shell) = std::env::var("SHELL") {
+        std::thread::spawn(move || {
+            let _ = rvw_git::shell_env::adopt(&shell, std::time::Duration::from_secs(10));
+        });
+    }
     let store = rvw_store::Store::open(&db).map_err(|e| e.message)?;
     let service = rvw_core::Service::new(Box::new(store));
 

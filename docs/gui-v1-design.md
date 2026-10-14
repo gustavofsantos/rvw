@@ -116,6 +116,11 @@ orange at a time. Each action has one key; a key never changes meaning.
   git command rvw runs, with how it ended and git's own output when it failed
   (a commit hook's report included). It has no process behind it and takes no
   input. The commit panel still shows one line of the error.
+- **Git runs with your shell's environment.** A window opened from the Finder
+  has no `PATH` from `.zshrc`, so a hook needing `clj-kondo` failed there and
+  worked in a terminal. At start the GUI reads `$SHELL -l -i -c env` once, in
+  the background (10 s limit), and gives it to every git process. The git tab
+  shows that read; if it fails, git keeps the window's own environment.
 - **Context comments.** A comment on a file not changed on this branch is
   labelled "context". It may point at a changed location ("Points at
   service.rs:90-96"). The agent receives it with the review.

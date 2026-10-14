@@ -16,6 +16,7 @@ pub mod refs;
 pub mod remote;
 pub mod rewrite;
 pub mod search;
+pub mod shell_env;
 pub mod stash;
 pub mod workspace;
 pub mod worktree;
@@ -23,4 +24,6 @@ pub mod worktree;
 #[cfg(test)]
 pub(crate) mod testrepo;
 
-pub use gitx::{cancel_flag, os_error_text, set_logger, Change, GitError, GitLog, Hunk};
+pub use gitx::{
+    cancel_flag, os_error_text, set_logger, set_shell_env, Change, GitError, GitLog, Hunk,
+};

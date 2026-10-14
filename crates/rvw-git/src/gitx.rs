@@ -12,6 +12,8 @@ use std::time::{Duration, Instant};
 /// payload (a commit message, a blob) is never part of it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitLog {
+    /// What ran: `git`, or the shell that read the user's environment.
+    pub program: String,
     pub dir: PathBuf,
     pub args: Vec<String>,
     /// `None` when git was killed by a signal.
@@ -31,6 +33,29 @@ static LOGGER: OnceLock<Logger> = OnceLock::new();
 /// first call takes effect; without one nothing is reported.
 pub fn set_logger(log: impl Fn(&GitLog) + Send + Sync + 'static) {
     let _ = LOGGER.set(Box::new(log));
+}
+
+/// Hands `entry` to the logger, if one is set.
+pub(crate) fn report(entry: &GitLog) {
+    if let Some(log) = LOGGER.get() {
+        log(entry);
+    }
+}
+
+static SHELL_ENV: OnceLock<Vec<(String, String)>> = OnceLock::new();
+
+/// Gives every git process the user's shell environment from now on, so a
+/// hook finds the programs the shell's startup files put on `PATH`. Only the
+/// first call takes effect. Variables that describe the shell's own session
+/// or that steer git itself (`GIT_*`) are left out.
+pub fn set_shell_env(env: Vec<(String, String)>) {
+    let kept = env
+        .into_iter()
+        .filter(|(key, _)| {
+            !matches!(key.as_str(), "PWD" | "OLDPWD" | "SHLVL" | "_") && !key.starts_with("GIT_")
+        })
+        .collect();
+    let _ = SHELL_ENV.set(kept);
 }
 
 /// A git command that failed. `stderr` is git's trimmed message (or the OS
@@ -163,6 +188,7 @@ pub(crate) fn exec_stop(
     // read never takes the index lock an agent's git command may need.
     let started = Instant::now();
     let mut child = Command::new("git")
+        .envs(SHELL_ENV.get().into_iter().flatten().map(|(k, v)| (k, v)))
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_OPTIONAL_LOCKS", "0")
         .envs(env.iter().copied())
@@ -234,9 +260,10 @@ pub(crate) fn exec_stop(
         code: status.code(),
         stderr: String::from_utf8_lossy(&stderr).trim().to_owned(),
     };
-    if let Some(log) = LOGGER.get() {
+    {
         let failed = ran.code != Some(0);
-        log(&GitLog {
+        report(&GitLog {
+            program: "git".to_owned(),
             dir: dir.to_path_buf(),
             args: owned_args(args),
             code: ran.code,

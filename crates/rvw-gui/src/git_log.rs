@@ -72,7 +72,11 @@ pub fn lines(entry: &GitLog) -> Shown {
     );
     Shown {
         failed: entry.code != Some(0),
-        command: format!("git -C {} {}", entry.dir.display(), entry.args.join(" ")),
+        command: if entry.program == "git" {
+            format!("git -C {} {}", entry.dir.display(), entry.args.join(" "))
+        } else {
+            format!("{} {}", entry.program, entry.args.join(" "))
+        },
         detail,
     }
 }
@@ -86,6 +90,7 @@ mod tests {
 
     fn entry(code: Option<i32>, stdout: &str, stderr: &str) -> GitLog {
         GitLog {
+            program: "git".into(),
             dir: PathBuf::from("/w"),
             args: vec!["commit".into(), "-q".into()],
             code,
