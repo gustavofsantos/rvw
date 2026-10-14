@@ -43,6 +43,78 @@ impl Terminal {
     }
 }
 
+/// The tab label of the user's own shell.
+pub const SHELL_LABEL: &str = "shell";
+/// The longest command line kept, in bytes.
+pub const MAX_COMMAND_LEN: usize = 1024;
+
+/// What a new terminal runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Launch {
+    /// The user's own shell, from the account database.
+    Shell,
+    /// A command line, run as `/bin/sh -c`.
+    Command(String),
+}
+
+impl Launch {
+    /// The tab's command text.
+    #[must_use]
+    pub fn label(&self) -> String {
+        match self {
+            Self::Shell => SHELL_LABEL.to_owned(),
+            Self::Command(line) => line.clone(),
+        }
+    }
+
+    /// The program and arguments to spawn; `None` is the user's shell.
+    #[must_use]
+    pub fn argv(&self) -> Option<Vec<String>> {
+        match self {
+            Self::Shell => None,
+            Self::Command(line) => Some(vec!["/bin/sh".to_owned(), "-c".to_owned(), line.clone()]),
+        }
+    }
+}
+
+/// One row of the new-terminal palette.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaunchEntry {
+    pub launch: Launch,
+    /// The row's text.
+    pub title: String,
+    /// What the row says about itself: where it came from.
+    pub note: &'static str,
+}
+
+/// The rows for what is typed. With nothing typed: the shell. With text:
+/// the text itself as a command first, so Enter always runs what was typed,
+/// then the shell when its name contains the text (case ignored).
+#[must_use]
+pub fn launch_entries(query: &str) -> Vec<LaunchEntry> {
+    let query = query.trim();
+    let shell = LaunchEntry {
+        launch: Launch::Shell,
+        title: "Shell".to_owned(),
+        note: "your shell",
+    };
+    if query.is_empty() {
+        return vec![shell];
+    }
+    let mut out = Vec::new();
+    if query.len() <= MAX_COMMAND_LEN {
+        out.push(LaunchEntry {
+            launch: Launch::Command(query.to_owned()),
+            title: query.to_owned(),
+            note: "run this command",
+        });
+    }
+    if shell.title.to_lowercase().contains(&query.to_lowercase()) {
+        out.push(shell);
+    }
+    out
+}
+
 /// The most terminals the quit guard names before it counts the rest.
 const NAMED_LIMIT: usize = 3;
 
@@ -460,5 +532,30 @@ mod tests {
         let mut t = three();
         t.hide_dock();
         assert!(t.quit_guard().is_some());
+    }
+
+    #[test]
+    fn entries_with_no_query_list_only_the_shell() {
+        let rows = launch_entries("  ");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].launch, Launch::Shell);
+    }
+
+    #[test]
+    fn a_typed_command_comes_first() {
+        let rows = launch_entries("htop");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].launch, Launch::Command("htop".to_owned()));
+        let rows = launch_entries("SHE");
+        assert_eq!(rows[0].launch, Launch::Command("SHE".to_owned()));
+        assert_eq!(rows[1].launch, Launch::Shell);
+    }
+
+    #[test]
+    fn launch_argv_runs_a_command_through_sh() {
+        assert_eq!(Launch::Shell.argv(), None);
+        assert_eq!(Launch::Shell.label(), "shell");
+        let argv = Launch::Command("a | b".to_owned()).argv().unwrap();
+        assert_eq!(argv, ["/bin/sh", "-c", "a | b"]);
     }
 }

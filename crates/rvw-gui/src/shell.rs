@@ -39,7 +39,8 @@ use crate::queue_screen;
 use crate::review_screen::{self, Selected};
 use crate::seen::Seen;
 use crate::submit_dialog::{OpenSubmit, SubmitDialog};
-use crate::terminal_dock::{TerminalView, ToggleTerminal};
+use crate::terminal_dock::{NewTerminal, TerminalView, ToggleTerminal};
+use crate::terminal_launcher::Launcher;
 use crate::text_area::TextArea;
 use crate::theme;
 use crate::tools::Tools;
@@ -113,6 +114,11 @@ pub struct Shell {
     pub(crate) rewrite: Option<crate::rewrite_card::RewriteCard>,
     /// The terminal dock's terminal, created the first time it is shown.
     pub(crate) terminal: Option<Entity<TerminalView>>,
+    /// The new-terminal palette (⌘T), when open.
+    pub(crate) launcher: Option<Launcher>,
+    /// The question asked before quitting with terminals running: the
+    /// sentence that names them.
+    pub(crate) quit_ask: Option<String>,
     /// Holds the keys (C) when no field has focus.
     focus: FocusHandle,
     /// The database the queue lives in. The live poller fingerprints it
@@ -196,8 +202,16 @@ impl Shell {
                 ..GitTools::default()
             },
             terminal: None,
+            launcher: None,
+            quit_ask: None,
             focus: cx.focus_handle(),
         };
+        // Closing the window with terminals running asks first.
+        let this = cx.entity().downgrade();
+        window.on_window_should_close(cx, move |window, cx| {
+            this.update(cx, |shell, cx| shell.close_allowed(window, cx))
+                .unwrap_or(true)
+        });
         // The staged list lights Commit on every screen, so it is read now,
         // not when the Changes screen first opens.
         shell.reload_changes();
@@ -468,6 +482,10 @@ impl Shell {
 
     /// Keys with no field open: C, and the file keys J, K and the arrows.
     fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // The quit question takes Enter and Esc before anything else.
+        if self.quit_key(&event.keystroke.key, cx) {
+            return;
+        }
         // A focused terminal has its keys; the window's plain keys are not its.
         if self.terminal_focused(window, cx) {
             return;
@@ -483,6 +501,14 @@ impl Shell {
             || self.restore_key(event, cx)
             || self.git_ask_key(event, cx)
         {
+            return;
+        }
+        if self.launcher.is_some() {
+            match event.keystroke.key.as_str() {
+                "down" => self.move_launcher(true, cx),
+                "up" => self.move_launcher(false, cx),
+                _ => {}
+            }
             return;
         }
         if self.tools_key(event, cx) {
@@ -590,6 +616,7 @@ impl Render for Shell {
         let no_field = self.composer.is_none()
             && self.submit.is_none()
             && self.finder.is_none()
+            && self.launcher.is_none()
             && !self.tools.field_open()
             && self.git.ask.is_none()
             && self.rewrite.as_ref().is_none_or(|card| !card.editing())
@@ -678,6 +705,8 @@ impl Render for Shell {
                 this.restore_latest(cx);
             }))
             .on_action(cx.listener(Self::on_toggle_terminal))
+            .on_action(cx.listener(Self::on_new_terminal))
+            .on_action(cx.listener(Self::on_quit))
             .child(window)
             .children(self.submit.as_ref().map(|dialog| {
                 crate::submit_dialog::overlay(dialog, &self.snapshot, &self.identity.lane, cx)
@@ -727,6 +756,20 @@ impl Shell {
         }
     }
 
+    /// ⌘T, or Ctrl-Shift-T: the new-terminal palette.
+    fn on_new_terminal(&mut self, _: &NewTerminal, window: &mut Window, cx: &mut Context<Self>) {
+        // The history edit card is modal.
+        if self.rewrite.is_none() {
+            self.open_launcher(window, cx);
+        }
+    }
+
+    /// ⌘Q, Ctrl-Shift-Q, or the Close control: quits, asking first when
+    /// terminals are running.
+    fn on_quit(&mut self, _: &crate::Quit, window: &mut Window, cx: &mut Context<Self>) {
+        self.request_quit(window, cx);
+    }
+
     /// The terminal dock, when it is shown.
     fn terminal_dock(&self, cx: &App) -> Option<gpui::AnyElement> {
         self.terminal
@@ -754,6 +797,22 @@ impl Shell {
         if !terminal.read(cx).shown() {
             self.focus_shell(window);
         }
+        cx.notify();
+    }
+
+    /// Starts a terminal in the workspace root and shows the dock with it.
+    pub(crate) fn start_terminal(
+        &mut self,
+        launch: &rvw_view::terminals::Launch,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let workspace = PathBuf::from(&self.identity.workspace);
+        let terminal = self
+            .terminal
+            .get_or_insert_with(|| cx.new(|cx| TerminalView::new(workspace, cx)))
+            .clone();
+        terminal.update(cx, |terminal, cx| terminal.launch(launch, window, cx));
         cx.notify();
     }
 

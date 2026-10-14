@@ -1,12 +1,13 @@
-//! The terminal dock: one terminal in the workspace window. `rvw-term` owns
+//! The terminal dock: the workspace's terminals in the window. `rvw-term` owns
 //! the PTY and the emulation; this view paints its snapshot, forwards keys
 //! and pastes, and keeps the PTY the size of the dock. No terminal logic.
 //!
-//! Output is picked up by a short timer that runs only while the dock is
-//! shown and the process is alive: it drains the terminal's events and, when
-//! something changed, takes one snapshot and repaints, so there is at most
-//! one repaint per tick. rvw-term's channel cannot wake a task, which is why
-//! it is a timer. A hidden dock keeps the process and its output.
+//! Output is picked up by a short timer that runs while a process is alive:
+//! it drains the terminals' events and, when the shown one changed, takes one
+//! snapshot and repaints, so there is at most one repaint per tick. A hidden
+//! dock is looked at slowly, only to learn of ends, and keeps every process
+//! and its output. rvw-term's channel cannot wake a task, which is why it is
+//! a timer.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -20,7 +21,7 @@ use gpui::{
     UTF16Selection, UnderlineStyle, Window,
 };
 use rvw_term::{Color, CursorKind, Event, Snapshot, SpawnOptions, Terminal};
-use rvw_view::terminals::{TerminalId, Terminals};
+use rvw_view::terminals::{Launch, TerminalId, Terminals};
 
 use crate::terminal_grid::{self, Layout, Run, Width};
 use crate::terminal_input::{translate, Translated};
@@ -37,11 +38,31 @@ const FONT_SIZE: f32 = 13.;
 const LINE_HEIGHT_RATIO: f32 = 1.4;
 /// How often a shown, live terminal is looked at: one frame.
 const FRAME: Duration = Duration::from_millis(16);
-/// What the tab says. The shell is the user's own, from the account
-/// database; its path is not read here.
-const LABEL: &str = "shell";
+/// How often a hidden dock's terminals are looked at, to learn of their end.
+const HIDDEN_FRAME: Duration = Duration::from_millis(250);
+const TAB_MAX_WIDTH: Pixels = px(240.);
 
-actions!(rvw_terminal, [ToggleTerminal, TerminalCopy, TerminalPaste]);
+actions!(
+    rvw_terminal,
+    [
+        ToggleTerminal,
+        TerminalCopy,
+        TerminalPaste,
+        NewTerminal,
+        CloseTerminal,
+        NextTerminal,
+        PreviousTerminal,
+        Terminal1,
+        Terminal2,
+        Terminal3,
+        Terminal4,
+        Terminal5,
+        Terminal6,
+        Terminal7,
+        Terminal8,
+        Terminal9
+    ]
+);
 
 /// The context rvw's own chords (find a file, actions, workspaces, restore,
 /// quit) are bound in. On macOS they use the command key, which no program
@@ -56,37 +77,49 @@ pub fn rvw_chord_context() -> Option<&'static str> {
     }
 }
 
+/// The modifier prefix of the tab chords: the command key on macOS, and
+/// Ctrl-Shift elsewhere so the shell keeps plain Ctrl keys.
+const CHORD: &str = if cfg!(target_os = "macos") {
+    "secondary-"
+} else {
+    "ctrl-shift-"
+};
+
 /// The dock's chords, and on Linux the Ctrl-Shift forms of rvw's chords that
 /// act while a terminal has the keyboard.
 pub fn bind_keys(cx: &mut App) {
+    let ctx = Some(KEY_CONTEXT);
+    let chord = |key: &str| format!("{CHORD}{key}");
+    cx.bind_keys([
+        KeyBinding::new(&chord("j"), ToggleTerminal, None),
+        KeyBinding::new(&chord("t"), NewTerminal, None),
+        KeyBinding::new(&chord("c"), TerminalCopy, ctx),
+        KeyBinding::new(&chord("v"), TerminalPaste, ctx),
+        KeyBinding::new(&chord("w"), CloseTerminal, ctx),
+        KeyBinding::new(&chord("1"), Terminal1, ctx),
+        KeyBinding::new(&chord("2"), Terminal2, ctx),
+        KeyBinding::new(&chord("3"), Terminal3, ctx),
+        KeyBinding::new(&chord("4"), Terminal4, ctx),
+        KeyBinding::new(&chord("5"), Terminal5, ctx),
+        KeyBinding::new(&chord("6"), Terminal6, ctx),
+        KeyBinding::new(&chord("7"), Terminal7, ctx),
+        KeyBinding::new(&chord("8"), Terminal8, ctx),
+        KeyBinding::new(&chord("9"), Terminal9, ctx),
+    ]);
     #[cfg(target_os = "macos")]
     cx.bind_keys([
-        KeyBinding::new("secondary-j", ToggleTerminal, None),
-        KeyBinding::new("secondary-c", TerminalCopy, Some(KEY_CONTEXT)),
-        KeyBinding::new("secondary-v", TerminalPaste, Some(KEY_CONTEXT)),
+        KeyBinding::new("secondary-shift-]", NextTerminal, ctx),
+        KeyBinding::new("secondary-shift-[", PreviousTerminal, ctx),
     ]);
     #[cfg(not(target_os = "macos"))]
     cx.bind_keys([
-        KeyBinding::new("ctrl-shift-j", ToggleTerminal, None),
-        KeyBinding::new("ctrl-shift-c", TerminalCopy, Some(KEY_CONTEXT)),
-        KeyBinding::new("ctrl-shift-v", TerminalPaste, Some(KEY_CONTEXT)),
-        KeyBinding::new("ctrl-shift-p", crate::finder::OpenFinder, Some(KEY_CONTEXT)),
-        KeyBinding::new(
-            "ctrl-shift-k",
-            crate::palette_overlay::OpenPalette,
-            Some(KEY_CONTEXT),
-        ),
-        KeyBinding::new(
-            "ctrl-shift-o",
-            crate::workspace_picker::OpenWorkspaces,
-            Some(KEY_CONTEXT),
-        ),
-        KeyBinding::new(
-            "ctrl-shift-z",
-            crate::changes_state::RestoreLatest,
-            Some(KEY_CONTEXT),
-        ),
-        KeyBinding::new("ctrl-shift-q", crate::Quit, Some(KEY_CONTEXT)),
+        KeyBinding::new("ctrl-shift-pagedown", NextTerminal, ctx),
+        KeyBinding::new("ctrl-shift-pageup", PreviousTerminal, ctx),
+        KeyBinding::new("ctrl-shift-p", crate::finder::OpenFinder, ctx),
+        KeyBinding::new("ctrl-shift-k", crate::palette_overlay::OpenPalette, ctx),
+        KeyBinding::new("ctrl-shift-o", crate::workspace_picker::OpenWorkspaces, ctx),
+        KeyBinding::new("ctrl-shift-z", crate::changes_state::RestoreLatest, ctx),
+        KeyBinding::new("ctrl-shift-q", crate::Quit, ctx),
     ]);
 }
 
@@ -115,50 +148,67 @@ fn first_grid(window: &Window) -> (u16, u16) {
     .unwrap_or((80, 24))
 }
 
-/// One terminal, its tab model and its view state.
+/// One running terminal and what the view keeps of it.
+struct Live {
+    id: TerminalId,
+    term: Terminal,
+    launch: Launch,
+    snapshot: Snapshot,
+    /// The screen changed since `snapshot` was taken.
+    dirty: bool,
+    /// The grid the PTY has.
+    grid: (u16, u16),
+}
+
+/// The terminals of the workspace: their tabs and the active one painted.
 pub struct TerminalView {
     focus: FocusHandle,
-    /// The tab: its title says the command and, once it ended, how.
+    /// The tabs: titles say the command and, once ended, how.
     model: Terminals,
-    term: Option<Terminal>,
-    snapshot: Option<Snapshot>,
+    live: Vec<Live>,
     /// Why no terminal started.
     error: Option<String>,
-    /// A line the header shows after the title: what a paste could not do.
+    /// A line the header shows after the tabs: what a paste could not do.
     notice: Option<String>,
     workspace: PathBuf,
-    /// The grid the PTY has, from the last paint.
-    grid: (u16, u16),
     /// Where the grid was painted and the size of a cell, for the input
     /// method's candidate window.
     painted: Option<(Bounds<Pixels>, Pixels, Pixels)>,
     /// Text an input method has composed and not committed.
     marked: Option<String>,
+    next_id: u64,
     poll: Option<Task<()>>,
-    /// Kills the process when the application quits.
+    /// Kills every process when the application quits.
     _quit: Subscription,
 }
 
 impl TerminalView {
     pub fn new(workspace: PathBuf, cx: &mut Context<Self>) -> Self {
         let quit = cx.on_app_quit(|this, _| {
-            // Dropping the terminal closes it: SIGHUP to its group, then
-            // SIGKILL after the grace period, and the child is reaped.
+            // Dropping a terminal closes it: SIGHUP to its group, then
+            // SIGKILL after the grace period, and the child is reaped. They
+            // end together, so the wait is one grace period, not many.
             this.poll = None;
-            this.term = None;
+            let ends: Vec<_> = this
+                .live
+                .drain(..)
+                .map(|live| std::thread::spawn(move || drop(live)))
+                .collect();
+            for end in ends {
+                let _ = end.join();
+            }
             async {}
         });
         Self {
             focus: cx.focus_handle(),
             model: Terminals::new(),
-            term: None,
-            snapshot: None,
+            live: Vec::new(),
             error: None,
             notice: None,
             workspace,
-            grid: (80, 24),
             painted: None,
             marked: None,
+            next_id: 1,
             poll: None,
             _quit: quit,
         }
@@ -174,33 +224,48 @@ impl TerminalView {
         self.focus.contains_focused(window, cx)
     }
 
-    /// Shows the dock, starting the terminal the first time, or hides it. A
-    /// hidden terminal keeps running; hiding is not closing.
+    fn active_live(&self) -> Option<&Live> {
+        let id = self.model.active()?;
+        self.live.iter().find(|live| live.id == id)
+    }
+
+    fn active_live_mut(&mut self) -> Option<&mut Live> {
+        let id = self.model.active()?;
+        self.live.iter_mut().find(|live| live.id == id)
+    }
+
+    /// The screen of the active terminal.
+    fn snapshot(&self) -> Option<&Snapshot> {
+        self.active_live().map(|live| &live.snapshot)
+    }
+
+    /// Shows the dock, starting a shell the first time, or hides it. Hidden
+    /// terminals keep running; hiding is not closing.
     pub fn toggle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.error.take().is_some() {
             cx.notify();
             return;
         }
-        if self.term.is_none() {
-            self.start(window, cx);
-        } else if self.model.dock_shown() {
+        if self.model.is_empty() {
+            self.launch(&Launch::Shell, window, cx);
+            return;
+        }
+        if self.model.dock_shown() {
             self.model.hide_dock();
-            self.poll = None;
         } else {
             self.model.show_dock();
-            self.pump(cx);
-            self.start_poll(cx);
-        }
-        if self.shown() {
+            self.refresh_active();
             window.focus(&self.focus);
         }
         cx.notify();
     }
 
-    fn start(&mut self, window: &Window, cx: &mut Context<Self>) {
+    /// Starts a terminal in the workspace root as a new, active tab and
+    /// shows the dock.
+    pub fn launch(&mut self, launch: &Launch, window: &mut Window, cx: &mut Context<Self>) {
         let (cols, rows) = first_grid(window);
         let options = SpawnOptions {
-            command: None,
+            command: launch.argv(),
             working_directory: Some(self.workspace.clone()),
             cols,
             rows,
@@ -208,31 +273,87 @@ impl TerminalView {
         };
         match Terminal::spawn(options) {
             Ok(term) => {
-                self.model.add(TerminalId(term.id().0), LABEL);
-                self.snapshot = Some(term.snapshot());
-                self.term = Some(term);
-                self.grid = (cols, rows);
+                let id = TerminalId(self.next_id);
+                self.next_id += 1;
+                self.error = None;
+                self.model.add(id, &launch.label());
+                self.live.push(Live {
+                    id,
+                    snapshot: term.snapshot(),
+                    term,
+                    launch: launch.clone(),
+                    dirty: false,
+                    grid: (cols, rows),
+                });
+                self.marked = None;
+                window.focus(&self.focus);
                 self.start_poll(cx);
             }
             Err(error) => self.error = Some(format!("The terminal did not start: {error}")),
         }
+        cx.notify();
     }
 
-    /// Replaces a finished terminal with a new shell in the same place.
-    fn restart(&mut self, window: &Window, cx: &mut Context<Self>) {
-        if let Some(mut old) = self.term.take() {
-            old.kill();
-            self.model.close(TerminalId(old.id().0));
+    /// Closes a tab. A running process is ended, off the UI thread; a
+    /// finished one is just removed.
+    fn close_tab(&mut self, id: TerminalId, cx: &mut Context<Self>) {
+        self.model.close(id);
+        if let Some(at) = self.live.iter().position(|live| live.id == id) {
+            let gone = self.live.remove(at);
+            // Closing waits for the process to end; not on this thread.
+            std::thread::spawn(move || drop(gone));
         }
-        self.poll = None;
-        self.snapshot = None;
         self.marked = None;
-        self.start(window, cx);
+        self.refresh_active();
+        cx.notify();
+    }
+
+    fn switch_to(&mut self, id: TerminalId, window: &mut Window, cx: &mut Context<Self>) {
+        if self.model.switch_to(id) {
+            self.after_switch(window, cx);
+        }
+    }
+
+    fn after_switch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.marked = None;
+        self.notice = None;
+        self.refresh_active();
+        window.focus(&self.focus);
+        cx.notify();
+    }
+
+    fn switch_number(&mut self, number: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.model.switch_to_number(number) {
+            self.after_switch(window, cx);
+        }
+    }
+
+    /// Takes a fresh snapshot of the active terminal.
+    fn refresh_active(&mut self) {
+        if let Some(live) = self.active_live_mut() {
+            live.snapshot = live.term.snapshot();
+            live.dirty = false;
+        }
+    }
+
+    /// Runs a finished terminal's command again, as a new tab at the end.
+    fn restart(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(live) = self.active_live() else {
+            return;
+        };
+        let (id, launch) = (live.id, live.launch.clone());
+        self.close_tab(id, cx);
+        self.launch(&launch, window, cx);
     }
 
     fn start_poll(&mut self, cx: &mut Context<Self>) {
         self.poll = Some(cx.spawn(async move |this, cx| loop {
-            cx.background_executor().timer(FRAME).await;
+            let wait = match this.read_with(cx, |view, _| view.model.dock_shown()) {
+                Ok(true) => FRAME,
+                Ok(false) => HIDDEN_FRAME,
+                Err(_) => break,
+            };
+            cx.background_executor().timer(wait).await;
             match this.update(cx, Self::pump) {
                 Ok(true) => {}
                 _ => break,
@@ -240,47 +361,69 @@ impl TerminalView {
         }));
     }
 
-    /// Takes what the terminal reported and repaints once if the screen
-    /// changed. Returns whether to keep looking: not once the process ended
-    /// and its last output is shown.
+    /// Takes what the terminals reported, records the ends, and repaints once
+    /// if the shown screen or a tab changed. A hidden dock takes no
+    /// snapshots. Returns whether to keep looking: while a process runs.
     fn pump(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(term) = self.term.as_ref() else {
-            return false;
-        };
-        let events: Vec<Event> = term.events().try_iter().collect();
-        if events.is_empty() {
-            return !self.exited();
-        }
-        let mut ended = false;
-        for event in events {
-            if let Event::Exited(exit) = event {
-                self.model.exited(TerminalId(term.id().0), exit.code);
-                ended = true;
+        let mut changed = false;
+        for live in &mut self.live {
+            for event in live.term.events().try_iter() {
+                if event == Event::Changed {
+                    live.dirty = true;
+                }
+            }
+            if let Some(exit) = live.term.exit_status() {
+                if self
+                    .model
+                    .get(live.id)
+                    .is_some_and(rvw_view::terminals::Terminal::running)
+                {
+                    self.model.exited(live.id, exit.code);
+                    live.dirty = true;
+                    changed = true;
+                }
             }
         }
-        self.snapshot = Some(term.snapshot());
-        cx.notify();
-        !ended
+        if self.model.dock_shown() {
+            if let Some(live) = self.active_live_mut() {
+                if live.dirty {
+                    live.snapshot = live.term.snapshot();
+                    live.dirty = false;
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            cx.notify();
+        }
+        !self.model.running().is_empty()
+    }
+
+    /// What the window asks before quitting, naming the running terminals;
+    /// `None` when none runs. Looks at the processes now, not at the last
+    /// event.
+    pub fn quit_guard(&mut self, cx: &mut Context<Self>) -> Option<String> {
+        self.pump(cx);
+        self.model.quit_guard()
     }
 
     fn exited(&self) -> bool {
-        self.term
-            .as_ref()
-            .is_some_and(|term| term.exit_status().is_some())
+        self.active_live()
+            .is_some_and(|live| live.term.exit_status().is_some())
     }
 
     fn write(&mut self, bytes: &[u8]) {
-        if let Some(term) = self.term.as_ref() {
+        if let Some(live) = self.active_live() {
             // A full queue or a closed terminal drops the input; there is no
             // one to tell, and the screen shows what arrived.
-            let _ = term.write(bytes);
+            let _ = live.term.write(bytes);
         }
     }
 
     fn key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let keystroke = &event.keystroke;
         if self.exited() {
-            // A finished terminal takes no input: Enter starts a new shell.
+            // A finished terminal takes no input: Enter runs it again.
             if keystroke.key == "enter" && keystroke.modifiers.number_of_modifiers() == 0 {
                 self.restart(window, cx);
                 cx.stop_propagation();
@@ -288,7 +431,7 @@ impl TerminalView {
             }
             return;
         }
-        let app_cursor = self.snapshot.as_ref().is_some_and(|s| s.mode.app_cursor);
+        let app_cursor = self.snapshot().is_some_and(|s| s.mode.app_cursor);
         match translate(keystroke, app_cursor, cfg!(target_os = "macos")) {
             Translated::Send(bytes) => {
                 self.write(&bytes);
@@ -307,8 +450,7 @@ impl TerminalView {
             return;
         };
         let bracketed = self
-            .snapshot
-            .as_ref()
+            .snapshot()
             .is_some_and(|shot| shot.mode.bracketed_paste);
         let bytes = rvw_term::encode_paste(&text, bracketed);
         if bytes.len() > rvw_term::MAX_WRITE {
@@ -324,8 +466,24 @@ impl TerminalView {
     /// it does not reach the program as Ctrl-C does.
     fn copy(_: &mut Self, _: &TerminalCopy, _: &mut Window, _: &mut Context<Self>) {}
 
-    /// Called by the grid's prepaint with where it sits: keeps the PTY the
-    /// size of the area.
+    fn close_active(&mut self, _: &CloseTerminal, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(id) = self.model.active() {
+            self.close_tab(id, cx);
+        }
+    }
+
+    fn next(&mut self, _: &NextTerminal, window: &mut Window, cx: &mut Context<Self>) {
+        self.model.next();
+        self.after_switch(window, cx);
+    }
+
+    fn previous(&mut self, _: &PreviousTerminal, window: &mut Window, cx: &mut Context<Self>) {
+        self.model.prev();
+        self.after_switch(window, cx);
+    }
+
+    /// Called by the grid's prepaint with where it sits: keeps the active PTY
+    /// the size of the area.
     fn fit(&mut self, bounds: Bounds<Pixels>, cell: (Pixels, Pixels)) {
         self.painted = Some((bounds, cell.0, cell.1));
         let Some((cols, rows)) = terminal_grid::grid_size(
@@ -336,28 +494,77 @@ impl TerminalView {
         ) else {
             return;
         };
-        if (cols, rows) == self.grid {
-            return;
-        }
-        if let Some(term) = self.term.as_ref() {
-            if term.resize(cols, rows).is_ok() {
-                self.grid = (cols, rows);
+        if let Some(live) = self.active_live_mut() {
+            if (cols, rows) != live.grid && live.term.resize(cols, rows).is_ok() {
+                live.grid = (cols, rows);
             }
         }
     }
 
-    fn header(&self) -> gpui::Div {
-        let title = self
-            .model
-            .active()
-            .and_then(|id| self.model.get(id))
-            .map_or_else(|| LABEL.to_owned(), rvw_view::terminals::Terminal::title);
+    /// The tab row, then what the active terminal says about itself.
+    fn header(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let active = self.model.active();
+        let mut tabs = div().flex().items_center().gap(px(4.)).min_w(px(0.));
+        for (index, tab) in self.model.list().iter().enumerate() {
+            let id = tab.id;
+            let selected = active == Some(id);
+            let finished = !tab.running();
+            let close = div()
+                .id(("close-tab", index))
+                .px(px(4.))
+                .rounded(theme::CONTROL_RADIUS)
+                .text_color(theme::muted())
+                .hover(|style| style.bg(theme::hairline()))
+                .cursor_pointer()
+                .child("\u{00d7}")
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
+                    this.close_tab(id, cx);
+                    cx.stop_propagation();
+                }));
+            tabs = tabs.child(
+                div()
+                    .id(("tab", index))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .h(px(24.))
+                    .px(px(8.))
+                    .max_w(TAB_MAX_WIDTH)
+                    .rounded(theme::CONTROL_RADIUS)
+                    .cursor_pointer()
+                    .font_family(theme::code_font())
+                    .text_color(if selected && !finished {
+                        theme::ink()
+                    } else if finished {
+                        theme::faint()
+                    } else {
+                        theme::muted()
+                    })
+                    .when(selected, |d| d.bg(theme::hairline()))
+                    .child(div().truncate().child(tab.title()))
+                    .child(close)
+                    .on_click(cx.listener(move |this: &mut Self, _, window, cx| {
+                        this.switch_to(id, window, cx);
+                    })),
+            );
+        }
+        let plus = div()
+            .id("new-terminal")
+            .px(px(8.))
+            .h(px(24.))
+            .flex()
+            .items_center()
+            .rounded(theme::CONTROL_RADIUS)
+            .text_color(theme::muted())
+            .hover(|style| style.bg(theme::hairline()))
+            .cursor_pointer()
+            .child("+")
+            .on_click(|_, window, cx| window.dispatch_action(Box::new(NewTerminal), cx));
         let program = self
-            .snapshot
-            .as_ref()
+            .snapshot()
             .and_then(|shot| shot.title.clone())
             .filter(|title| !title.is_empty());
-        let ended = self.exited();
         let mut header = div()
             .flex()
             .items_center()
@@ -367,20 +574,16 @@ impl TerminalView {
             .border_b_1()
             .border_color(theme::hairline())
             .text_size(px(12.))
-            .child(
-                div()
-                    .font_family(theme::code_font())
-                    .text_color(if ended { theme::faint() } else { theme::ink() })
-                    .child(title),
-            );
+            .child(tabs)
+            .child(plus);
         if let Some(program) = program {
             header = header.child(div().text_color(theme::muted()).truncate().child(program));
         }
-        if ended {
+        if self.exited() {
             header = header.child(
                 div()
                     .text_color(theme::muted())
-                    .child("Enter starts a new shell"),
+                    .child("Enter runs it again"),
             );
         }
         if let Some(notice) = self.notice.as_ref() {
@@ -409,7 +612,7 @@ impl Render for TerminalView {
                 .px(PADDING)
                 .child(GridElement { view: cx.entity() }),
         };
-        div()
+        let mut dock = div()
             .flex()
             .flex_col()
             .w_full()
@@ -423,15 +626,38 @@ impl Render for TerminalView {
             .on_key_down(cx.listener(Self::key_down))
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::copy))
+            .on_action(cx.listener(Self::close_active))
+            .on_action(cx.listener(Self::next))
+            .on_action(cx.listener(Self::previous))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this: &mut Self, _: &MouseDownEvent, window, _| {
                     window.focus(&this.focus);
                 }),
-            )
-            .child(self.header())
-            .child(body)
+            );
+        dock = numbered_tabs(dock, cx);
+        dock.child(self.header(cx)).child(body)
     }
+}
+
+/// Wires `Terminal1`..`Terminal9` to the tab of that number.
+fn numbered_tabs(dock: gpui::Div, cx: &mut Context<TerminalView>) -> gpui::Div {
+    macro_rules! number {
+        ($dock:ident, $($action:ident => $n:expr),+) => {
+            $($dock = $dock.on_action(cx.listener(
+                |this: &mut TerminalView, _: &$action, window, cx| {
+                    this.switch_number($n, window, cx);
+                },
+            ));)+
+        };
+    }
+    let mut dock = dock;
+    number!(
+        dock,
+        Terminal1 => 1, Terminal2 => 2, Terminal3 => 3, Terminal4 => 4, Terminal5 => 5,
+        Terminal6 => 6, Terminal7 => 7, Terminal8 => 8, Terminal9 => 9
+    );
+    dock
 }
 
 /// The input method's side: composed text is shown at the cursor and, once
@@ -509,7 +735,7 @@ impl EntityInputHandler for TerminalView {
         _: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         let (area, width, height) = self.painted?;
-        let cursor = self.snapshot.as_ref()?.cursor;
+        let cursor = self.snapshot()?.cursor;
         let origin = point(
             area.left() + width * terminal_grid::cells(cursor.col),
             area.top() + height * terminal_grid::cells(cursor.row),
@@ -681,7 +907,7 @@ impl Element for GridElement {
             marked: None,
             line_height: cell.1,
         };
-        let Some(snapshot) = view.snapshot.as_ref() else {
+        let Some(snapshot) = view.snapshot() else {
             return prepaint;
         };
         let layout: Layout = terminal_grid::layout(snapshot, focused);

@@ -157,6 +157,12 @@ impl Shell {
         if let Some(card) = crate::checkpoint_ui::overlay(self, cx) {
             out.push(card.into_any_element());
         }
+        if let Some(open) = self.launcher.as_ref() {
+            out.push(crate::terminal_launcher::overlay(open, cx).into_any_element());
+        }
+        if let Some(message) = self.quit_ask.as_ref() {
+            out.push(crate::terminal_launcher::quit_overlay(message, cx).into_any_element());
+        }
         out
     }
 }

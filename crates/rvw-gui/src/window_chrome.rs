@@ -301,7 +301,8 @@ fn control_button(control: Control) -> Stateful<Div> {
         .on_click(move |_, window, cx| match control {
             Control::Minimize => window.minimize_window(),
             Control::Maximize | Control::Restore => window.zoom_window(),
-            Control::Close => cx.quit(),
+            // Asks first when terminals are running (the shell's Quit).
+            Control::Close => window.dispatch_action(Box::new(crate::Quit), cx),
         })
         .tooltip(move |_: &mut Window, cx: &mut App| -> AnyView {
             cx.new(|_| HintCard { text: label }).into()

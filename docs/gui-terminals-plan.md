@@ -1,6 +1,6 @@
 # GUI terminals plan: terminals in the workspace
 
-Status: order locked on 2026-10-13, at the user's request. Not started.
+Status: order locked on 2026-10-13, at the user's request. T2.2 built; manual run pending.
 Look: boards 5 and 6 of the V2 canvas (https://claude.ai/artifact/MnJ1HhFLLqx45kzuokJWYn,
 private): the review desk with a terminal dock, and the `⌘T` palette.
 
@@ -78,9 +78,10 @@ The three milestones are in the locked order.
    gpui supports reach the program as committed text, with the composition
    drawn at the cursor. Not yet run on any platform; the user's manual run
    decides. Option is a compose key on macOS, not Meta.
-2. Which commands the `⌘T` palette lists: this repository's history and a
-   per-repository file. The file's name and format are not decided; rvw takes
-   no environment variables.
+2. Which commands the `⌘T` palette lists: delayed. For now it lists only
+   "Shell" and runs a typed command (`/bin/sh -c`) on Enter. The user plans
+   config files under the XDG config directory, not committed in
+   repositories; the format is undecided. rvw takes no environment variables.
 3. ~~Windows~~ Decided 2026-10-13: not supported. Unix only (Linux, macOS).
 
 ## Later

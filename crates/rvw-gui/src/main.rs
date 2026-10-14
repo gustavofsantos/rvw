@@ -45,6 +45,7 @@ mod submit_dialog;
 mod terminal_dock;
 mod terminal_grid;
 mod terminal_input;
+mod terminal_launcher;
 mod text_area;
 mod text_area_element;
 mod text_area_math;
@@ -234,7 +235,20 @@ fn quit_with_the_window(cx: &mut App) {
         }
     })
     .detach();
-    cx.on_action(|_: &Quit, cx| cx.quit());
+    // Reached when no focused view took the action (the app menu): the
+    // window asks first, as it does for its own chord.
+    cx.on_action(|_: &Quit, cx| {
+        let shell = cx.windows().into_iter().find_map(|w| w.downcast::<Shell>());
+        match shell {
+            Some(window) => {
+                let asked = window.update(cx, Shell::request_quit);
+                if asked.is_err() {
+                    cx.quit();
+                }
+            }
+            None => cx.quit(),
+        }
+    });
     cx.bind_keys([KeyBinding::new(
         "secondary-q",
         Quit,

@@ -65,6 +65,12 @@ On Linux the release archive and `install.sh` also install the desktop app
 to change that); the Xcode Command Line Tools are enough. Launched from the
 menu or Finder, it opens the workspace with the most work waiting.
 
+The desktop app has a terminal dock (Unix only). `⌘J` shows or hides it, `⌘T`
+opens a new terminal (a shell, or a typed command run with `/bin/sh -c`),
+`⌘W` closes the tab, `⌘1`..`⌘9` switch tabs. On Linux the chords are
+`Ctrl+Shift+J`, `T`, `W` and `1`..`9`, so the shell keeps plain Ctrl keys.
+Quitting with terminals running asks first.
+
 ## Examples
 
 ![rvw from a shell: add, submit, pull, resolve, show](docs/demo/cli.gif)
