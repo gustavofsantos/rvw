@@ -4,9 +4,9 @@
 use std::collections::HashMap;
 
 use rvw_core::operations::{Evidence, ReviewSheet};
-use rvw_core::types::{Comment, Status};
+use rvw_core::types::{Comment, Status, Verdict, VerdictKind};
 
-use crate::render::attribution;
+use crate::render::{attribution, link_lines};
 
 /// The display column limit; no rendered line exceeds it.
 const WIDTH: usize = 80;
@@ -56,6 +56,59 @@ impl Lines {
         }
     }
 
+    /// The links a comment carries, under its heading.
+    fn links(&mut self, c: &Comment) {
+        for l in link_lines(c) {
+            self.line(&l, "");
+        }
+    }
+
+    /// The resolution of a done or rejected comment: who and when, then the note.
+    fn resolution(&mut self, c: &Comment) {
+        self.raw(&["", "RESOLUTION"]);
+        if c.resolved_by.is_some() || c.resolved_at.is_some() {
+            let mut details = c.status.as_str().to_owned();
+            if let Some(by) = &c.resolved_by {
+                details.push_str(" by @");
+                details.push_str(by);
+            }
+            if let Some(at) = &c.resolved_at {
+                details.push_str(" at ");
+                details.push_str(at);
+            }
+            self.line(&details, "  ");
+        }
+        if let Some(note) = &c.resolution_note {
+            for l in note.split('\n') {
+                self.line(l, "  ");
+            }
+        }
+    }
+
+    /// A reviewer's verdict: its line, its note quoted as the resolution note
+    /// is, and the follow-up a reopen created.
+    fn verdict(&mut self, v: &Verdict) {
+        self.raw(&[""]);
+        self.line(
+            &format!(
+                "Verdict: {} by {} ({}) at {}.",
+                v.kind.as_str(),
+                v.by,
+                v.actor.as_str(),
+                v.at
+            ),
+            "",
+        );
+        if let Some(note) = &v.note {
+            for l in note.split('\n') {
+                self.line(l, "  ");
+            }
+        }
+        if let (VerdictKind::Reopened, Some(id)) = (v.kind, &v.followup) {
+            self.line(&format!("Reopened as {id}."), "");
+        }
+    }
+
     /// The lines joined, trailing blanks trimmed, with one final newline.
     fn finish(&self) -> String {
         format!(
@@ -80,6 +133,7 @@ pub fn display(ev: &Evidence) -> String {
         ),
         "",
     );
+    s.links(c);
     let who = attribution(c.author.as_deref(), c.lane.as_deref());
     if !who.is_empty() {
         s.line(&format!("REVIEWER {who}"), "");
@@ -101,27 +155,13 @@ pub fn display(ev: &Evidence) -> String {
         s.source(c);
     }
 
-    if !c.status.resolved() {
+    if c.status.resolved() {
+        s.resolution(c);
+    } else {
         s.note(&c.comment);
-        return s.finish();
     }
-    s.raw(&["", "RESOLUTION"]);
-    if c.resolved_by.is_some() || c.resolved_at.is_some() {
-        let mut details = c.status.as_str().to_owned();
-        if let Some(by) = &c.resolved_by {
-            details.push_str(" by @");
-            details.push_str(by);
-        }
-        if let Some(at) = &c.resolved_at {
-            details.push_str(" at ");
-            details.push_str(at);
-        }
-        s.line(&details, "  ");
-    }
-    if let Some(note) = &c.resolution_note {
-        for l in note.split('\n') {
-            s.line(l, "  ");
-        }
+    if let Some(v) = &c.verdict {
+        s.verdict(v);
     }
     s.finish()
 }
@@ -187,8 +227,12 @@ pub fn sheet(rs: &ReviewSheet) -> String {
             &format!("EVIDENCE {}  {}  {}", i + 1, c.id, c.location()),
             "",
         );
+        s.links(c);
         s.source(c);
         s.note(&c.comment);
+        if let Some(v) = &c.verdict {
+            s.verdict(v);
+        }
     }
     s.finish()
 }
@@ -243,10 +287,29 @@ fn tokens(text: &str) -> Vec<Vec<char>> {
 #[cfg(test)]
 mod tests {
     use rvw_core::operations::SheetState;
-    use rvw_core::types::Status;
+    use rvw_core::types::{Location, Status, VerdictKind};
 
     use super::*;
-    use crate::fixtures::{comment, review};
+    use crate::fixtures::{comment, review, verdict};
+
+    fn located(file: &str, start: i64, end: i64) -> Location {
+        Location {
+            file: file.into(),
+            start_line: start,
+            end_line: end,
+        }
+    }
+
+    /// A comment ann raised, handed over, and resolved with a note.
+    fn decided(status: Status) -> Comment {
+        let mut c = comment("r7", status, "a.go", 3, 3, "x", "n");
+        c.author = Some("ann".into());
+        c.pulled_at = Some("2026-01-02T00:00:00Z".into());
+        c.resolved_by = Some("ann".into());
+        c.resolved_at = Some("2026-01-02T01:00:00Z".into());
+        c.resolution_note = Some("fixed it".into());
+        c
+    }
 
     fn evidence(c: Comment, diff: &[&str], diff_available: bool) -> Evidence {
         Evidence {
@@ -535,5 +598,128 @@ mod tests {
             comments: vec![],
         };
         assert!(sheet(&rs).contains("DECISION  COMMENT\n"));
+    }
+
+    #[test]
+    fn points_at_and_reopens_follow_the_heading_when_set() {
+        let mut c = comment("r7", Status::Pending, "a.go", 3, 3, "x", "n");
+        c.points_at = Some(located("b.go", 5, 6));
+        c.reopens = Some("r3".into());
+        let got = display(&evidence(c, &[], false));
+        let r = rule();
+        assert_eq!(
+            got,
+            joined(&[
+                "REVIEW LINE r7  [PENDING]  a.go:3",
+                "Points at `b.go:5-6`.",
+                "Reopens r3.",
+                &r,
+                "SOURCE",
+                "> 3 | x",
+                "",
+                "NOTE",
+                "  n",
+            ])
+        );
+    }
+
+    #[test]
+    fn accepted_verdict_without_a_note_is_one_line_after_the_resolution() {
+        let mut c = decided(Status::Done);
+        c.verdict = Some(verdict(VerdictKind::Accepted, None, None));
+        let got = display(&evidence(c, &[], false));
+        let r = rule();
+        assert_eq!(
+            got,
+            joined(&[
+                "REVIEW LINE r7  [DONE]  a.go:3",
+                "REVIEWER @ann",
+                &r,
+                "DIFF",
+                "  snapshot evidence unavailable",
+                "",
+                "RESOLUTION",
+                "  done by @ann at 2026-01-02T01:00:00Z",
+                "  fixed it",
+                "",
+                "Verdict: accepted by alice (human) at 2026-01-03T00:00:00Z.",
+            ])
+        );
+    }
+
+    #[test]
+    fn accepted_verdict_with_a_note_quotes_it_like_the_resolution_note() {
+        let mut c = decided(Status::Done);
+        c.verdict = Some(verdict(VerdictKind::Accepted, Some("agreed\nthanks"), None));
+        let got = display(&evidence(c, &[], false));
+        assert!(got.ends_with(
+            "\nVerdict: accepted by alice (human) at 2026-01-03T00:00:00Z.\n  agreed\n  thanks\n"
+        ));
+        assert!(!got.contains("Reopened as"));
+    }
+
+    #[test]
+    fn reopened_verdict_names_its_reason_and_the_follow_up() {
+        let mut c = decided(Status::Rejected);
+        c.resolution_note = Some("not now".into());
+        c.verdict = Some(verdict(
+            VerdictKind::Reopened,
+            Some("still broken"),
+            Some("r9"),
+        ));
+        let got = display(&evidence(c, &[], false));
+        let r = rule();
+        assert_eq!(
+            got,
+            joined(&[
+                "REVIEW LINE r7  [REJECTED]  a.go:3",
+                "REVIEWER @ann",
+                &r,
+                "SOURCE",
+                "> 3 | x",
+                "",
+                "RESOLUTION",
+                "  rejected by @ann at 2026-01-02T01:00:00Z",
+                "  not now",
+                "",
+                "Verdict: reopened by alice (human) at 2026-01-03T00:00:00Z.",
+                "  still broken",
+                "Reopened as r9.",
+            ])
+        );
+    }
+
+    #[test]
+    fn sheet_evidence_shows_links_and_the_verdict_after_the_note() {
+        let mut r = review("rv2", "request-changes", "Fix", &["r1"]);
+        r.author = None;
+        let mut c = comment("r1", Status::Done, "a.go", 1, 1, "x", "n1");
+        c.points_at = Some(located("b.go", 9, 9));
+        c.verdict = Some(verdict(VerdictKind::Accepted, Some("ok"), None));
+        let rs = ReviewSheet {
+            review: r,
+            state: SheetState::Complete,
+            comments: vec![c],
+        };
+        let got = sheet(&rs);
+        assert!(got.contains(
+            "EVIDENCE 1  r1  a.go:1\nPoints at `b.go:9`.\nSOURCE\n> 1 | x\n\nNOTE\n  n1\n\n\
+             Verdict: accepted by alice (human) at 2026-01-03T00:00:00Z.\n  ok\n"
+        ));
+    }
+
+    #[test]
+    fn sheet_ledger_rows_stay_one_line_each() {
+        let mut r = review("rv2", "approve", "", &["r1"]);
+        r.author = None;
+        let mut c = comment("r1", Status::Done, "a.go", 1, 1, "x", "n1");
+        c.points_at = Some(located("b.go", 9, 9));
+        c.verdict = Some(verdict(VerdictKind::Accepted, None, None));
+        let rs = ReviewSheet {
+            review: r,
+            state: SheetState::Complete,
+            comments: vec![c],
+        };
+        assert!(sheet(&rs).contains("  1. r1  a.go:1  [DONE]\n"));
     }
 }

@@ -16,7 +16,7 @@ pub use terminal::{is_control, safe, Terminal};
 pub(crate) mod fixtures {
     //! Builders shared by the unit tests.
 
-    use rvw_core::types::{Comment, Review, ReviewStatus, Status};
+    use rvw_core::types::{Actor, Comment, Review, ReviewStatus, Status, Verdict, VerdictKind};
 
     pub fn comment(
         id: &str,
@@ -52,6 +52,18 @@ pub(crate) mod fixtures {
             resolved_file_version: String::new(),
             review_id: String::new(),
             edited_at: String::new(),
+        }
+    }
+
+    /// A verdict by a human, at a fixed time.
+    pub fn verdict(kind: VerdictKind, note: Option<&str>, followup: Option<&str>) -> Verdict {
+        Verdict {
+            kind,
+            by: "alice".into(),
+            actor: Actor::Human,
+            at: "2026-01-03T00:00:00Z".into(),
+            note: note.map(str::to_owned),
+            followup: followup.map(str::to_owned),
         }
     }
 

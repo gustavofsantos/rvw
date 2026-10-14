@@ -113,8 +113,36 @@ pub fn text(w: &mut impl Write, reviews: &[Handoff], comments: &[Comment]) -> io
     let width = comments.iter().map(|c| c.id.len()).max().unwrap_or(0);
     for c in comments {
         writeln!(w, "{}", comment_line(c, width))?;
+        for line in link_lines(c) {
+            writeln!(w, "{line}")?;
+        }
     }
     Ok(!reviews.is_empty() || !comments.is_empty())
+}
+
+/// `file:N` or `file:N-M`, the form `Comment::location` gives a range.
+pub(crate) fn span(file: &str, start: i64, end: i64) -> String {
+    if start == end {
+        format!("{file}:{start}")
+    } else {
+        format!("{file}:{start}-{end}")
+    }
+}
+
+/// The lines a comment adds under its heading when it has them: where it
+/// points at, then the decision it reopens. Empty for a plain comment.
+pub(crate) fn link_lines(c: &Comment) -> Vec<String> {
+    let mut lines = Vec::new();
+    if let Some(p) = &c.points_at {
+        lines.push(format!(
+            "Points at `{}`.",
+            span(&p.file, p.start_line, p.end_line)
+        ));
+    }
+    if let Some(id) = &c.reopens {
+        lines.push(format!("Reopens {id}."));
+    }
+    lines
 }
 
 /// Writes one id per line, reviews first.
@@ -190,6 +218,7 @@ fn append_comment_markdown(out: &mut Vec<String>, heading: &str, n: usize, c: &C
         head.push_str(&who);
     }
     out.push(format!("{head})"));
+    out.extend(link_lines(c));
     out.push(String::new());
     out.push(format!("```{}", c.filetype));
     out.extend(c.code.split('\n').map(str::to_owned));
@@ -217,16 +246,128 @@ fn decision_label(d: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use rvw_core::types::Status;
+    use rvw_core::types::{Location, Status, VerdictKind};
 
     use super::*;
-    use crate::fixtures::{comment, review};
+    use crate::fixtures::{comment, review, verdict};
 
     fn handoff(r: Review, comments: Vec<Comment>) -> Handoff {
         Handoff {
             review: r,
             comments,
         }
+    }
+
+    fn located(file: &str, start: i64, end: i64) -> Location {
+        Location {
+            file: file.into(),
+            start_line: start,
+            end_line: end,
+        }
+    }
+
+    #[test]
+    fn text_lists_points_at_and_reopens_under_the_row_when_set() {
+        let mut c = comment("r1", Status::Pending, "a.go", 1, 1, "x", "hi");
+        c.points_at = Some(located("b.go", 5, 5));
+        c.reopens = Some("r3".into());
+        let mut out = Vec::new();
+        text(&mut out, &[], &[c]).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "r1  a.go:1  hi\n\
+             Points at `b.go:5`.\n\
+             Reopens r3.\n"
+        );
+    }
+
+    #[test]
+    fn text_points_at_a_range_in_the_dashed_form() {
+        let mut c = comment("r1", Status::Pending, "a.go", 1, 1, "x", "hi");
+        c.points_at = Some(located("b.go", 2, 4));
+        let mut out = Vec::new();
+        text(&mut out, &[], &[c]).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "r1  a.go:1  hi\nPoints at `b.go:2-4`.\n"
+        );
+    }
+
+    #[test]
+    fn text_list_rows_never_show_a_verdict() {
+        let mut c = comment("r1", Status::Done, "a.go", 1, 1, "x", "hi");
+        c.verdict = Some(verdict(VerdictKind::Reopened, Some("again"), Some("r9")));
+        let mut out = Vec::new();
+        text(&mut out, &[], &[c]).unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), "r1  a.go:1  hi\n");
+    }
+
+    #[test]
+    fn markdown_puts_points_at_and_reopens_under_the_heading() {
+        let mut c = comment("r1", Status::Pending, "a.go", 2, 3, "x := 1", "first");
+        c.filetype = "go".into();
+        c.points_at = Some(located("b.go", 5, 7));
+        c.reopens = Some("r3".into());
+        let got = markdown("/ws", &[], &[c], false);
+        assert_eq!(
+            got,
+            "# Review comments — /ws\n\
+             \n\
+             Address the following review comments, in the order listed. Each names a file\n\
+             and line range, the code as it stood when the comment was written, and the\n\
+             reviewer's note as a quote.\n\
+             \n\
+             ## 1. `a.go:2-3` (r1)\n\
+             Points at `b.go:5-7`.\n\
+             Reopens r3.\n\
+             \n\
+             ```go\n\
+             x := 1\n\
+             ```\n\
+             \n\
+             > first\n"
+        );
+    }
+
+    #[test]
+    fn markdown_of_a_review_comment_shows_its_links_under_its_heading() {
+        let mut c = comment("r2", Status::Pulled, "c.go", 1, 1, "a", "in review");
+        c.reopens = Some("r8".into());
+        let h = handoff(review("rv3", "comment", "S", &["r2"]), vec![c]);
+        let got = markdown("/ws", &[h], &[], false);
+        assert!(got.contains("### 1. `c.go:1` (r2)\nReopens r8.\n\n```\na\n```\n"));
+    }
+
+    #[test]
+    fn unset_links_add_no_lines_to_any_rendering() {
+        let c = comment("r1", Status::Done, "a.go", 2, 3, "x := 1", "first");
+        let rs = ReviewSheet {
+            review: review("rv1", "approve", "ok", &["r1"]),
+            state: rvw_core::operations::SheetState::Complete,
+            comments: vec![c.clone()],
+        };
+        let ev = rvw_core::operations::Evidence {
+            comment: c.clone(),
+            diff: Vec::new(),
+            diff_available: false,
+        };
+        let renderings = [
+            text_of(&c),
+            markdown("/ws", &[], std::slice::from_ref(&c), false),
+            crate::display::display(&ev),
+            crate::display::sheet(&rs),
+        ];
+        for got in renderings {
+            assert!(!got.contains("Points at"), "{got}");
+            assert!(!got.contains("Reopens"), "{got}");
+            assert!(!got.contains("Verdict"), "{got}");
+        }
+    }
+
+    fn text_of(c: &Comment) -> String {
+        let mut out = Vec::new();
+        text(&mut out, &[], std::slice::from_ref(c)).unwrap();
+        String::from_utf8(out).unwrap()
     }
 
     fn sheet_of(state: rvw_core::operations::SheetState, r: Review) -> ReviewSheet {
