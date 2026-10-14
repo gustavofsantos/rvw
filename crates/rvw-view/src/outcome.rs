@@ -3,7 +3,7 @@
 //! I/O; the times are shown in short form.
 
 use rvw_core::operations::Evidence;
-use rvw_core::types::{Comment, Status, VerdictKind};
+use rvw_core::types::{Comment, Status, Verdict, VerdictKind};
 
 use crate::diff::{self, FileDiff};
 use crate::queue::{self, Filter, Group, Queue};
@@ -38,6 +38,13 @@ pub struct Story {
     pub note: String,
     /// what changed while resolving; None when no diff was kept
     pub diff: Option<FileDiff>,
+    /// whether a reviewer still owes a verdict on this decision: Accept and
+    /// Reopen are offered while this is true
+    pub awaits_verdict: bool,
+    /// the reviewer's verdict on the decision, once one is given
+    pub verdict: Option<Verdict>,
+    /// id of the decided comment this one reopens, or None
+    pub reopens: Option<String>,
 }
 
 /// One moment in a comment's life, as a timeline row.
@@ -68,6 +75,9 @@ pub fn story(ev: &Evidence) -> Story {
         resolved_at: c.resolved_at.as_deref().map(short_time).unwrap_or_default(),
         note: c.resolution_note.clone().unwrap_or_default(),
         diff,
+        awaits_verdict: c.awaits_verdict(),
+        verdict: c.verdict.clone(),
+        reopens: c.reopens.clone(),
     }
 }
 
@@ -111,17 +121,7 @@ pub fn timeline(c: &Comment) -> Vec<Moment> {
         Status::Pending | Status::Pulled => {}
     }
     if let Some(verdict) = c.verdict.as_ref() {
-        let by = named(Some(verdict.by.as_str()), "someone");
-        let (glyph, label) = match verdict.kind {
-            VerdictKind::Accepted => ("✓", format!("Accepted by {by}")),
-            VerdictKind::Reopened => (
-                "↻",
-                match verdict.followup.as_deref() {
-                    Some(id) => format!("Reopened by {by} as {id}"),
-                    None => format!("Reopened by {by}"),
-                },
-            ),
-        };
+        let (glyph, label) = verdict_mark(verdict);
         moments.push(Moment {
             glyph,
             label,
@@ -129,6 +129,23 @@ pub fn timeline(c: &Comment) -> Vec<Moment> {
         });
     }
     moments
+}
+
+/// The glyph and the words of a verdict: "Accepted by gustavo", or "Reopened
+/// by gustavo as r10" once the follow-up exists.
+#[must_use]
+pub fn verdict_mark(verdict: &Verdict) -> (&'static str, String) {
+    let by = named(Some(verdict.by.as_str()), "someone");
+    match verdict.kind {
+        VerdictKind::Accepted => ("✓", format!("Accepted by {by}")),
+        VerdictKind::Reopened => (
+            "↻",
+            match verdict.followup.as_deref() {
+                Some(id) => format!("Reopened by {by} as {id}"),
+                None => format!("Reopened by {by}"),
+            },
+        ),
+    }
 }
 
 /// The time as "HH:MM" when `at` has an ISO-8601 time part, such as
@@ -176,7 +193,7 @@ fn title_of(c: &Comment) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rvw_core::types::{Actor, Verdict};
+    use rvw_core::types::Actor;
 
     fn comment(status: Status) -> Comment {
         Comment {
@@ -250,6 +267,88 @@ mod tests {
         assert_eq!(s.resolved_at, "11:03");
         assert_eq!(s.note, "Added a now parameter.");
         assert_eq!(s.diff, None);
+        assert!(!s.awaits_verdict);
+        assert_eq!(s.verdict, None);
+        assert_eq!(s.reopens, None);
+    }
+
+    #[test]
+    fn story_of_a_decision_by_an_agent_awaits_a_verdict() {
+        let s = story(&evidence(decided(Status::Done), &[], false));
+        assert!(s.awaits_verdict);
+        assert_eq!(s.verdict, None);
+        assert_eq!(s.resolved_by, "claude");
+    }
+
+    #[test]
+    fn story_of_a_rejection_awaits_a_verdict_too() {
+        let s = story(&evidence(decided(Status::Rejected), &[], false));
+        assert!(s.awaits_verdict);
+    }
+
+    #[test]
+    fn story_of_a_pending_or_pulled_comment_awaits_no_verdict() {
+        let pending = story(&evidence(comment(Status::Pending), &[], false));
+        assert!(!pending.awaits_verdict);
+        let mut pulled = comment(Status::Pulled);
+        pulled.pulled_at = Some("2026-10-12T10:52:00+00:00".into());
+        assert!(!story(&evidence(pulled, &[], false)).awaits_verdict);
+    }
+
+    #[test]
+    fn story_of_a_decision_its_own_author_made_awaits_no_verdict() {
+        let mut c = decided(Status::Done);
+        c.resolved_by = Some("gustavo".into());
+        assert!(!story(&evidence(c, &[], false)).awaits_verdict);
+    }
+
+    #[test]
+    fn story_of_a_judged_decision_carries_the_verdict_and_no_longer_waits() {
+        let mut c = decided(Status::Done);
+        c.verdict = Some(Verdict {
+            kind: VerdictKind::Accepted,
+            by: "gustavo".into(),
+            actor: Actor::Human,
+            at: "2026-10-12T11:20:00+00:00".into(),
+            note: Some("Good.".into()),
+            followup: None,
+        });
+        let s = story(&evidence(c, &[], false));
+        assert!(!s.awaits_verdict);
+        let given = s.verdict.expect("a verdict");
+        assert_eq!(given.kind, VerdictKind::Accepted);
+        assert_eq!(given.note.as_deref(), Some("Good."));
+    }
+
+    #[test]
+    fn story_of_a_comment_that_reopens_names_the_comment_it_reopens() {
+        let mut c = comment(Status::Pending);
+        c.reopens = Some("r3".into());
+        assert_eq!(
+            story(&evidence(c, &[], false)).reopens.as_deref(),
+            Some("r3")
+        );
+    }
+
+    #[test]
+    fn verdict_mark_names_the_accept_and_the_reopen() {
+        let accepted = verdict(VerdictKind::Accepted, "2026-10-12T11:20:00+00:00");
+        assert_eq!(verdict_mark(&accepted), ("✓", "Accepted by gustavo".into()));
+
+        let mut given = verdict(VerdictKind::Reopened, "2026-10-12T11:21:00+00:00");
+        assert_eq!(verdict_mark(&given), ("↻", "Reopened by gustavo".into()));
+        given.followup = Some("r10".into());
+        assert_eq!(
+            verdict_mark(&given),
+            ("↻", "Reopened by gustavo as r10".into())
+        );
+    }
+
+    #[test]
+    fn verdict_mark_names_an_unknown_judge() {
+        let mut given = verdict(VerdictKind::Accepted, "2026-10-12T11:20:00+00:00");
+        given.by = "  ".into();
+        assert_eq!(verdict_mark(&given).1, "Accepted by someone");
     }
 
     #[test]

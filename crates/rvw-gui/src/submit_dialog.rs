@@ -1,7 +1,7 @@
 //! The submit dialog: a centred card over the window that sends the draft
-//! comments as one review, with a verdict and a summary for the agent. The
+//! comments as one review, with a decision and a summary for the agent. The
 //! shell owns the open dialog and its calls; this file lays it out and maps
-//! the verdict to the service's decision strings.
+//! the decision to the service's decision strings.
 
 use gpui::prelude::*;
 use gpui::{
@@ -11,12 +11,12 @@ use gpui::{
 use rvw_view::queue::{Filter, Row, State};
 
 use crate::data::Snapshot;
+use crate::decision::ReviewDecision;
 use crate::icon;
 use crate::queue_screen::noun;
 use crate::shell::Shell;
 use crate::text_area::{TextArea, TextAreaEvent};
 use crate::theme;
-use crate::verdict::Verdict;
 
 actions!(rvw_submit, [OpenSubmit]);
 
@@ -26,20 +26,20 @@ pub fn bind_keys(cx: &mut App) {
     cx.bind_keys([KeyBinding::new("secondary-shift-r", OpenSubmit, None)]);
 }
 
-/// An open dialog: the verdict, the summary field, the error of the last
+/// An open dialog: the decision, the summary field, the error of the last
 /// refused submit, and the subscription that turns the field's Cancel into a
 /// close.
 pub struct SubmitDialog {
-    pub verdict: Verdict,
+    pub choice: ReviewDecision,
     pub summary: Entity<TextArea>,
     pub error: Option<String>,
     _events: Subscription,
 }
 
 impl SubmitDialog {
-    pub fn new(verdict: Verdict, summary: Entity<TextArea>, events: Subscription) -> Self {
+    pub fn new(choice: ReviewDecision, summary: Entity<TextArea>, events: Subscription) -> Self {
         Self {
-            verdict,
+            choice,
             summary,
             error: None,
             _events: events,
@@ -48,7 +48,7 @@ impl SubmitDialog {
 }
 
 impl Shell {
-    /// Opens the submit dialog with the verdict the drafts suggest: request
+    /// Opens the submit dialog with the decision the drafts suggest: request
     /// changes with drafts, comment without. Does nothing while the dialog or
     /// the finder is open.
     pub fn open_submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -69,7 +69,7 @@ impl Shell {
         );
         summary.update(cx, |area, cx| area.focus(window, cx));
         self.submit = Some(SubmitDialog::new(
-            Verdict::for_drafts(drafts),
+            ReviewDecision::for_drafts(drafts),
             summary,
             events,
         ));
@@ -81,9 +81,9 @@ impl Shell {
         cx.notify();
     }
 
-    pub fn pick_verdict(&mut self, verdict: Verdict, cx: &mut Context<Self>) {
+    pub fn pick_choice(&mut self, choice: ReviewDecision, cx: &mut Context<Self>) {
         if let Some(dialog) = self.submit.as_mut() {
-            dialog.verdict = verdict;
+            dialog.choice = choice;
         }
         cx.notify();
     }
@@ -95,7 +95,7 @@ impl Shell {
             return;
         };
         let summary = dialog.summary.read(cx).text().to_owned();
-        let decision = dialog.verdict.decision();
+        let decision = dialog.choice.decision();
         let ids = draft_rows(&self.snapshot)
             .into_iter()
             .map(|row| row.id)
@@ -181,7 +181,7 @@ fn card(
                 .gap(px(26.))
                 .px(px(28.))
                 .py(px(24.))
-                .child(verdict_section(dialog.verdict, cx))
+                .child(decision_section(dialog.choice, cx))
                 .child(summary_section(dialog))
                 .child(list_section(rows))
                 .when(with_agent > 0, |d| d.child(with_agent_note(with_agent)))
@@ -216,12 +216,12 @@ fn header() -> Div {
         .child(key_hint("esc"))
 }
 
-fn verdict_section(chosen: Verdict, cx: &Context<Shell>) -> Div {
-    let radios = Verdict::ALL.map(|verdict| radio(verdict, chosen, cx));
+fn decision_section(chosen: ReviewDecision, cx: &Context<Shell>) -> Div {
+    let radios = ReviewDecision::ALL.map(|choice| radio(choice, chosen, cx));
     div()
         .flex()
         .flex_col()
-        .child(label("Verdict"))
+        .child(label("ReviewDecision"))
         .child(div().flex().gap(px(32.)).children(radios))
         .child(
             div()
@@ -231,16 +231,16 @@ fn verdict_section(chosen: Verdict, cx: &Context<Shell>) -> Div {
         )
 }
 
-fn radio(verdict: Verdict, chosen: Verdict, cx: &Context<Shell>) -> Stateful<Div> {
-    let on = verdict == chosen;
+fn radio(choice: ReviewDecision, chosen: ReviewDecision, cx: &Context<Shell>) -> Stateful<Div> {
+    let on = choice == chosen;
     div()
-        .id(SharedString::from(format!("verdict-{}", verdict.id())))
+        .id(SharedString::from(format!("decision-{}", choice.id())))
         .flex()
         .items_center()
         .gap(px(10.))
         .on_click(cx.listener(
             move |this: &mut Shell, _: &ClickEvent, _: &mut Window, cx: &mut Context<Shell>| {
-                this.pick_verdict(verdict, cx);
+                this.pick_choice(choice, cx);
             },
         ))
         .child(
@@ -265,7 +265,7 @@ fn radio(verdict: Verdict, chosen: Verdict, cx: &Context<Shell>) -> Stateful<Div
                 } else {
                     FontWeight::NORMAL
                 })
-                .child(verdict.label()),
+                .child(choice.label()),
         )
 }
 

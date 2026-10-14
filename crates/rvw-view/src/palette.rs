@@ -62,6 +62,8 @@ pub enum Action {
     OpenDiffTool,
     ToggleLeftPanel,
     ToggleRightPanel,
+    AcceptDecision,
+    ReopenDecision,
 }
 
 /// The reason a network action waits while a fetch, pull or push is running.
@@ -72,7 +74,7 @@ const FINISH_OR_ABORT: &str = "Finish or abort the merge or cherry-pick first";
 
 impl Action {
     /// Every action, in palette order.
-    pub const ALL: [Action; 54] = [
+    pub const ALL: [Action; 56] = [
         Action::GoToQueue,
         Action::GoToReview,
         Action::GoToFiles,
@@ -127,6 +129,8 @@ impl Action {
         Action::OpenDiffTool,
         Action::ToggleLeftPanel,
         Action::ToggleRightPanel,
+        Action::AcceptDecision,
+        Action::ReopenDecision,
     ];
 
     /// The name shown in the palette.
@@ -187,6 +191,8 @@ impl Action {
             Action::OpenDiffTool => "Open this file in the diff tool",
             Action::ToggleLeftPanel => "Toggle left panel",
             Action::ToggleRightPanel => "Toggle right panel",
+            Action::AcceptDecision => "Accept this decision",
+            Action::ReopenDecision => "Reopen this decision…",
         }
     }
 
@@ -207,7 +213,10 @@ impl Action {
             | Action::CompareWith
             | Action::EditHistory => "History",
             Action::NextFile | Action::PreviousFile => "Move",
-            Action::Comment | Action::SubmitReview => "Review",
+            Action::Comment
+            | Action::SubmitReview
+            | Action::AcceptDecision
+            | Action::ReopenDecision => "Review",
             Action::CompareUncommitted
             | Action::CompareDefaultBranch
             | Action::ComparePreviousCommit
@@ -293,6 +302,8 @@ pub struct State {
     pub has_tags: bool,
     /// The repository has checkpoints.
     pub has_checkpoints: bool,
+    /// The outcome screen shows a decided comment that awaits a verdict.
+    pub awaits_verdict: bool,
     /// A fetch, pull or push is running.
     pub network_busy: bool,
     /// A file is open in the review or the Changes screen.
@@ -318,6 +329,13 @@ fn busy_reason(state: &State) -> Option<&'static str> {
 /// The reason a merge or cherry-pick must finish first, or `None` when none is stopped.
 fn operation_reason(state: &State) -> Option<&'static str> {
     state.operation_in_progress.then_some(FINISH_OR_ABORT)
+}
+
+/// The reason a verdict is unavailable: it needs the outcome screen, with a
+/// decided comment that awaits one.
+fn verdict_reason(state: &State) -> Option<&'static str> {
+    (!(state.screen == Screen::Outcome && state.awaits_verdict))
+        .then_some("Open a decided comment that awaits a verdict")
 }
 
 /// Why an action is unavailable, or `None` when it is available.
@@ -375,6 +393,7 @@ pub fn unavailable(action: Action, state: &State) -> Option<&'static str> {
         Action::StageChosen => {
             (state.screen != Screen::Changes).then_some("Open the changes first")
         }
+        Action::AcceptDecision | Action::ReopenDecision => verdict_reason(state),
         Action::Commit => (!state.has_staged).then_some("Stage something to commit"),
         Action::RestoreCheckpoint => (!state.has_checkpoints).then_some("No checkpoint yet"),
         Action::ApplyStash | Action::DropStash => (!state.has_stashes).then_some("No stash yet"),
@@ -554,6 +573,7 @@ mod tests {
             has_stashes: false,
             has_tags: false,
             has_checkpoints: false,
+            awaits_verdict: false,
             network_busy: false,
             has_open_file: false,
             has_selected_commit: false,
@@ -563,8 +583,8 @@ mod tests {
     }
 
     #[test]
-    fn all_has_fifty_four_distinct_actions_with_titles_and_groups() {
-        assert_eq!(Action::ALL.len(), 54);
+    fn all_has_fifty_six_distinct_actions_with_titles_and_groups() {
+        assert_eq!(Action::ALL.len(), 56);
         let mut seen = std::collections::HashSet::new();
         for action in Action::ALL {
             assert!(seen.insert(action), "duplicate {action:?}");
@@ -616,6 +636,8 @@ mod tests {
                 Action::OpenDiffTool,
                 Action::ToggleLeftPanel,
                 Action::ToggleRightPanel,
+                Action::AcceptDecision,
+                Action::ReopenDecision,
             ]
         );
     }
@@ -689,6 +711,8 @@ mod tests {
                 "Open this file in the diff tool",
                 "Tools",
             ),
+            (Action::AcceptDecision, "Accept this decision", "Review"),
+            (Action::ReopenDecision, "Reopen this decision…", "Review"),
         ];
         for (action, title, group) in table {
             assert_eq!(action.title(), title, "{action:?}");
@@ -715,6 +739,9 @@ mod tests {
         assert_eq!(Action::NewTerminal.chord(), Some("⌘T"));
         assert_eq!(Action::ToggleLeftPanel.chord(), Some("⌘B"));
         assert_eq!(Action::ToggleRightPanel.chord(), Some("⇧⌘B"));
+        // The verdict actions have no key of their own: they are palette-only.
+        assert_eq!(Action::AcceptDecision.chord(), None);
+        assert_eq!(Action::ReopenDecision.chord(), None);
     }
 
     #[test]
@@ -1136,7 +1163,7 @@ mod tests {
     #[test]
     fn empty_query_lists_all_actions_in_order() {
         let got = entries("", &state(Screen::Diff));
-        assert_eq!(got.len(), 54);
+        assert_eq!(got.len(), 56);
         let order: Vec<Action> = got.iter().map(|e| e.action).collect();
         assert_eq!(order, Action::ALL);
         assert!(got.iter().all(|e| e.matches.is_empty() && e.score == 0));
@@ -1239,6 +1266,8 @@ mod tests {
                 "Move",
                 "Review",
                 "Review",
+                "Review",
+                "Review",
                 "Diff",
                 "Diff",
                 "Diff",
@@ -1284,7 +1313,7 @@ mod tests {
                 "Tools",
             ]
         );
-        assert_eq!(got.len(), 54);
+        assert_eq!(got.len(), 56);
     }
 
     #[test]
@@ -1348,6 +1377,42 @@ mod tests {
         let last = got.len() - 1;
         assert_eq!(step(&got, last, true), last);
         assert_eq!(first_available(&[]), 0);
+    }
+
+    #[test]
+    fn accepting_and_reopening_need_a_decided_comment_awaiting_a_verdict_on_the_outcome() {
+        let reason = Some("Open a decided comment that awaits a verdict");
+        for action in [Action::AcceptDecision, Action::ReopenDecision] {
+            let mut s = state(Screen::Outcome);
+            assert_eq!(unavailable(action, &s), reason, "{action:?}");
+            s.awaits_verdict = true;
+            assert_eq!(unavailable(action, &s), None, "{action:?}");
+            for screen in [
+                Screen::Queue,
+                Screen::Diff,
+                Screen::Files,
+                Screen::Changes,
+                Screen::History,
+            ] {
+                s.screen = screen;
+                assert_eq!(unavailable(action, &s), reason, "{action:?} on {screen:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn verdict_actions_are_found_by_decision_and_listed_under_review() {
+        let mut s = state(Screen::Outcome);
+        s.awaits_verdict = true;
+        let got = entries("decision", &s);
+        let accept = got.iter().find(|e| e.action == Action::AcceptDecision);
+        let reopen = got.iter().find(|e| e.action == Action::ReopenDecision);
+        let accept = accept.expect("accept is listed");
+        let reopen = reopen.expect("reopen is listed");
+        assert_eq!(accept.unavailable, None);
+        assert_eq!(reopen.unavailable, None);
+        assert_eq!(accept.group, "Review");
+        assert_eq!(reopen.group, "Review");
     }
 
     #[test]

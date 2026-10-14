@@ -8,6 +8,7 @@ use gpui::{
     actions, div, px, App, ClickEvent, Context, Div, Entity, KeyBinding, ScrollHandle,
     SharedString, Stateful, Subscription, Window,
 };
+use rvw_core::types::VerdictKind;
 use rvw_git::merge::Operation;
 use rvw_view::changes::Compare;
 use rvw_view::keys::Screen;
@@ -100,6 +101,10 @@ impl Shell {
             screen: self.screen,
             has_open_file: self.open_file_path().is_some(),
             has_selected_commit: self.history.history.selected_row().is_some(),
+            awaits_verdict: self
+                .outcome
+                .as_ref()
+                .is_some_and(crate::outcome_screen::Outcome::awaits_verdict),
             operation_in_progress: matches!(
                 self.git.facts.operation,
                 Some(Operation::Merge | Operation::CherryPick)
@@ -230,6 +235,8 @@ impl Shell {
             Action::NewTerminal => self.open_launcher(window, cx),
             Action::ToggleLeftPanel => self.toggle_panel(Side::Left, cx),
             Action::ToggleRightPanel => self.toggle_panel(Side::Right, cx),
+            Action::AcceptDecision => self.judge_outcome(VerdictKind::Accepted, cx),
+            Action::ReopenDecision => self.open_reopen(window, cx),
             Action::OpenDiffTool => {
                 if let Some(path) = self.open_file_path() {
                     self.open_diff_tool(&path, cx);

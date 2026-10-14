@@ -713,12 +713,16 @@ impl Render for Shell {
 }
 
 impl Shell {
-    /// Whether the commit message field has the keyboard.
+    /// Whether a text field of the shell holds the keyboard: the commit message
+    /// while it is focused, or the reopen note while it is open. Keys do not
+    /// reach the shell then.
     pub(crate) fn message_focused(&self, window: &Window, cx: &App) -> bool {
-        self.changes
+        let commit = self
+            .changes
             .message
             .as_ref()
-            .is_some_and(|message| message.focus_handle(cx).is_focused(window))
+            .is_some_and(|message| message.focus_handle(cx).is_focused(window));
+        commit || self.reopening()
     }
 
     /// The screen the rail lights. The Files tab is part of the review
@@ -872,7 +876,7 @@ impl Shell {
             },
             (Screen::Outcome, Some(open)) => Panels {
                 left: outcome_screen::left(open, &self.snapshot, cx),
-                centre: outcome_screen::centre(open),
+                centre: outcome_screen::centre(open, cx),
                 right: outcome_screen::right(open),
             },
             _ => Panels {
