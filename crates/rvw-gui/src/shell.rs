@@ -657,6 +657,7 @@ impl Render for Shell {
             .font_family(theme::ui_font())
             .text_size(px(theme::BASE_FONT_SIZE))
             .text_color(theme::text())
+            .key_context(crate::terminal_dock::APP_CONTEXT)
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key))
             .on_action(cx.listener(|this: &mut Self, _: &OpenSubmit, window, cx| {

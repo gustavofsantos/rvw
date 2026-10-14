@@ -34,6 +34,11 @@ use crate::theme;
 /// uses are bound outside it (`rvw_chord_context`).
 pub const KEY_CONTEXT: &str = "Terminal";
 
+/// The key context of the window's root. gpui evaluates a `!Terminal`
+/// predicate as false against an empty context stack, so without a context
+/// here the chords bound in `!Terminal` would never fire outside a terminal.
+pub const APP_CONTEXT: &str = "Rvw";
+
 const DOCK_HEIGHT: Pixels = px(300.);
 const HEADER_HEIGHT: Pixels = px(32.);
 const PADDING: Pixels = px(12.);
@@ -1335,6 +1340,15 @@ mod tests {
         // KeyBinding::new panics on a context it cannot parse.
         let _ = KeyBinding::new("ctrl-p", Probe, rvw_chord_context());
         let _ = KeyBinding::new("ctrl-shift-p", Probe, Some(KEY_CONTEXT));
+    }
+
+    #[test]
+    fn the_chords_fire_outside_a_terminal_and_not_inside_one() {
+        let predicate = gpui::KeyBindingContextPredicate::parse("!Terminal").unwrap();
+        let app = gpui::KeyContext::parse(APP_CONTEXT).unwrap();
+        let terminal = gpui::KeyContext::parse(KEY_CONTEXT).unwrap();
+        assert!(predicate.depth_of(std::slice::from_ref(&app)).is_some());
+        assert!(predicate.depth_of(&[app, terminal]).is_none());
     }
 
     #[test]
