@@ -5,12 +5,12 @@ use std::io::{IsTerminal, Read, Write};
 
 use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
 use rvw_core::operations::{
-    AddInput, EditInput, GetInput, PullInput, QueryInput, RemoveInput, ResolveInput, SheetsInput,
-    SubmitInput, WorkspacesInput, SHEET_FILTERS,
+    AddInput, EditInput, GateInput, GetInput, OverrideInput, PullInput, QueryInput, RemoveInput,
+    ResolveInput, SheetsInput, SubmitInput, VerdictInput, WorkspacesInput, SHEET_FILTERS,
 };
 use rvw_core::service::MAX_SOURCE;
 use rvw_core::types::{is_review_id, DECISIONS, OUTCOME_DONE, OUTCOME_REJECTED, STATUS_FILTERS};
-use rvw_core::types::{Comment, Handoff, LineRange};
+use rvw_core::types::{Actor, Comment, Handoff, LineRange, Location, VerdictKind, GATE_ACTIONS};
 use rvw_render as render;
 
 use crate::app::{
@@ -103,6 +103,10 @@ pub fn root() -> Command {
     ))
     .arg(flag("lane", "branch/lane this comment belongs to"))
     .arg(flag("author", "who raised it (default: $USER)"))
+    .arg(flag(
+        "points-at",
+        "another file range this note refers to: FILE:N or FILE:N-M",
+    ))
     .arg(format_flag("text", &["text", "json", "ids"]));
 
     let submit = sub(
@@ -238,6 +242,67 @@ pub fn root() -> Command {
     .arg(flag("note", "why not (required)"))
     .arg(flag("author", "who decided (default: $USER)"));
 
+    let accept = sub(
+        "accept",
+        "agree with a decision made after a handoff",
+        help::ACCEPT_LONG,
+    )
+    .override_usage("rvw accept ID [--note TEXT]")
+    .after_help(help::ACCEPT_EXAMPLE)
+    .arg(id_arg())
+    .arg(flag("note", "a remark on the verdict (optional)"))
+    .arg(flag(
+        "author",
+        "who judges, not who decided (default: $USER)",
+    ))
+    .arg(format_flag("text", &["text", "json"]));
+
+    let reopen = sub(
+        "reopen",
+        "send a decided comment back to the agent as a follow-up",
+        help::REOPEN_LONG,
+    )
+    .override_usage("rvw reopen ID --note TEXT [--lines N-M]")
+    .after_help(help::REOPEN_EXAMPLE)
+    .arg(id_arg())
+    .arg(flag("note", "what is still wrong (required)"))
+    .arg(flag(
+        "lines",
+        "the follow-up's range: N or N-M (default: the original's)",
+    ))
+    .arg(flag(
+        "author",
+        "who judges, not who decided (default: $USER)",
+    ))
+    .arg(format_flag("text", &["text", "json", "ids"]));
+
+    let gate_override = sub(
+        "override",
+        "record going ahead past an unclear gate, and why",
+        help::GATE_OVERRIDE_LONG,
+    )
+    .override_usage("rvw gate override --action ACTION --reason TEXT [--lane LANE]")
+    .after_help(help::GATE_OVERRIDE_EXAMPLE)
+    .arg(flag("action", "commit or push (required)").required(true))
+    .arg(flag("reason", "why the action goes ahead (required)").required(true))
+    .arg(flag(
+        "lane",
+        "only this lane's comments (default: every lane)",
+    ))
+    .arg(flag("author", "who overrides (default: $USER)"))
+    .arg(format_flag("text", &["text", "json"]));
+
+    let gate = lane_flags(
+        sub(
+            "gate",
+            "report what is open or unjudged before a commit or push",
+            help::GATE_LONG,
+        )
+        .after_help(help::GATE_EXAMPLE)
+        .arg(format_flag("text", &["text", "json"]))
+        .subcommand(gate_override),
+    );
+
     let workspaces = sub(
         "workspaces",
         "list workspaces holding review handoffs",
@@ -347,8 +412,8 @@ pub fn root() -> Command {
                 .help("version for rvw"),
         )
         .subcommands([
-            add, submit, list, pull, show, edit, remove, resolve, reject, count, workspaces, path, mcp,
-            tui, help_cmd,
+            add, submit, list, pull, show, edit, remove, resolve, reject, accept, reopen, gate,
+            count, workspaces, path, mcp, tui, help_cmd,
         ])
 }
 
@@ -368,6 +433,9 @@ pub fn run(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
         Some(("remove", s)) => remove(app, s, out),
         Some(("resolve", s)) => decide(app, s, OUTCOME_DONE, out),
         Some(("reject", s)) => decide(app, s, OUTCOME_REJECTED, out),
+        Some(("accept", s)) => accept(app, s, out),
+        Some(("reopen", s)) => reopen(app, s, out),
+        Some(("gate", s)) => gate_cmd(app, s, out),
         Some(("workspaces", s)) => workspaces(app, s, out),
         Some(("path", s)) => path(app, s, out),
         Some(("mcp", s)) => mcp_cmd(app, s, out),
@@ -493,6 +561,29 @@ fn code_source(code_file: &str) -> CliResult<Option<String>> {
     }
 }
 
+/// `FILE:N` or `FILE:N-M`. Split on the last colon, so the file may hold one;
+/// the range is digits and at most one dash, and a single N is one line.
+fn points_at_of(spec: &str) -> CliResult<Location> {
+    let bad = || format!("--points-at '{spec}' is not FILE:N or FILE:N-M");
+    let (file, lines) = spec.rsplit_once(':').ok_or_else(bad)?;
+    let (first, last) = lines.split_once('-').unwrap_or((lines, lines));
+    let number = |t: &str| {
+        if !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()) {
+            t.parse::<i64>().ok()
+        } else {
+            None
+        }
+    };
+    match (file.is_empty(), number(first), number(last)) {
+        (false, Some(start_line), Some(end_line)) => Ok(Location {
+            file: file_path(file)?,
+            start_line,
+            end_line,
+        }),
+        _ => Err(bad()),
+    }
+}
+
 fn add(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
     let format = s(m, "format");
     one_of("--format", &format, &["text", "json", "ids"])?;
@@ -506,10 +597,15 @@ fn add(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
     )?;
     let source = code_source(&s(m, "code-file"))?;
     let file = file_path(&s(m, "file"))?;
+    let points_at = if m.contains_id("points-at") {
+        Some(points_at_of(&s(m, "points-at"))?)
+    } else {
+        None
+    };
     let svc = app.svc()?;
     let c = svc
         .add(AddInput {
-            points_at: None,
+            points_at,
             workspace: ws,
             file,
             start_line: range.start_line,
@@ -885,6 +981,156 @@ fn remove(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
         return json(&c);
     }
     w(writeln!(out, "removed {}", location_line(&c)))
+}
+
+// ── verdicts and the gate ────────────────────────────────────────────────────
+
+/// Who gave the verdict on `c`, for the one-line report.
+fn verdict_by(c: &Comment) -> &str {
+    c.verdict.as_ref().map_or("", |v| v.by.as_str())
+}
+
+fn accept(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
+    let id = one_id(m)?;
+    let format = s(m, "format");
+    one_of("--format", &format, &["text", "json"])?;
+    let input = get_input(app, id)?;
+    let svc = app.svc()?;
+    let result = svc
+        .judge(
+            VerdictInput {
+                workspace: input.workspace,
+                id: input.id,
+                verdict: VerdictKind::Accepted.as_str().to_owned(),
+                note: s(m, "note"),
+                start_line: 0,
+                end_line: 0,
+                author: author_of(&s(m, "author")),
+            },
+            Actor::Human,
+        )
+        .map_err(core_err)?;
+    if format == "json" {
+        return json(&result);
+    }
+    w(writeln!(
+        out,
+        "{} accepted by {}",
+        result.comment.id,
+        verdict_by(&result.comment)
+    ))
+}
+
+fn reopen(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
+    let id = one_id(m)?;
+    let format = s(m, "format");
+    one_of("--format", &format, &["text", "json", "ids"])?;
+    let note = s(m, "note");
+    if note.trim().is_empty() {
+        return Err("reopening a comment needs a note: pass --note TEXT".to_owned());
+    }
+    // Without --lines the follow-up keeps the original's range: (0, 0).
+    let (start_line, end_line) = if m.contains_id("lines") {
+        let range = LineRange::parse(&s(m, "lines")).map_err(core_err)?;
+        (range.start_line, range.end_line)
+    } else {
+        (0, 0)
+    };
+    let input = get_input(app, id)?;
+    let svc = app.svc()?;
+    let result = svc
+        .judge(
+            VerdictInput {
+                workspace: input.workspace,
+                id: input.id,
+                verdict: VerdictKind::Reopened.as_str().to_owned(),
+                note,
+                start_line,
+                end_line,
+                author: author_of(&s(m, "author")),
+            },
+            Actor::Human,
+        )
+        .map_err(core_err)?;
+    if format == "json" {
+        return json(&result);
+    }
+    let Some(followup) = result.followup.as_ref() else {
+        return Err("reopening made no follow-up".to_owned());
+    };
+    match format.as_str() {
+        "ids" => w(writeln!(out, "{}", followup.id)),
+        _ => w(writeln!(
+            out,
+            "{} reopened as {}",
+            result.comment.id, followup.id
+        )),
+    }
+}
+
+/// `rvw gate`, or `rvw gate override` when that subcommand is named.
+fn gate_cmd(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
+    match m.subcommand() {
+        Some(("override", sm)) => gate_override(app, sm, out),
+        _ => gate(app, m, out),
+    }
+}
+
+fn gate(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
+    let format = s(m, "format");
+    one_of("--format", &format, &["text", "json"])?;
+    let ws = app.workspace()?;
+    let svc = app.svc()?;
+    let result = svc
+        .gate(GateInput {
+            workspace: ws,
+            lane: pinned(m),
+        })
+        .map_err(core_err)?;
+    if format == "json" {
+        return json(&result);
+    }
+    if result.clear {
+        return w(writeln!(out, "clear"));
+    }
+    if !result.open.is_empty() {
+        w(writeln!(out, "open: {}", result.open.join(" ")))?;
+    }
+    if !result.unjudged.is_empty() {
+        w(writeln!(out, "unjudged: {}", result.unjudged.join(" ")))?;
+    }
+    Ok(())
+}
+
+fn gate_override(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
+    let action = s(m, "action");
+    one_of("--action", &action, &GATE_ACTIONS)?;
+    let format = s(m, "format");
+    one_of("--format", &format, &["text", "json"])?;
+    let ws = app.workspace()?;
+    let svc = app.svc()?;
+    let record = svc
+        .override_gate(
+            OverrideInput {
+                workspace: ws,
+                action,
+                reason: s(m, "reason"),
+                lane: lane_of(&s(m, "lane")),
+                author: author_of(&s(m, "author")),
+            },
+            Actor::Human,
+        )
+        .map_err(core_err)?;
+    if format == "json" {
+        return json(&record);
+    }
+    w(writeln!(
+        out,
+        "override recorded: {}, {} open, {} unjudged",
+        record.action,
+        record.open.len(),
+        record.unjudged.len()
+    ))
 }
 
 // ── mcp / tui ────────────────────────────────────────────────────────────────

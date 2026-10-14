@@ -23,7 +23,10 @@ pending comments under one review with a decision and summary. Pulling any
 linked comment hands over the complete review as one unit.
 
 A comment carries who raised it and which lane it belongs to. It ends in a
-recorded resolution: `resolve` (done) or `reject` (with a reason).
+recorded resolution: `resolve` (done) or `reject` (with a reason). A decision
+made after a handoff then waits for a second reviewer: `accept` agrees with it,
+`reopen` sends the comment back as a follow-up. `gate` says what is still open
+or unjudged before a commit or push.
 
 Everything is set with flags:
   --workspace PATH  the queue to act on: the git toplevel of this directory
@@ -50,6 +53,9 @@ pub const EXAMPLES: &str =
   rvw pull --peek                       # look without dequeuing
   rvw resolve r3 --note \"renamed, test added\"
   rvw reject r4 --note \"intentional: the caller validates\"
+  rvw accept r3 --author alice          # agree with a decision made after a handoff
+  rvw reopen r3 --note \"still wrong\"    # send it back to the agent as a follow-up
+  rvw gate                              # what is open or unjudged before a commit
   rvw show r3                           # one comment, its decision and its diff
   rvw show rv1                          # a whole review sheet
   rvw count                             # pending handoff count, for a statusline
@@ -67,6 +73,7 @@ changes (pass the WHOLE buffer; --lines slices it). The comment comes from
 pub const ADD_EXAMPLE: &str =
     "  rvw add --file src/api.py --lines 40-58 --comment \"extract this branch\"
   rvw add --file src/api.py --lines 12 --comment \"typo\" --format json
+  rvw add --file src/api.py --lines 40-58 --points-at src/old.py:12-20 --comment \"moved from here\"
   nvim-buffer | rvw add --file src/api.py --lines 40-58 --code-file - --comment \"reads oddly\"
   echo \"long note\" | rvw add --file a.py --lines 3-9";
 
@@ -142,6 +149,50 @@ stays on record. Nothing in rvw is deleted.";
 pub const REJECT_EXAMPLE: &str =
     "  rvw reject r3 --note \"intentional: the caller already validates\"
   rvw reject r5 --note \"withdrawn: I misread the diff\"";
+
+pub const ACCEPT_LONG: &str =
+    "Agree with the decision an agent recorded on a comment after a handoff. The
+decision stands and the verdict is final. Only a second reviewer may judge it:
+whoever decided the comment cannot accept it. Accepting a rejection means you
+agree it should not be done.";
+
+pub const ACCEPT_EXAMPLE: &str = "  rvw accept r3
+  rvw accept r3 --note \"checked the new test\" --author alice";
+
+pub const REOPEN_LONG: &str =
+    "Send a decided comment back to the agent. The original keeps its decision and
+gains a verdict. A new pending comment carries the note as its text, on the
+original's lane, file and range, and the next pull hands it over once.
+
+--lines moves the follow-up to another range of the same file. The note is
+required: it says what is still wrong.";
+
+pub const REOPEN_EXAMPLE: &str = "  rvw reopen r3 --note \"the rename missed the caller in api.py\"
+  rvw reopen r3 --lines 40-44 --note \"still returns early\" --author alice
+  rvw reopen r3 --note \"see above\" --format ids   # prints the follow-up's id";
+
+pub const GATE_LONG: &str =
+    "Report what stands between the workspace and a commit or push. Open comments
+are pending or handed over and not yet decided, drafts included. Unjudged
+comments were decided after a handoff and wait for a verdict. When neither
+kind is left the output says clear.
+
+The exit status is 0 either way: read the output. --lane looks at one lane and
+never at an unlaned comment; without it, every lane is looked at.";
+
+pub const GATE_EXAMPLE: &str = "  rvw gate
+  rvw gate --lane auth --format json
+  rvw gate --all-lanes";
+
+pub const GATE_OVERRIDE_LONG: &str =
+    "Record that a commit or push went ahead although the gate was not clear. The
+record keeps the action, the reason, and the open and unjudged ids at that
+moment. It is refused when the gate is clear, since there is nothing to override.
+Records are kept; nothing is deleted.";
+
+pub const GATE_OVERRIDE_EXAMPLE: &str =
+    "  rvw gate override --action commit --reason \"reviewer is out until Monday\"
+  rvw gate override --action push --lane auth --reason \"hotfix\" --author alice";
 
 pub const EDIT_LONG: &str =
     "Replace the text of one pending review comment. The file, range, and code

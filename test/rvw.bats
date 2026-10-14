@@ -1456,6 +1456,310 @@ SH
   [[ "$output" != *"[COMPLETE]"* ]]
 }
 
+# ── verdicts, points at and the gate ─────────────────────────────────────────
+
+@test "accept: a second reviewer's verdict closes a decided comment" {
+  queue app.py 1 "rename this"
+  "$RVW" pull >/dev/null
+  "$RVW" resolve r1 --author claude --note "renamed" >/dev/null
+
+  run "$RVW" accept r1 --author alice
+  [ "$status" -eq 0 ]
+  [ "$output" = "r1 accepted by alice" ]
+
+  run "$RVW" list --status done --format json
+  [ "$(jq -r '.reviews[0].verdict.kind' <<<"$output")" = "accepted" ]
+  [ "$(jq -r '.reviews[0].verdict.by' <<<"$output")" = "alice" ]
+  [ "$(jq -r '.reviews[0].verdict.actor' <<<"$output")" = "human" ]
+  [ "$(jq -r '.reviews[0].verdict.followup' <<<"$output")" = "null" ]
+}
+
+@test "accept: the reviewer who decided a comment cannot judge it" {
+  queue app.py 1 "rename this"
+  "$RVW" pull >/dev/null
+  "$RVW" resolve r1 --author alice --note "renamed" >/dev/null
+
+  run "$RVW" accept r1 --author alice
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"a second reviewer must judge it"* ]]
+}
+
+@test "accept: agreeing with a rejection is allowed, and it is then final" {
+  queue app.py 1 "rename this"
+  "$RVW" pull >/dev/null
+  "$RVW" reject r1 --author claude --note "intentional" >/dev/null
+
+  run "$RVW" accept r1 --author alice
+  [ "$status" -eq 0 ]
+  [ "$output" = "r1 accepted by alice" ]
+
+  run "$RVW" accept r1 --author bob
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"already has a verdict"* ]]
+}
+
+@test "accept: only a decided comment can be judged, and a withdrawn one needs no verdict" {
+  queue app.py 1 "still pending"
+  run "$RVW" accept r1 --author alice
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"only a decided comment can be judged"* ]]
+
+  queue app.py 2 "withdrawn"
+  "$RVW" reject r2 --note "misread the diff" >/dev/null
+  run "$RVW" accept r2 --author alice
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"withdrawn before a handoff"* ]]
+}
+
+@test "accept: json is the judged comment, with no follow-up" {
+  queue app.py 1 "rename this"
+  "$RVW" pull >/dev/null
+  "$RVW" resolve r1 --author claude --note "renamed" >/dev/null
+
+  run "$RVW" accept r1 --author alice --format json
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.comment.verdict.kind' <<<"$output")" = "accepted" ]
+  [ "$(jq -r '.followup' <<<"$output")" = "null" ]
+}
+
+@test "show: a verdict prints under the decision it judges" {
+  queue app.py 1 "rename this"
+  "$RVW" pull >/dev/null
+  "$RVW" resolve r1 --author claude --note "renamed" >/dev/null
+  "$RVW" accept r1 --author alice >/dev/null
+
+  run "$RVW" show r1
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Verdict: accepted by"* ]]
+}
+
+@test "reopen: the follow-up joins the original's lane, and the next pull hands it over once" {
+  "$RVW" add --file app.py --lines 1 --comment "rename this" --lane auth --format ids </dev/null >/dev/null
+  "$RVW" pull --lane auth >/dev/null
+  "$RVW" resolve r1 --author claude --note "renamed" >/dev/null
+
+  run "$RVW" reopen r1 --author alice --note "still the old name in api.py"
+  [ "$status" -eq 0 ]
+  [ "$output" = "r1 reopened as r2" ]
+
+  run "$RVW" list --lane auth --format ids
+  [ "$output" = "r2" ]
+
+  run "$RVW" list --format json
+  [ "$(jq -r '.reviews[0].id' <<<"$output")" = "r2" ]
+  [ "$(jq -r '.reviews[0].reopens' <<<"$output")" = "r1" ]
+  [ "$(jq -r '.reviews[0].lane' <<<"$output")" = "auth" ]
+  [ "$(jq -r '.reviews[0].verdict' <<<"$output")" = "null" ]
+
+  run "$RVW" list --status done --format json
+  [ "$(jq -r '.reviews[0].verdict.kind' <<<"$output")" = "reopened" ]
+  [ "$(jq -r '.reviews[0].verdict.followup' <<<"$output")" = "r2" ]
+
+  run "$RVW" pull --lane auth --format ids
+  [ "$output" = "r2" ]
+  run "$RVW" pull --lane auth --format ids
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "reopen: --lines moves the follow-up to another range of the same file" {
+  queue app.py 1-2 "rename this"
+  "$RVW" pull >/dev/null
+  "$RVW" resolve r1 --author claude --note "renamed" >/dev/null
+
+  run "$RVW" reopen r1 --lines 3-4 --author alice --note "the fix is in the next function"
+  [ "$status" -eq 0 ]
+
+  run "$RVW" list --format json
+  [ "$(jq -r '.reviews[0].start_line' <<<"$output")" = "3" ]
+  [ "$(jq -r '.reviews[0].end_line' <<<"$output")" = "4" ]
+  [ "$(jq -r '.reviews[0].code' <<<"$output")" = "$(printf 'three\nfour')" ]
+}
+
+@test "reopen: needs a note, because the note says what is still wrong" {
+  queue app.py 1 "rename this"
+  "$RVW" pull >/dev/null
+  "$RVW" resolve r1 --author claude --note "renamed" >/dev/null
+
+  run "$RVW" reopen r1 --author alice
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"reopening a comment needs a note"* ]]
+
+  run "$RVW" reopen r1 --author alice --note "   "
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"reopening a comment needs a note"* ]]
+
+  run "$RVW" list --status done --format json
+  [ "$(jq -r '.reviews[0].verdict' <<<"$output")" = "null" ]
+}
+
+@test "reopen: ids print only the follow-up id, and json carries the verdict" {
+  queue app.py 1 "rename this"
+  "$RVW" pull >/dev/null
+  "$RVW" resolve r1 --author claude --note "renamed" >/dev/null
+
+  run "$RVW" reopen r1 --author alice --note "still wrong" --format json
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.comment.verdict.kind' <<<"$output")" = "reopened" ]
+  [ "$(jq -r '.followup.id' <<<"$output")" = "r2" ]
+  [ "$(jq -r '.followup.reopens' <<<"$output")" = "r1" ]
+
+  run "$RVW" list --status done --format ids
+  [ "$output" = "r1" ]
+}
+
+@test "gate: says clear, or names what is open and what is unjudged, before and after a verdict" {
+  run "$RVW" gate
+  [ "$status" -eq 0 ]
+  [ "$output" = "clear" ]
+
+  queue app.py 1 "rename this"
+  run "$RVW" gate
+  [ "$status" -eq 0 ]
+  [ "$output" = "open: r1" ]
+
+  "$RVW" pull >/dev/null
+  "$RVW" resolve r1 --author claude --note "renamed" >/dev/null
+  run "$RVW" gate
+  [ "$status" -eq 0 ]
+  [ "$output" = "unjudged: r1" ]
+
+  "$RVW" accept r1 --author alice >/dev/null
+  run "$RVW" gate
+  [ "$status" -eq 0 ]
+  [ "$output" = "clear" ]
+}
+
+@test "gate: json has open, unjudged and clear, before and after a verdict" {
+  queue app.py 1 "rename this"
+  "$RVW" pull >/dev/null
+  "$RVW" resolve r1 --author claude --note "renamed" >/dev/null
+
+  run "$RVW" gate --format json
+  [ "$status" -eq 0 ]
+  [ "$(jq -c '.open' <<<"$output")" = "[]" ]
+  [ "$(jq -c '.unjudged' <<<"$output")" = '["r1"]' ]
+  [ "$(jq -r '.clear' <<<"$output")" = "false" ]
+  [ "$(jq -r '.lane' <<<"$output")" = "null" ]
+
+  "$RVW" accept r1 --author alice >/dev/null
+  run "$RVW" gate --format json
+  [ "$(jq -c '.open' <<<"$output")" = "[]" ]
+  [ "$(jq -c '.unjudged' <<<"$output")" = "[]" ]
+  [ "$(jq -r '.clear' <<<"$output")" = "true" ]
+}
+
+@test "gate: --lane is strict, and --all-lanes looks at every lane" {
+  queue app.py 1 "unlaned"
+  "$RVW" add --file app.py --lines 2 --comment "auth note" --lane auth --format ids </dev/null >/dev/null
+  "$RVW" add --file app.py --lines 3 --comment "payments note" --lane payments --format ids </dev/null >/dev/null
+
+  run "$RVW" gate --lane auth --format json
+  [ "$(jq -c '.open' <<<"$output")" = '["r2"]' ]
+  [ "$(jq -r '.lane' <<<"$output")" = "auth" ]
+
+  run "$RVW" gate --lane nothing-here
+  [ "$output" = "clear" ]
+
+  run "$RVW" gate --all-lanes --format json
+  [ "$(jq -c '.open' <<<"$output")" = '["r1","r2","r3"]' ]
+  [ "$(jq -r '.lane' <<<"$output")" = "null" ]
+
+  run "$RVW" gate
+  [ "$output" = "open: r1 r2 r3" ]
+}
+
+@test "gate override: records going ahead past an open gate, and refuses a clear one" {
+  run "$RVW" gate override --action commit --reason "wip"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"nothing is open or unjudged"* ]]
+  [ "$(sqlite3 "$DB" 'select count(*) from gate_overrides')" = "0" ]
+
+  queue app.py 1 "still open"
+  run "$RVW" gate override --action commit --reason "wip, committing before the review"
+  [ "$status" -eq 0 ]
+  [ "$output" = "override recorded: commit, 1 open, 0 unjudged" ]
+  [ "$(sqlite3 "$DB" 'select count(*) from gate_overrides')" = "1" ]
+}
+
+@test "gate override: json names the action, the reason and the ids it went ahead past" {
+  queue app.py 1 "still open"
+
+  run "$RVW" gate override --action merge --reason "x"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"is not one of commit, push"* ]]
+
+  run "$RVW" gate override --action push --reason "hotfix" --author alice --format json
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.action' <<<"$output")" = "push" ]
+  [ "$(jq -r '.by' <<<"$output")" = "alice" ]
+  [ "$(jq -r '.reason' <<<"$output")" = "hotfix" ]
+  [ "$(jq -c '.open' <<<"$output")" = '["r1"]' ]
+  [ "$(jq -c '.unjudged' <<<"$output")" = "[]" ]
+}
+
+@test "add: --points-at names the file range a note refers to, and show prints it" {
+  run "$RVW" add --file app.py --lines 2 --points-at other.rb:1-2 \
+    --comment "this is what the change broke" --format ids </dev/null
+  [ "$status" -eq 0 ]
+  [ "$output" = "r1" ]
+
+  run "$RVW" show r1
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'Points at `other.rb:1-2`.'* ]]
+
+  run "$RVW" list --format json
+  [ "$(jq -r '.reviews[0].points_at.file' <<<"$output")" = "other.rb" ]
+  [ "$(jq -r '.reviews[0].points_at.start_line' <<<"$output")" = "1" ]
+  [ "$(jq -r '.reviews[0].points_at.end_line' <<<"$output")" = "2" ]
+}
+
+@test "add: a single line in --points-at is a one-line range" {
+  run "$RVW" add --file app.py --lines 2 --points-at other.rb:2 --comment "note" --format json </dev/null
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.points_at.start_line' <<<"$output")" = "2" ]
+  [ "$(jq -r '.points_at.end_line' <<<"$output")" = "2" ]
+}
+
+@test "add: --points-at must read FILE:N or FILE:N-M, and nothing is queued" {
+  for spec in x other.rb other.rb: :2 other.rb:x other.rb:1- other.rb:-2 other.rb:1-2-3; do
+    run "$RVW" add --file app.py --lines 1 --points-at "$spec" --comment "note" </dev/null
+    [ "$status" -eq 1 ]
+    [ "$output" = "rvw: --points-at '$spec' is not FILE:N or FILE:N-M" ]
+  done
+
+  run "$RVW" count
+  [ "$output" = "0" ]
+}
+
+@test "help: accept, reopen and gate sit in the command list, alphabetically" {
+  run "$RVW" --help
+  [ "$status" -eq 0 ]
+  names=$(awk '/^Available Commands:/{f=1; next} /^$/{f=0} f{print $1}' <<<"$output")
+  [ "$names" = "$(sort <<<"$names")" ]
+  grep -qx accept <<<"$names"
+  grep -qx reopen <<<"$names"
+  grep -qx gate <<<"$names"
+
+  run "$RVW" gate override --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage:"*"rvw gate override"* ]]
+}
+
+@test "store: a fresh database is at schema version 2" {
+  queue app.py 1 "note"
+  run sqlite3 "$DB" 'PRAGMA user_version'
+  [ "$status" -eq 0 ]
+  [ "$output" = "2" ]
+}
+
+@test "json: points_at, reopens and verdict are always present, null until set" {
+  queue app.py 1 "note"
+  run "$RVW" list --format json
+  [ "$(jq -r '.reviews[0] | [has("points_at"), has("reopens"), has("verdict")] | all' <<<"$output")" = "true" ]
+  [ "$(jq -r '.reviews[0] | [.points_at, .reopens, .verdict] | map(. == null) | all' <<<"$output")" = "true" ]
+}
+
 # ── MCP: the same queue as tool calls ────────────────────────────────────────
 
 # Talk JSON-RPC to `rvw mcp serve` on stdio. Each arg is one request; each is
