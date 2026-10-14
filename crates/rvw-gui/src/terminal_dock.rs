@@ -1142,7 +1142,14 @@ impl GridElement {
         window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
             if phase == DispatchPhase::Bubble {
                 let hovered = hit.is_hovered(window);
-                view.update(cx, |this, cx| this.mouse_down(event, hovered, cx));
+                view.update(cx, |this, cx| {
+                    // A click on the grid takes the keyboard, whatever else
+                    // it does: the pointer handler stops the dock's own.
+                    if hovered {
+                        window.focus(&this.focus);
+                    }
+                    this.mouse_down(event, hovered, cx);
+                });
             }
         });
         let (view, hit) = (self.view.clone(), hitbox.clone());
