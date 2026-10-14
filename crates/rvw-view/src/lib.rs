@@ -14,6 +14,7 @@ pub mod files;
 pub mod finder;
 pub mod fuzzy;
 pub mod graph;
+pub mod handoff;
 pub mod highlight;
 pub mod history;
 pub mod keys;

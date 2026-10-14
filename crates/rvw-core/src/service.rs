@@ -52,18 +52,18 @@ impl Service {
         self.repo.location()
     }
 
-    fn stamp(&self) -> String {
+    pub(crate) fn stamp(&self) -> String {
         format_time((self.now)())
     }
 
     /// Runs `f` in one read-only transaction on the workspace.
-    fn read<T>(&self, ws: &str, f: impl FnOnce(&mut dyn Tx) -> Result<T>) -> Result<T> {
+    pub(crate) fn read<T>(&self, ws: &str, f: impl FnOnce(&mut dyn Tx) -> Result<T>) -> Result<T> {
         check_workspace(ws)?;
         run(|body| self.repo.view(ws, body), f)
     }
 
     /// Runs `f` in one write transaction on the workspace; an error rolls back.
-    fn write<T>(&self, ws: &str, f: impl FnOnce(&mut dyn Tx) -> Result<T>) -> Result<T> {
+    pub(crate) fn write<T>(&self, ws: &str, f: impl FnOnce(&mut dyn Tx) -> Result<T>) -> Result<T> {
         check_workspace(ws)?;
         run(|body| self.repo.update(ws, body), f)
     }
@@ -584,7 +584,7 @@ fn check_workspace(ws: &str) -> Result<()> {
 /// The reviewed content: the buffer when given, else the regular file at
 /// `path`. Only a regular file is opened, so a FIFO or a device never blocks
 /// or floods the read.
-fn read_source(path: &str, buffer: Option<&str>) -> Result<String> {
+pub(crate) fn read_source(path: &str, buffer: Option<&str>) -> Result<String> {
     let too_large = || Error::invalid(format!("{path} is larger than {} MiB", MAX_SOURCE >> 20));
     if let Some(buffer) = buffer {
         if buffer.len() > MAX_SOURCE {
@@ -614,7 +614,7 @@ fn read_source(path: &str, buffer: Option<&str>) -> Result<String> {
 
 /// Keeps the reviewed content of a tracked file as a git blob. A git failure
 /// refuses the comment rather than enqueue it without its version.
-fn snapshot_reviewed(ws: &str, rel: &str, source: &str) -> Result<String> {
+pub(crate) fn snapshot_reviewed(ws: &str, rel: &str, source: &str) -> Result<String> {
     let dir = Path::new(ws);
     let tracked = rvw_git::gitx::tracked(dir, rel).map_err(|e| {
         Error::internal(format!(
@@ -635,7 +635,7 @@ fn snapshot_reviewed(ws: &str, rel: &str, source: &str) -> Result<String> {
 
 /// Keeps the current version of a comment's file, when it is still tracked at
 /// the recorded path inside the workspace.
-fn snapshot_resolved(ws: &str, c: &Comment) -> Result<String> {
+pub(crate) fn snapshot_resolved(ws: &str, c: &Comment) -> Result<String> {
     let recorded = if c.path.is_empty() {
         c.file.clone()
     } else {
@@ -907,7 +907,7 @@ fn elsewhere(reviews: &[Review], comments: &[Comment], lane: &str) -> Option<Els
 }
 
 /// Looks up one comment, refusing an unknown id.
-fn find(tx: &mut dyn Tx, id: &str) -> Result<Comment> {
+pub(crate) fn find(tx: &mut dyn Tx, id: &str) -> Result<Comment> {
     tx.comment(id)?
         .ok_or_else(|| Error::not_found(format!("no review '{id}' in this workspace")))
 }
@@ -938,7 +938,7 @@ fn unique(ids: &[String]) -> Vec<String> {
 }
 
 /// Formats a stamp as second-resolution UTC with an explicit `+00:00` offset.
-fn format_time(t: OffsetDateTime) -> String {
+pub(crate) fn format_time(t: OffsetDateTime) -> String {
     let u = t.to_offset(UtcOffset::UTC);
     format!(
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}+00:00",
@@ -951,12 +951,12 @@ fn format_time(t: OffsetDateTime) -> String {
     )
 }
 
-fn is_file(path: &Path) -> bool {
+pub(crate) fn is_file(path: &Path) -> bool {
     fs::metadata(path).is_ok_and(|m| m.is_file())
 }
 
 /// `None` for an empty string, the Go `strPtr` rule.
-fn str_opt(s: &str) -> Option<String> {
+pub(crate) fn str_opt(s: &str) -> Option<String> {
     if s.is_empty() {
         None
     } else {
@@ -965,19 +965,19 @@ fn str_opt(s: &str) -> Option<String> {
 }
 
 /// Trims only newline characters, as `strings.Trim(x, "\n")` does.
-fn trim_newlines(s: &str) -> &str {
+pub(crate) fn trim_newlines(s: &str) -> &str {
     s.trim_matches('\n')
 }
 
-fn to_i64(n: usize) -> i64 {
+pub(crate) fn to_i64(n: usize) -> i64 {
     i64::try_from(n).unwrap_or(i64::MAX)
 }
 
-fn to_u64(n: usize) -> u64 {
+pub(crate) fn to_u64(n: usize) -> u64 {
     u64::try_from(n).unwrap_or(u64::MAX)
 }
 
-fn to_index(n: i64) -> usize {
+pub(crate) fn to_index(n: i64) -> usize {
     usize::try_from(n).unwrap_or(0)
 }
 
@@ -1166,7 +1166,7 @@ pub(crate) mod testing {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::process::Command;
@@ -1176,14 +1176,14 @@ mod tests {
     use crate::error::ErrorKind;
     use crate::types::{Actor, Verdict, VerdictKind};
 
-    struct Fixture {
-        svc: Service,
-        ws: String,
-        root: PathBuf,
+    pub(crate) struct Fixture {
+        pub(crate) svc: Service,
+        pub(crate) ws: String,
+        pub(crate) root: PathBuf,
         _dir: tempfile::TempDir,
     }
 
-    fn git(dir: &Path, args: &[&str]) {
+    pub(crate) fn git(dir: &Path, args: &[&str]) {
         let out = Command::new("git")
             .arg("-C")
             .arg(dir)
@@ -1197,7 +1197,7 @@ mod tests {
         );
     }
 
-    fn setup() -> Fixture {
+    pub(crate) fn setup() -> Fixture {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path().join("proj");
         fs::create_dir_all(&root).expect("mkdir");
@@ -1218,7 +1218,7 @@ mod tests {
     }
 
     impl Fixture {
-        fn add_at(&self, line: i64, text: &str, lane_name: &str, who: &str) -> Comment {
+        pub(crate) fn add_at(&self, line: i64, text: &str, lane_name: &str, who: &str) -> Comment {
             self.svc
                 .add(AddInput {
                     points_at: None,
@@ -1233,7 +1233,7 @@ mod tests {
                 .expect("add")
         }
 
-        fn pending(&self, lane: &str) -> i64 {
+        pub(crate) fn pending(&self, lane: &str) -> i64 {
             self.svc
                 .count(QueryInput {
                     workspace: self.ws.clone(),
@@ -1244,7 +1244,7 @@ mod tests {
                 .count
         }
 
-        fn pull(&self, lane: &str) -> PullOutput {
+        pub(crate) fn pull(&self, lane: &str) -> PullOutput {
             self.svc
                 .pull(PullInput {
                     workspace: self.ws.clone(),
