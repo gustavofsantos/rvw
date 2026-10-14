@@ -24,7 +24,6 @@ const ICONS: &[(&str, &[u8])] = icons![
     "git-diff-fill",
     "clock-counter-clockwise",
     "clock-counter-clockwise-fill",
-    "git-branch",
     "circle",
     "circle-half",
     "check",

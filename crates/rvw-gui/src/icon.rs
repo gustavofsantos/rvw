@@ -21,7 +21,6 @@ pub enum Icon {
     ChangesFill,
     History,
     HistoryFill,
-    Branches,
     Pending,
     WithAgent,
     Done,
@@ -44,7 +43,7 @@ pub enum Icon {
 impl Icon {
     /// Every icon, for the tests that check each one is bundled.
     #[cfg(test)]
-    pub const ALL: [Icon; 26] = [
+    pub const ALL: [Icon; 25] = [
         Self::Queue,
         Self::QueueFill,
         Self::Review,
@@ -53,7 +52,6 @@ impl Icon {
         Self::ChangesFill,
         Self::History,
         Self::HistoryFill,
-        Self::Branches,
         Self::Pending,
         Self::WithAgent,
         Self::Done,
@@ -84,7 +82,6 @@ impl Icon {
             Self::ChangesFill => "icons/git-diff-fill.svg",
             Self::History => "icons/clock-counter-clockwise.svg",
             Self::HistoryFill => "icons/clock-counter-clockwise-fill.svg",
-            Self::Branches => "icons/git-branch.svg",
             Self::Pending => "icons/circle.svg",
             Self::WithAgent => "icons/circle-half.svg",
             Self::Done => "icons/check.svg",

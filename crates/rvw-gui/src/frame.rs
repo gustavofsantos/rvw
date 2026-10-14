@@ -152,7 +152,7 @@ fn ahead_behind_sides(ahead_behind: Option<(usize, usize)>) -> Vec<(Icon, usize)
         .collect()
 }
 
-/// The branch name; a click opens the branch picker, as the rail's B does.
+/// The branch name; a click opens the branch picker, as the palette's Switch branch does.
 fn branch_chip(branch: &str, cx: &Context<Shell>) -> Stateful<Div> {
     div()
         .id("branch-chip")
@@ -215,43 +215,15 @@ fn counter(icon: Icon, label: String, color: Rgba) -> Div {
     icon::labelled(icon, icon::SMALL, color, label)
 }
 
-/// What a rail icon does.
-#[derive(Clone, Copy)]
-enum RailTarget {
-    Show(Screen),
-    Branches,
-}
-
-/// The rail's five icons. Queue, Review, Changes and History open their
-/// screens, Branches the branch picker. The ids are the old letters. The
-/// active screen's icon is the filled weight.
+/// The rail's four icons; each opens a screen, and the active screen's icon
+/// is the filled weight. The ids are the old letters. The branch picker is
+/// reached from the top bar's branch chip and the palette.
 pub fn rail(screen: Screen, cx: &mut Context<Shell>) -> Div {
     let items = [
-        (
-            "Q",
-            Icon::Queue,
-            Icon::QueueFill,
-            RailTarget::Show(Screen::Queue),
-        ),
-        (
-            "R",
-            Icon::Review,
-            Icon::ReviewFill,
-            RailTarget::Show(Screen::Diff),
-        ),
-        (
-            "C",
-            Icon::Changes,
-            Icon::ChangesFill,
-            RailTarget::Show(Screen::Changes),
-        ),
-        (
-            "H",
-            Icon::History,
-            Icon::HistoryFill,
-            RailTarget::Show(Screen::History),
-        ),
-        ("B", Icon::Branches, Icon::Branches, RailTarget::Branches),
+        ("Q", Icon::Queue, Icon::QueueFill, Screen::Queue),
+        ("R", Icon::Review, Icon::ReviewFill, Screen::Diff),
+        ("C", Icon::Changes, Icon::ChangesFill, Screen::Changes),
+        ("H", Icon::History, Icon::HistoryFill, Screen::History),
     ];
     div()
         .flex()
@@ -265,7 +237,7 @@ pub fn rail(screen: Screen, cx: &mut Context<Shell>) -> Div {
         .border_r_1()
         .border_color(theme::hairline())
         .children(items.map(|(id, regular, fill, target)| {
-            let active = matches!(target, RailTarget::Show(s) if s == screen);
+            let active = target == screen;
             div()
                 .id(id)
                 .flex()
@@ -277,17 +249,12 @@ pub fn rail(screen: Screen, cx: &mut Context<Shell>) -> Div {
                 .when(!active, |d| {
                     d.cursor_pointer().hover(|s| s.bg(theme::hairline()))
                 })
-                .map(|d| {
-                    d.on_click(cx.listener(
-                        move |this: &mut Shell,
-                              _: &ClickEvent,
-                              window: &mut Window,
-                              cx: &mut Context<Shell>| match target {
-                            RailTarget::Show(screen) => this.show(screen, cx),
-                            RailTarget::Branches => this.open_branches(window, cx),
-                        },
-                    ))
-                })
+                .on_click(cx.listener(
+                    move |this: &mut Shell,
+                          _: &ClickEvent,
+                          _: &mut Window,
+                          cx: &mut Context<Shell>| this.show(target, cx),
+                ))
                 .child(icon::view(
                     if active { fill } else { regular },
                     icon::RAIL_SIZE,
