@@ -10,4 +10,5 @@ mod verdict;
 
 pub use error::{Error, ErrorKind, Result};
 pub use repository::{Repository, Tx};
+pub use gate::undecided;
 pub use service::Service;
