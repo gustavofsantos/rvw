@@ -37,9 +37,11 @@ impl Edge {
     }
 }
 
-/// The drag in flight: the size when it started, and where the pointer was
-/// at its first move. Made at render, so each drag has its own.
+/// The drag in flight: the strip it belongs to, the size when it started, and
+/// where the pointer was at its first move. Made at render, so each drag has
+/// its own.
 struct Resizing {
+    owner: ElementId,
     size: f32,
     origin: Rc<Cell<Option<f32>>>,
 }
@@ -64,10 +66,13 @@ pub fn handle<V: 'static>(
     reset: impl Fn(&mut V, &mut Context<V>) + 'static,
     cx: &mut Context<V>,
 ) -> Stateful<gpui::Div> {
+    let id = id.into();
     let value = Resizing {
+        owner: id.clone(),
         size,
         origin: Rc::new(Cell::new(None)),
     };
+    let owner = id.clone();
     let strip = div()
         .id(id)
         .absolute()
@@ -100,6 +105,11 @@ pub fn handle<V: 'static>(
         .on_drag_move(cx.listener(
             move |this: &mut V, event: &DragMoveEvent<Resizing>, window: &mut Window, cx| {
                 let drag = event.drag(cx);
+                // Every strip hears every drag of this type; only the one
+                // that started it may move its panel.
+                if drag.owner != owner {
+                    return;
+                }
                 let (pointer, extent) = if edge.vertical() {
                     (
                         f32::from(event.event.position.y),
