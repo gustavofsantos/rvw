@@ -338,8 +338,8 @@ fn entry_row(index: usize, entry: &Entry, highlighted: bool, cx: &Context<Shell>
         .when(highlighted && runnable, |d| d.bg(theme::hairline()))
         .child(div().flex_1().min_w(px(0.)).truncate().child(title));
     let right = match (entry.unavailable, entry.chord) {
-        (Some(reason), _) => Some((reason, false)),
-        (None, Some(chord)) => Some((chord, true)),
+        (Some(reason), _) => Some((reason.to_owned(), false)),
+        (None, Some(chord)) => Some((theme::chord(chord), true)),
         (None, None) => None,
     };
     if let Some((text, mono)) = right {

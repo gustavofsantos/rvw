@@ -1,4 +1,4 @@
-//! The action palette behind ⌘K: every action the user can take, whether it
+//! The action palette behind ⌘K (Ctrl+K off macOS): every action the user can take, whether it
 //! is available on the current screen, and the list ranked by a typed query.
 //! Pure logic; the view draws the entries and dims the unavailable ones.
 
