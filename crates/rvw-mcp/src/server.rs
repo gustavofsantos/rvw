@@ -14,9 +14,11 @@ use rmcp::model::{
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler};
 use rvw_core::operations::{
-    AddInput, EditInput, GetInput, PullInput, QueryInput, RemoveInput, ResolveInput, SheetsInput,
-    SubmitInput, WorkspacesInput,
+    AddInput, EditInput, GateInput, GateOutput, GetInput, OverrideInput, PullInput, QueryInput,
+    RemoveInput, ResolveInput, SheetsInput, SubmitInput, VerdictInput, VerdictOutput,
+    WorkspacesInput,
 };
+use rvw_core::types::{Actor, GateOverride};
 use rvw_core::Service;
 use schemars::generate::SchemaSettings;
 use schemars::JsonSchema;
@@ -41,9 +43,11 @@ comments inside each of "reviews"; read each review's summary as context. Then
 call resolve on every comment id (r3, not rv1) right after you finish it:
 outcome "done" with a note of what you did, or "rejected" with the reason.
 Never leave a pulled comment undecided; list with status "pulled" shows them.
+A comment with `reopens` is a follow-up: the reviewer rejected your earlier answer, read their note. `points_at` names another file range the comment refers to.
 
 To review code for another agent: add comments on line ranges, then submit
 them as one review with a decision (comment, approve, request-changes).
+Only a reviewing agent judges, and never its own decision.
 
 Pass "author" with your name on writes. A pull pinned to a lane takes only
 that lane; "elsewhere" says when work waits in other lanes."#;
@@ -138,6 +142,9 @@ fn invoke(shared: &Shared, name: &str, args: Object) -> Result<Value, String> {
         "resolve" => ctx.resolve(args),
         "edit" => ctx.edit(args),
         "remove" => ctx.remove(args),
+        "judge" => ctx.judge(args),
+        "gate" => ctx.gate(args),
+        "override_gate" => ctx.override_gate(args),
         "workspaces" => ctx.workspaces(args),
         _ => Err(format!("unknown tool \"{name}\"")),
     }
@@ -229,6 +236,30 @@ impl Ctx<'_> {
         let mut input: RemoveInput = parse(args)?;
         self.scope(&mut input.workspace, None, None)?;
         reply(self.0.svc.remove(input))
+    }
+
+    /// Judges as the agent surface: the actor is never an argument.
+    fn judge(&self, args: Object) -> Result<Value, String> {
+        let mut input: VerdictInput = parse(args)?;
+        self.scope(&mut input.workspace, None, Some(&mut input.author))?;
+        reply(self.0.svc.judge(input, Actor::Agent))
+    }
+
+    fn gate(&self, args: Object) -> Result<Value, String> {
+        let mut input: GateInput = parse(args)?;
+        self.scope(&mut input.workspace, Some(&mut input.lane), None)?;
+        reply(self.0.svc.gate(input))
+    }
+
+    /// Overrides as the agent surface: the actor is never an argument.
+    fn override_gate(&self, args: Object) -> Result<Value, String> {
+        let mut input: OverrideInput = parse(args)?;
+        self.scope(
+            &mut input.workspace,
+            Some(&mut input.lane),
+            Some(&mut input.author),
+        )?;
+        reply(self.0.svc.override_gate(input, Actor::Agent))
     }
 
     fn workspaces(&self, args: Object) -> Result<Value, String> {
@@ -380,6 +411,21 @@ fn tool_definitions() -> Vec<Tool> {
             "Delete a pending comment that is not part of a submitted review, to retract a note from a draft. Returns the comment as it was; a pulled, decided or submitted one is refused.",
             false,
         ),
+        tool::<VerdictInput, VerdictOutput>(
+            "judge",
+            "Judges a decided comment: accept the decision, or reopen it with a note, which creates a follow-up comment in the same lane.",
+            false,
+        ),
+        tool::<GateInput, GateOutput>(
+            "gate",
+            "Lists the open and unjudged comment ids that stand between a lane and a commit or push.",
+            true,
+        ),
+        tool::<OverrideInput, GateOverride>(
+            "override_gate",
+            "Records going ahead with a commit or push although the gate is not clear, with the reason.",
+            false,
+        ),
         tool::<WorkspacesInput, WorkspacesOutput>(
             "workspaces",
             "List every workspace in the store with its pending handoff count.",
@@ -437,8 +483,22 @@ mod tests {
         )
     }
 
+    /// A server over a shared service, pinned to `lane` and speaking as `author`,
+    /// so several servers can see one queue.
+    fn serve(svc: &Arc<Service>, lane: &str, author: &str) -> RvwServer {
+        RvwServer::new(
+            Arc::clone(svc),
+            Options {
+                workspace: String::new(),
+                lane: lane.to_owned(),
+                author: author.to_owned(),
+                version: "test".to_owned(),
+            },
+        )
+    }
+
     #[test]
-    fn registers_the_twelve_tools_in_name_order() {
+    fn registers_the_fifteen_tools_in_name_order() {
         let dir = tempfile::tempdir().expect("tempdir");
         let names: Vec<String> = server(dir.path(), "", "")
             .0
@@ -452,8 +512,11 @@ mod tests {
                 "add",
                 "count",
                 "edit",
+                "gate",
+                "judge",
                 "list",
                 "list_reviews",
+                "override_gate",
                 "pull",
                 "remove",
                 "resolve",
@@ -463,6 +526,238 @@ mod tests {
                 "workspaces"
             ]
         );
+    }
+
+    #[test]
+    fn only_gate_is_read_only_among_the_new_tools() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let srv = server(dir.path(), "", "");
+        let read_only = |name: &str| {
+            let tool = srv.0.tools.iter().find(|t| t.name == name).expect(name);
+            tool.annotations.as_ref().and_then(|a| a.read_only_hint)
+        };
+        assert_eq!(read_only("gate"), Some(true));
+        assert_ne!(read_only("judge"), Some(true));
+        assert_ne!(read_only("override_gate"), Some(true));
+    }
+
+    #[test]
+    fn the_new_tools_take_no_actor_argument() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let srv = server(dir.path(), "", "");
+        let required = |name: &str| {
+            let tool = srv.0.tools.iter().find(|t| t.name == name).expect(name);
+            assert!(
+                !tool.input_schema["properties"]
+                    .as_object()
+                    .expect("properties")
+                    .contains_key("actor"),
+                "{name} takes an actor"
+            );
+            tool.input_schema["required"].clone()
+        };
+        assert_eq!(required("judge"), json!(["workspace", "id", "verdict"]));
+        assert_eq!(required("gate"), json!(["workspace"]));
+        assert_eq!(
+            required("override_gate"),
+            json!(["workspace", "action", "reason"])
+        );
+    }
+
+    #[test]
+    fn an_actor_argument_is_refused_like_any_unknown_one() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let srv = server(dir.path(), "", "");
+        let cases = [
+            (
+                "judge",
+                json!({"workspace": "/x", "id": "r1", "verdict": "accepted", "actor": "human"}),
+            ),
+            ("gate", json!({"workspace": "/x", "actor": "human"})),
+            (
+                "override_gate",
+                json!({"workspace": "/x", "action": "commit", "reason": "why", "actor": "human"}),
+            ),
+        ];
+        for (tool, arguments) in cases {
+            let err = invoke(&srv.0, tool, args(&arguments)).unwrap_err();
+            assert_eq!(
+                err,
+                r#"validating "arguments": validating root: unexpected additional properties ["actor"]"#,
+                "{tool}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_instructions_teach_follow_ups_points_at_and_judging() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let text = server(dir.path(), "", "")
+            .get_info()
+            .instructions
+            .expect("instructions");
+        assert!(
+            text.contains(
+                "A comment with `reopens` is a follow-up: the reviewer rejected your earlier answer, read their note. `points_at` names another file range the comment refers to."
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains("Only a reviewing agent judges, and never its own decision."),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn judge_via_mcp_records_an_agent_verdict_and_the_follow_up_stays_in_the_lane() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = repo(dir.path());
+        let svc = service(dir.path());
+        // alice raises a comment in lane auth; bob pulls it and rejects it.
+        let alice = serve(&svc, "auth", "alice");
+        invoke(
+            &alice.0,
+            "add",
+            args(
+                &json!({"workspace": root, "file": "app.py", "start_line": 2, "comment": "rename"}),
+            ),
+        )
+        .expect("add");
+        let bob = serve(&svc, "auth", "bob");
+        invoke(&bob.0, "pull", args(&json!({"workspace": root}))).expect("pull");
+        invoke(
+            &bob.0,
+            "resolve",
+            args(&json!({"workspace": root, "id": "r1", "outcome": "rejected", "note": "not needed"})),
+        )
+        .expect("resolve");
+
+        // claude, pinned to no lane, judges it: the pinned author is the judge.
+        let claude = serve(&svc, "", "claude");
+        let judged = invoke(
+            &claude.0,
+            "judge",
+            args(&json!({"workspace": root, "id": "r1", "verdict": "reopened", "note": "do it anyway"})),
+        )
+        .expect("judge");
+        assert_eq!(judged["comment"]["id"], "r1");
+        assert_eq!(judged["comment"]["verdict"]["kind"], "reopened");
+        assert_eq!(judged["comment"]["verdict"]["by"], "claude");
+        assert_eq!(judged["comment"]["verdict"]["actor"], "agent");
+        assert_eq!(judged["comment"]["verdict"]["followup"], "r2");
+        let follow_up = &judged["followup"];
+        assert_eq!(follow_up["id"], "r2");
+        assert_eq!(follow_up["reopens"], "r1");
+        assert_eq!(follow_up["status"], "pending");
+        assert_eq!(follow_up["lane"], "auth");
+        assert_eq!(follow_up["comment"], "do it anyway");
+
+        // A verdict is final.
+        let err = invoke(
+            &claude.0,
+            "judge",
+            args(&json!({"workspace": root, "id": "r1", "verdict": "accepted"})),
+        )
+        .unwrap_err();
+        assert!(err.contains("already has a verdict"), "{err}");
+    }
+
+    #[test]
+    fn a_lane_pinned_gate_sees_only_its_lane() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = repo(dir.path());
+        let svc = service(dir.path());
+        let unpinned = serve(&svc, "", "alice");
+        invoke(
+            &unpinned.0,
+            "add",
+            args(&json!({"workspace": root, "file": "app.py", "start_line": 1, "comment": "unlaned"})),
+        )
+        .expect("add");
+        let auth = serve(&svc, "auth", "alice");
+        invoke(
+            &auth.0,
+            "add",
+            args(&json!({"workspace": root, "file": "app.py", "start_line": 2, "comment": "in auth"})),
+        )
+        .expect("add");
+
+        let pinned = invoke(&auth.0, "gate", args(&json!({"workspace": root}))).expect("gate");
+        assert_eq!(pinned["lane"], "auth");
+        assert_eq!(pinned["open"], json!(["r2"]));
+        assert_eq!(pinned["unjudged"], json!([]));
+        assert_eq!(pinned["clear"], false);
+
+        let everything =
+            invoke(&unpinned.0, "gate", args(&json!({"workspace": root}))).expect("gate");
+        assert_eq!(everything["lane"], Value::Null);
+        assert_eq!(everything["open"], json!(["r1", "r2"]));
+
+        let payments = serve(&svc, "payments", "alice");
+        let clear = invoke(&payments.0, "gate", args(&json!({"workspace": root}))).expect("gate");
+        assert_eq!(clear["open"], json!([]));
+        assert_eq!(clear["clear"], true);
+    }
+
+    #[test]
+    fn override_gate_via_mcp_records_an_agent_override() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = repo(dir.path());
+        let svc = service(dir.path());
+        // alice raises r1; bob pulls it and marks it done, so the gate is unjudged on it.
+        let alice = serve(&svc, "", "alice");
+        invoke(
+            &alice.0,
+            "add",
+            args(&json!({"workspace": root, "file": "app.py", "start_line": 1, "comment": "one"})),
+        )
+        .expect("add");
+        let bob = serve(&svc, "", "bob");
+        invoke(&bob.0, "pull", args(&json!({"workspace": root}))).expect("pull");
+        invoke(
+            &bob.0,
+            "resolve",
+            args(&json!({"workspace": root, "id": "r1", "outcome": "done", "note": "fixed"})),
+        )
+        .expect("resolve");
+
+        let gustav = serve(&svc, "", "gustav");
+        let recorded = invoke(
+            &gustav.0,
+            "override_gate",
+            args(&json!({"workspace": root, "action": "commit", "reason": "shipping the spike"})),
+        )
+        .expect("override_gate");
+        assert_eq!(recorded["workspace"], root);
+        assert_eq!(recorded["lane"], Value::Null);
+        assert_eq!(recorded["action"], "commit");
+        assert_eq!(recorded["reason"], "shipping the spike");
+        assert_eq!(recorded["by"], "gustav");
+        assert_eq!(recorded["actor"], "agent");
+        assert_eq!(recorded["open"], json!([]));
+        assert_eq!(recorded["unjudged"], json!(["r1"]));
+    }
+
+    #[test]
+    fn override_gate_via_mcp_refuses_a_clear_gate_and_bad_input() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = repo(dir.path());
+        let srv = server(dir.path(), "", "gustav");
+        let err = invoke(
+            &srv.0,
+            "override_gate",
+            args(&json!({"workspace": root, "action": "push", "reason": "why"})),
+        )
+        .unwrap_err();
+        assert_eq!(err, "nothing is open or unjudged — no override needed");
+
+        let err = invoke(
+            &srv.0,
+            "override_gate",
+            args(&json!({"workspace": root, "action": "merge", "reason": "why"})),
+        )
+        .unwrap_err();
+        assert_eq!(err, r#"action "merge" is not one of commit, push"#);
     }
 
     #[test]
