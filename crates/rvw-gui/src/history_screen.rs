@@ -672,7 +672,8 @@ fn diff_row_elements(
         .collect()
 }
 
-/// A hunk's header text, muted, on a 30px row.
+/// A hunk's header text, muted. The row is a diff line tall: the list sizes
+/// every row from its first, which is always a header.
 fn hunk_row(open: &OpenCommitFile, hunk: usize) -> AnyElement {
     let header = open
         .diff
@@ -684,7 +685,7 @@ fn hunk_row(open: &OpenCommitFile, hunk: usize) -> AnyElement {
         .w_full()
         .flex()
         .items_center()
-        .h(HEADER_ROW_HEIGHT)
+        .h(LINE_HEIGHT)
         .px(px(24.))
         .child(
             div()
