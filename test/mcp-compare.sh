@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
-# Compares `rvw mcp serve`'s initialize and tools/list with the Go server's
-# recorded output (test/reference/mcp-tools-list.jsonl). Both sides are
+# Compares `rvw mcp serve`'s initialize and tools/list with rvw's own recorded
+# output (test/reference/mcp-tools-list.jsonl; the Go baseline is retired). The
+# reference is the raw answer to initialize and tools/list from a scratch repo,
+# so a diff means the MCP surface changed since the capture: re-record it the
+# same way (see the pipeline below) and review the diff. Both sides are
 # normalized first: server name and title, instructions verbatim, tool names
 # in order, descriptions, readOnlyHint, and each input and output schema as
 # property names, JSON types, descriptions and required sets, with $ref
-# resolved. Slices compare as arrays regardless of the Go SDK's null (see types). $schema, title, additionalProperties, key order and format or
-# bound extras are ignored. Exit 0 on a match; otherwise a diff and exit 1.
+# resolved. Slices compare as arrays whether or not "null" is advertised as a
+# type (see types). $schema, title, additionalProperties, key order and format
+# or bound extras are ignored. Exit 0 on a match; otherwise a diff and exit 1.
+# test/reference/mcp-session.jsonl is rvw's replay of a longer session (calls
+# and errors); no script reads it.
 #
 # Usage: test/mcp-compare.sh   (RVW=path/to/rvw overrides target/debug/rvw)
 set -euo pipefail
@@ -37,11 +43,11 @@ export XDG_DATA_HOME="$work/data"
 }
 
 # $root is the document holding $defs; references are resolved against it.
-# Descriptions from a $ref target are dropped: Go inlines those schemas, and
-# a struct's doc comment is not a property description.
+# Descriptions from a $ref target are dropped: a struct's doc comment is not a
+# property description.
 normalize='
-# A slice is advertised as ["array","null"] by the Go SDK, but the Go service
-# always returns [] (it initializes every slice), so arrays compare as "array".
+# A slice may be advertised as ["array","null"]; the service returns [] for it
+# either way, so arrays compare as "array".
 def types($s):
   ($s.type // null)
   | if . == null then []
@@ -92,9 +98,9 @@ view "$ref" >"$work/ref.json"
 view "$work/out.jsonl" >"$work/ours.json"
 
 if diff -u "$work/ref.json" "$work/ours.json" >"$work/diff.txt"; then
-  echo "mcp-compare: tools/list and initialize match the Go reference"
+  echo "mcp-compare: tools/list and initialize match the reference"
   exit 0
 fi
-echo "mcp-compare: differences from the Go reference (- Go, + Rust):"
+echo "mcp-compare: differences from the reference (- reference, + rvw):"
 diff -u "$work/ref.json" "$work/ours.json" || true
 exit 1

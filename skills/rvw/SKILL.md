@@ -1,7 +1,7 @@
 ---
 name: rvw
 description: Work the local rvw code review queue. Use when the user asks to pull, check, address or work through review comments or feedback, mentions rvw, or asks you to review code and leave comments for another agent.
-allowed-tools: mcp__rvw__pull, mcp__rvw__list, mcp__rvw__list_reviews, mcp__rvw__count, mcp__rvw__show_comment, mcp__rvw__show_review, mcp__rvw__resolve, mcp__rvw__add, mcp__rvw__submit, mcp__rvw__remove
+allowed-tools: mcp__rvw__pull, mcp__rvw__list, mcp__rvw__list_reviews, mcp__rvw__count, mcp__rvw__show_comment, mcp__rvw__show_review, mcp__rvw__resolve, mcp__rvw__add, mcp__rvw__submit, mcp__rvw__remove, mcp__rvw__judge, mcp__rvw__gate
 ---
 
 # rvw
@@ -18,7 +18,8 @@ the user.)
 
 - Pass your project directory, as an absolute path, as `workspace` on every
   call.
-- Pass `author` (your name, e.g. `claude`) on `add`, `submit` and `resolve`.
+- Pass `author` (your name, e.g. `claude`) on `add`, `submit`, `resolve` and
+  `judge`.
 - Wait for each call to return before the next one. The server runs calls
   concurrently, so a `pull` sent alongside an `add` may not see it.
 - A failed call returns a tool error whose text says what to fix.
@@ -44,6 +45,11 @@ the user.)
        context for its comments.
    - Each comment has an `id`, `file`, `start_line`, `end_line`, the `code`
      snapshot and the `comment` text.
+   - A comment with `reopens` set is a follow-up: a reviewer rejected your
+     earlier answer to the comment named there. Its `comment` text is their
+     note. Read it, treat the comment like any other, and resolve it.
+   - `points_at`, when set, is another file range the comment refers to (its
+     `file`, `start_line`, `end_line`). Read it before you change the code.
    - A review with no comments (a summary-only review) needs no decision.
      Report its summary to the user.
 
@@ -84,6 +90,37 @@ When the user asks you to review code and hand it to another agent, call
 - Set `no_comments: true` for a summary-only review.
 - Retract a draft comment with `remove` (`{"workspace": ..., "id": "r3"}`).
   Only a pending comment outside a submitted review can be removed.
+
+## Judge a decision
+
+Judge only when the user asks you to check decisions. A comment decided after
+a handoff (`done` or `rejected`) waits for a second reviewer, and only a
+reviewer who did not make the decision may judge it. Give
+`verdict` `accepted` (you agree with the decision; a rejection accepted means
+it should not be done) or `reopened` (the decision is not good enough: the
+comment goes back to the agent as a follow-up, and `note` says what is still
+wrong, required):
+
+```json
+{"workspace": "/abs/project", "id": "r3", "verdict": "accepted", "author": "reviewer", "note": "checked the new test"}
+{"workspace": "/abs/project", "id": "r4", "verdict": "reopened", "author": "reviewer", "note": "the rename missed the caller in api.py"}
+```
+
+- Never judge a decision you made yourself: the server refuses it. A comment
+  that already has a verdict is refused too.
+- A verdict is final. It cannot be given twice or changed.
+- `start_line` and `end_line` on a reopen move the follow-up to another range
+  of the same file.
+- rvw records the surface a verdict came through, not who you are: through
+  this server it is recorded as `agent`, whatever `author` says.
+
+## Before a commit or push
+
+Call `gate` before you commit or push, with `lane` for the lane you commit.
+It returns `open` (not yet decided, drafts included) and `unjudged` (decided
+after a handoff, no verdict yet). If either list is not empty, report the ids
+to the user and wait. Overriding the gate is the user's decision; do not
+record one. `clear: true` means nothing is left.
 
 ## Other tools
 

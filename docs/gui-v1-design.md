@@ -95,7 +95,7 @@ orange at a time. Each action has one key; a key never changes meaning.
 | 1 | Review desk | M1 | Diff with inline threads and the composer; your review on the right. |
 | 2 | Outcome of one comment | M1, M4 | Asked → code as reviewed → agent's note → resolution diff, with Accept and Reopen. |
 | 3 | Queue home | M1, M4 | Open work by review, filtered by state, lane, author; next-pull preview. |
-| 4 | Submit a review | M1 | Verdict, summary for the agent, comments, heads-up about comments still with an agent. |
+| 4 | Submit a review | M1 | Decision, summary for the agent, comments, heads-up about comments still with an agent. |
 | 5 | Changes and commit | M2 | Staged and unstaged, hunk and line staging, commit box, checkpoints with restore. |
 | 6 | History with provenance | M3, M5 | Graph with human/agent and review status; the story of a commit. |
 | 7 | Files and context | M1 | Whole-repo tree; comment on a file outside the change as context. |
@@ -107,12 +107,17 @@ orange at a time. Each action has one key; a key never changes meaning.
 - **Draft first.** A comment goes into your draft review. A bare comment is
   the exception. "Submit review" is the primary action of the right panel.
 - **Verdict is a judgement, not a stray click.** Accept and Reopen live in the
-  queue and on the outcome page, never inline on the diff.
+  queue and on the outcome page, never inline on the diff. The submit dialog's
+  choice is labelled "Decision" (it was "Verdict"): a verdict now means only a
+  second reviewer's judgement of a decision made after a handoff.
 - **Context comments.** A comment on a file not changed on this branch is
   labelled "context". It may point at a changed location ("Points at
   service.rs:90-96"). The agent receives it with the review.
-- **Open comments never block a commit.** The commit screen says which open
-  comments touch the hunk and leaves the decision to the user.
+- **The gate is a confirmation card, never a silent pass.** Before a commit,
+  amend or push, when comments are open or wait for a verdict, a card shows the
+  counts and needs a reason. Confirming records the override with the ids it
+  covers, then runs the action; if recording fails, nothing runs. The decision
+  stays with the user. (Amended 2026-10-14, decided with the user; brief C2.)
 - **Pulled means gone from the queue.** The queue shows what the agent holds so
   nothing is taken twice; the next-pull preview shows what a pull would take,
   per lane, and says when work waits in another lane.

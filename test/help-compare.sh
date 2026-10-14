@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-# Diffs `rvw <command> --help` against the captured Go output in
-# test/reference/help/. File names map spaces to underscores: rvw_mcp_serve.txt
-# is `rvw mcp serve --help`, and rvw_.txt is the root. Exits non-zero and lists
-# every command whose help differs.
+# Diffs `rvw <command> --help` against rvw's own recorded output in
+# test/reference/help/ (the Go baseline is retired). File names map spaces to
+# underscores: rvw_mcp_serve.txt is `rvw mcp serve --help`, and rvw_.txt is the
+# root. Exits non-zero and lists every command whose help differs.
+#
+# A deliberate help change is re-captured: rebuild rvw, then for each command
+# `rvw <command> --help > test/reference/help/rvw_<command>.txt` (underscores
+# join the path: rvw_gate_override.txt is `rvw gate override --help`), and
+# review the diff. Every command's help is captured, the root included.
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)

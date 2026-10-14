@@ -1,0 +1,25 @@
+Send a decided comment back to the agent. The original keeps its decision and
+gains a verdict. A new pending comment carries the note as its text, on the
+original's lane, file and range, and the next pull hands it over once.
+
+--lines moves the follow-up to another range of the same file. The note is
+required: it says what is still wrong.
+
+Usage:
+  rvw reopen ID --note TEXT [--lines N-M] [flags]
+
+Examples:
+  rvw reopen r3 --note "the rename missed the caller in api.py"
+  rvw reopen r3 --lines 40-44 --note "still returns early" --author alice
+  rvw reopen r3 --note "see above" --format ids   # prints the follow-up's id
+
+Flags:
+      --author string   who judges, not who decided (default: $USER)
+      --format string   output shape: text, json, ids (default: text) (default "text")
+  -h, --help            help for reopen
+      --lines string    the follow-up's range: N or N-M (default: the original's)
+      --note string     what is still wrong (required)
+
+Global Flags:
+      --db string          database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)
+      --workspace string   queue to act on: the git toplevel of this directory (default: $PWD)

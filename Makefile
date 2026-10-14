@@ -3,7 +3,7 @@
 CARGO_AUDIT_VERSION := 0.22.2
 CARGO_AUDIT := target/tools/bin/cargo-audit
 
-.PHONY: build install install-gui uninstall test lint fmt audit check hooks clean
+.PHONY: build install install-gui uninstall test parity lint fmt audit check hooks clean
 
 # PREFIX is where `make install` puts bin/rvw. Unset, cargo's own install root
 # applies: $CARGO_INSTALL_ROOT, else ~/.cargo, so ~/.cargo/bin/rvw.
@@ -48,6 +48,13 @@ test:
 	cargo test --workspace
 	bats test/rvw.bats
 
+# The parity scripts diff rvw's help and MCP output against test/reference. They
+# run target/debug/rvw, so it is built first, as test/rvw.bats builds its own.
+parity:
+	cargo build --quiet -p rvw-cli
+	bash test/help-compare.sh
+	bash test/mcp-compare.sh
+
 lint:
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo fmt --all --check
@@ -61,7 +68,7 @@ $(CARGO_AUDIT):
 audit: $(CARGO_AUDIT)
 	$(CARGO_AUDIT) audit
 
-check: lint audit test
+check: lint audit test parity
 
 hooks:
 	git config core.hooksPath .githooks

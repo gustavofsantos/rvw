@@ -1,0 +1,21 @@
+Agree with the decision an agent recorded on a comment after a handoff. The
+decision stands and the verdict is final. Only a second reviewer may judge it:
+whoever decided the comment cannot accept it. Accepting a rejection means you
+agree it should not be done.
+
+Usage:
+  rvw accept ID [--note TEXT] [flags]
+
+Examples:
+  rvw accept r3
+  rvw accept r3 --note "checked the new test" --author alice
+
+Flags:
+      --author string   who judges, not who decided (default: $USER)
+      --format string   output shape: text, json (default: text) (default "text")
+  -h, --help            help for accept
+      --note string     a remark on the verdict (optional)
+
+Global Flags:
+      --db string          database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)
+      --workspace string   queue to act on: the git toplevel of this directory (default: $PWD)

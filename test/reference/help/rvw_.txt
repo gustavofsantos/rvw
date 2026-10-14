@@ -12,7 +12,10 @@ pending comments under one review with a decision and summary. Pulling any
 linked comment hands over the complete review as one unit.
 
 A comment carries who raised it and which lane it belongs to. It ends in a
-recorded resolution: `resolve` (done) or `reject` (with a reason).
+recorded resolution: `resolve` (done) or `reject` (with a reason). A decision
+made after a handoff then waits for a second reviewer: `accept` agrees with it,
+`reopen` sends the comment back as a follow-up. `gate` says what is still open
+or unjudged before a commit or push.
 
 Everything is set with flags:
   --workspace PATH  the queue to act on: the git toplevel of this directory
@@ -43,6 +46,9 @@ Examples:
   rvw pull --peek                       # look without dequeuing
   rvw resolve r3 --note "renamed, test added"
   rvw reject r4 --note "intentional: the caller validates"
+  rvw accept r3 --author alice          # agree with a decision made after a handoff
+  rvw reopen r3 --note "still wrong"    # send it back to the agent as a follow-up
+  rvw gate                              # what is open or unjudged before a commit
   rvw show r3                           # one comment, its decision and its diff
   rvw show rv1                          # a whole review sheet
   rvw count                             # pending handoff count, for a statusline
@@ -51,15 +57,19 @@ Examples:
   rvw tui                               # read code and comment in a terminal UI
 
 Available Commands:
+  accept      agree with a decision made after a handoff
   add         enqueue a review comment on a file range
   count       print the pending handoff count (statusline-friendly)
   edit        replace the text of a queued review comment
+  gate        report what is open or unjudged before a commit or push
   help        Help about any command
   list        show queued review comments or submitted reviews without dequeuing them
   mcp         serve the queue as MCP tools, and print how to connect Claude Code
   path        print where the queue lives
   pull        dequeue review handoffs for an agent to act on
   reject      record that a comment will not be actioned, and why
+  remove      delete a queued review comment before it is handed over
+  reopen      send a decided comment back to the agent as a follow-up
   resolve     record that a comment was acted on
   show        show one review comment (or review sheet) with its source evidence
   submit      submit a review over pending review comments

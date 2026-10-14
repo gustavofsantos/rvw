@@ -27,9 +27,9 @@ if command -v apt-get >/dev/null; then
   export DEBIAN_FRONTEND=noninteractive
   $sudo apt-get update -qq
   # build-essential and pkg-config: the bundled SQLite and native crates.
-  # sqlite3 and bats: test/rvw.bats. The lib*-dev packages: rvw-gui (gpui).
+  # sqlite3 and bats: test/rvw.bats. jq: test/mcp-compare.sh. The lib*-dev packages: rvw-gui (gpui).
   $sudo apt-get install -y -qq --no-install-recommends \
-    build-essential pkg-config curl ca-certificates git sqlite3 bats \
+    build-essential pkg-config curl ca-certificates git sqlite3 bats jq \
     libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libfontconfig-dev
 fi
 

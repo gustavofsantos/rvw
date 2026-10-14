@@ -24,7 +24,8 @@ acted on them.
 - **Handed over once.** A pull takes comments out of the queue, so no agent
   works the same note twice.
 - **Accounted for.** Each comment ends in a recorded decision: done, or
-  rejected with a reason. Done comments keep the diff they produced.
+  rejected with a reason. Done comments keep the diff they produced. A second
+  reviewer can accept that decision or reopen it as a follow-up.
 - **Scoped.** A queue belongs to a workspace: a git worktree. rvw needs git; a
   directory outside a repository has no queue. Lanes divide a queue when
   several branches share one working tree.
@@ -57,6 +58,14 @@ cargo install --git https://github.com/gustavofsantos/rvw rvw-cli
 Or, from a checkout, `make install`: an optimized build, installed with cargo
 to `~/.cargo/bin/rvw` (or `bin/rvw` under `PREFIX=/some/dir`) and stamped with
 `git describe`. Run it again to upgrade; `make uninstall` removes it.
+
+The queue's store moves to schema 2 the first time this version opens it. The
+v1 file is copied to `<db>.v1.bak` first, once. Older binaries refuse a schema 2
+database, so update `rvw`, the desktop app and the MCP server together:
+
+```sh
+ls ~/.local/share/rvw          # rvw.db, and rvw.db.v1.bak after the upgrade
+```
 
 On Linux the release archive and `install.sh` also install the desktop app
 (`rvw-gui`) with its icon and an application-menu entry under
@@ -94,7 +103,11 @@ Leave comments where you read the code:
 ```sh
 rvw add --file src/api.py --lines 40-58 --comment "extract this branch"
 rvw add --file src/api.py --lines 12 --comment "typo" --lane refactor-auth
+rvw add --file src/api.py --lines 40-58 --points-at src/old.py:12-20 --comment "moved from here"
 ```
+
+`--points-at FILE:N` or `FILE:N-M` names another range the note refers to, such
+as where moved code came from. The agent reads it along with the comment.
 
 Change your mind before the handoff:
 
@@ -132,6 +145,16 @@ rvw show r1                    # the comment, its resolution and the diff
 rvw show rv1                   # the whole review sheet
 ```
 
+A decision made after a handoff waits for a second reviewer. Accept it, which
+makes it final, or reopen it: the note becomes a pending follow-up on the same
+lane, file and range (`--lines` moves it), and the next pull hands it over.
+Nobody can judge their own decision.
+
+```sh
+rvw accept r1 --note "checked the new test" --author alice
+rvw reopen r2 --note "the rename missed api.py" --author alice
+```
+
 Keep an eye on it:
 
 ```sh
@@ -139,7 +162,18 @@ rvw list --status open         # raised, not yet decided
 rvw list --reviews             # submitted reviews and their state
 rvw count                      # pending handoffs, for a statusline
 rvw workspaces                 # every workspace with something pending
+rvw gate                       # open or unjudged comments, before a commit or push
 ```
+
+`rvw gate` only reports; it does not stop a commit. When you go ahead anyway,
+record it, with the reason:
+
+```sh
+rvw gate override --action commit --reason "reviewer is out until Monday"
+```
+
+The record keeps the reason and the ids that were open or unjudged at that
+moment. It is refused when the gate is clear, and nothing is deleted.
 
 Or skip the shell: `rvw mcp serve` exposes the same operations as MCP tools
 (see [MCP server](#mcp-server)).
@@ -211,7 +245,8 @@ rvw tui --lane refactor-auth --editor "code --wait"
 
 [Install the binary](#install), connect the MCP server, then install the
 plugin. The plugin adds an `rvw` skill that teaches Claude to pull the queue,
-act on each comment and resolve or reject it, through the rvw MCP tools.
+act on each comment and resolve or reject it, judge decisions, and check the
+gate before a commit, through the rvw MCP tools.
 
 ```
 /plugin marketplace add gustavofsantos/rvw
@@ -225,9 +260,14 @@ Connect the MCP server as described in [MCP server](#mcp-server) below
 
 Agents that prefer tool calls to shell commands can use rvw as an MCP server.
 Every operation is a tool: `add`, `submit`, `list`, `list_reviews`, `count`,
-`pull`, `show_comment`, `show_review`, `resolve`, `edit`, `remove` and
-`workspaces`, with
-typed JSON inputs and structured JSON results.
+`pull`, `show_comment`, `show_review`, `resolve`, `edit`, `remove`, `judge`,
+`gate`, `override_gate` and `workspaces`, with typed JSON inputs and structured
+JSON results.
+
+A verdict given through the server is recorded as `agent`, whatever `author`
+says: rvw records the surface a verdict came through, not an identity. The
+rvw skill leaves `override_gate` out of its tools, so an agent's gate override
+always asks the user first.
 
 `rvw mcp config` prints the command that registers the server with Claude Code,
 and the equivalent `.mcp.json` entry:

@@ -214,8 +214,8 @@ pub const REMOVE_EXAMPLE: &str = "  rvw remove r3
 pub const MCP_LONG: &str =
     "Serve the queue over the Model Context Protocol, for agents that prefer tool
 calls to shell commands. Every tool is one rvw operation: add, submit, list,
-list_reviews, count, pull, show_comment, show_review, resolve, edit, remove
-and workspaces. Each call names its workspace, so one server serves every project.
+list_reviews, count, pull, show_comment, show_review, resolve, edit, remove,
+judge, gate, override_gate and workspaces. Each call names its workspace, so one server serves every project.
 
 `rvw mcp config` prints how to register the server with Claude Code.";
 

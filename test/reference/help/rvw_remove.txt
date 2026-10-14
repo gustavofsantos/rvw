@@ -1,0 +1,19 @@
+Delete one review comment from the queue, for a note you wrote and want to
+retract. Only a pending comment that is not part of a submitted review can be
+removed: once it was pulled or decided it is on record, and once it is in a
+submitted review it travels with that review. Its id is not issued again.
+
+Usage:
+  rvw remove ID [flags]
+
+Examples:
+  rvw remove r3
+  rvw remove r3 --format json
+
+Flags:
+      --format string   output shape: text, json (default: text) (default "text")
+  -h, --help            help for remove
+
+Global Flags:
+      --db string          database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)
+      --workspace string   queue to act on: the git toplevel of this directory (default: $PWD)

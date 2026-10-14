@@ -13,11 +13,11 @@ bats test/rvw.bats              # CLI contract; builds its own binary
 make lint                       # clippy (-D warnings, pedantic) and rustfmt --check
 make fmt                        # cargo fmt --all
 make audit                      # cargo audit
-make check                      # lint, audit, cargo test and bats
+make check                      # lint, audit, cargo test, bats and the parity scripts
 make hooks                      # once per clone: pre-push runs make check
 bash scripts/setup-dev.sh       # toolchain, apt packages, cargo-audit; the web environment's setup script
-bash test/help-compare.sh       # --help of every command against test/reference/help
-bash test/mcp-compare.sh        # MCP tools/list against test/reference
+bash test/help-compare.sh       # --help of every command against rvw's own capture in test/reference/help; in make check
+bash test/mcp-compare.sh        # initialize and tools/list against rvw's own capture in test/reference; in make check (needs jq)
 ```
 
 Releases: push a `v*` tag. `.github/workflows/release.yml` runs CI, builds one
@@ -46,7 +46,8 @@ default database is the user's real queue.
   logic here.
 - `rvw-core` — the `Service`, the domain types, errors and the `Repository`
   trait. `operations.rs` holds the typed input/output of every operation.
-- `rvw-store` — SQLite (rusqlite, bundled). Schema in `src/schema.sql`.
+- `rvw-store` — SQLite (rusqlite, bundled). Schema in `src/schema.sql` (v1),
+  then `src/v2.sql`, applied after it to a new or an upgraded database.
 - `rvw-mcp` — MCP tools over the `Service` (rmcp). One tool per operation;
   its input and output are the operation types. No domain logic here either.
 - `rvw-tui` — the terminal UI (ratatui, syntect). A pure `Model` with
@@ -55,8 +56,8 @@ default database is the user's real queue.
   call. Golden screens live in `testdata/` and are compared byte for byte.
 - `rvw-render` (text/markdown/JSON output), `rvw-git` (git blobs for code
   snapshots and diffs, shelling out to `git`; workspace resolution).
-- `test/reference/` — the Go implementation's `--help` output and MCP tool
-  list, kept as fixtures for the parity scripts.
+- `test/reference/` — rvw's own `--help` output and MCP tool list, captured
+  from rvw, kept as fixtures for the parity scripts. The Go baseline is retired.
 
 ## Invariants
 
@@ -73,6 +74,8 @@ default database is the user's real queue.
   Do not add environment variables.
 - A pulled comment leaves the queue. Lane scoping is strict: a pinned pull
   never takes another lane's or an unlaned comment.
+- A verdict's actor is the surface it came through (MCP = agent, CLI/TUI/GUI =
+  human), never a field an adapter accepts.
 
 ## Conventions
 

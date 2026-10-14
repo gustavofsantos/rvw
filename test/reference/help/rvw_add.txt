@@ -11,6 +11,7 @@ Usage:
 Examples:
   rvw add --file src/api.py --lines 40-58 --comment "extract this branch"
   rvw add --file src/api.py --lines 12 --comment "typo" --format json
+  rvw add --file src/api.py --lines 40-58 --points-at src/old.py:12-20 --comment "moved from here"
   nvim-buffer | rvw add --file src/api.py --lines 40-58 --code-file - --comment "reads oddly"
   echo "long note" | rvw add --file a.py --lines 3-9
 
@@ -25,6 +26,7 @@ Flags:
   -h, --help                  help for add
       --lane string           branch/lane this comment belongs to
       --lines string          1-indexed, inclusive line range: N or N-M
+      --points-at string      another file range this note refers to: FILE:N or FILE:N-M
 
 Global Flags:
       --db string          database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)
