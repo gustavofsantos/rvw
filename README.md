@@ -260,3 +260,8 @@ git the server refuses to start. `--lane` and `--author` on
 - **Audit trail.** `rvw list --status done --format json` gives you every
   addressed comment with who resolved it and when. `rvw show` shows what
   changed.
+
+## Credits
+
+The GUI's icons are [Phosphor Icons](https://phosphoricons.com), MIT licensed;
+the licence is `crates/rvw-gui/assets/icons/LICENSE-phosphor`.

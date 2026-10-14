@@ -19,6 +19,7 @@ use crate::code_scroll;
 use crate::composer;
 use crate::diff_list::{ComposerSlot, Model};
 use crate::highlights;
+use crate::icon::{self, Icon};
 use crate::review_screen::LINE_HEIGHT;
 use crate::shell::Shell;
 use crate::theme;
@@ -279,11 +280,12 @@ fn thread(comment: &Comment, indent: Pixels, shell: &WeakEntity<Shell>) -> Div {
                 .text_color(theme::faint())
                 .child(format!("{} {lines}", comment.id)),
         )
-        .child(div().text_color(colour).child(format!(
-            "{} {}",
-            status_glyph(comment.status),
-            comment.status.as_str()
-        )));
+        .child(icon::labelled(
+            status_icon(comment.status),
+            icon::SIZE,
+            colour,
+            comment.status.as_str(),
+        ));
     if is_draft(comment) {
         meta = meta
             .child(div().flex_1())
@@ -342,12 +344,12 @@ fn status_colour(status: Status) -> Rgba {
     }
 }
 
-fn status_glyph(status: Status) -> &'static str {
+fn status_icon(status: Status) -> Icon {
     match status {
-        Status::Pending => "○",
-        Status::Pulled => "◐",
-        Status::Done => "✓",
-        Status::Rejected => "✗",
+        Status::Pending => Icon::Pending,
+        Status::Pulled => Icon::WithAgent,
+        Status::Done => Icon::Done,
+        Status::Rejected => Icon::Rejected,
     }
 }
 

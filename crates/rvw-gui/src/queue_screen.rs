@@ -13,6 +13,7 @@ use rvw_core::types::{Comment, Review, Status};
 use rvw_view::queue::{glyph_of, Filter, Group, Queue, Row, State};
 
 use crate::data::{NextPull, Snapshot};
+use crate::icon;
 use crate::shell::Shell;
 use crate::theme;
 
@@ -149,7 +150,7 @@ fn filter_row(
                 .font_weight(FontWeight::MEDIUM)
         })
         .on_click(on_click)
-        .child(div().w(px(14.)).text_center().child(glyph.to_owned()))
+        .child(icon::status(glyph, theme::muted()))
         .child(
             div()
                 .flex_1()
@@ -317,14 +318,7 @@ fn row_view(row: &Row, by_id: &HashMap<&str, &Comment>, cx: &Context<Shell>) -> 
         .border_color(theme::hairline())
         .cursor_pointer()
         .on_click(on_click)
-        .child(
-            div()
-                .w(px(14.))
-                .flex_none()
-                .text_center()
-                .text_color(glyph_colour)
-                .child(glyph),
-        )
+        .child(icon::status(glyph, glyph_colour).mt(px(2.)))
         .child(
             div()
                 .flex()

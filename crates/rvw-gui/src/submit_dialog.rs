@@ -11,6 +11,7 @@ use gpui::{
 use rvw_view::queue::{Filter, Row, State};
 
 use crate::data::Snapshot;
+use crate::icon;
 use crate::queue_screen::noun;
 use crate::shell::Shell;
 use crate::text_area::{TextArea, TextAreaEvent};
@@ -308,14 +309,7 @@ fn review_row(row: &Row) -> Div {
         .h(px(38.))
         .border_b_1()
         .border_color(theme::hairline())
-        .child(
-            div()
-                .w(px(14.))
-                .flex_none()
-                .text_center()
-                .text_color(theme::pending())
-                .child(row.state.glyph()),
-        )
+        .child(icon::status(row.state.glyph(), theme::pending()))
         .child(
             div()
                 .min_w(px(40.))

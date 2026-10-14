@@ -22,6 +22,7 @@ use rvw_view::selection::Pos;
 use crate::code_scroll;
 use crate::history_files::{is_uncommitted, starts_run};
 use crate::history_state::{BlameView, CompareView, DiffRow, HistoryState, OpenCommitFile, Source};
+use crate::icon::{self, Icon};
 use crate::review_screen::LINE_HEIGHT;
 use crate::shell::Shell;
 use crate::theme;
@@ -372,7 +373,11 @@ fn blame_back_link(cx: &Context<Shell>) -> Stateful<Div> {
         .font_weight(FontWeight::MEDIUM)
         .text_color(theme::ink())
         .cursor_pointer()
-        .child("\u{2190} Commits")
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .child(icon::view(Icon::Back, icon::SIZE, theme::ink()))
+        .child("Commits")
         .on_click(cx.listener(
             |this: &mut Shell, _: &ClickEvent, window: &mut Window, cx: &mut Context<Shell>| {
                 this.close_blame(cx);
@@ -593,7 +598,11 @@ fn back_link(cx: &Context<Shell>) -> Stateful<Div> {
         .font_weight(FontWeight::MEDIUM)
         .text_color(theme::ink())
         .cursor_pointer()
-        .child("\u{2190} Commits")
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .child(icon::view(Icon::Back, icon::SIZE, theme::ink()))
+        .child("Commits")
         .on_click(cx.listener(
             |this: &mut Shell, _: &ClickEvent, window: &mut Window, cx: &mut Context<Shell>| {
                 this.close_commit_file(cx);

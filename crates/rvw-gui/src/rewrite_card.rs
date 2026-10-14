@@ -12,6 +12,7 @@ use rvw_git::rewrite::{self, Action, End, Planned};
 use rvw_view::keys::Screen;
 
 use crate::git_tools::last_line;
+use crate::icon::{self, Icon};
 use crate::queue_screen::noun;
 use crate::shell::Shell;
 use crate::text_area::{TextArea, TextAreaEvent};
@@ -589,10 +590,13 @@ fn commit_row(commit: &LogEntry, choice: &Choice, highlighted: bool) -> Div {
     }
     if matches!(choice, Choice::Squash(_)) {
         details = details.child(
-            div()
-                .text_size(px(12.))
-                .text_color(theme::faint())
-                .child("\u{2193} into the commit below"),
+            icon::labelled(
+                Icon::Into,
+                icon::SMALL,
+                theme::faint(),
+                "into the commit below",
+            )
+            .text_size(px(12.)),
         );
     }
     let word = div().w(px(64.)).flex_none().child(choice_word(choice));

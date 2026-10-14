@@ -12,6 +12,7 @@ use rvw_view::changes::Compare;
 use rvw_view::compare_menu::Item;
 
 use crate::data::Snapshot;
+use crate::icon::{self, Icon};
 use crate::shell::Shell;
 use crate::theme;
 
@@ -84,7 +85,13 @@ pub fn chip(snapshot: &Snapshot, menu: Option<&CompareMenu>, cx: &Context<Shell>
                 this.toggle_compare_menu(cx);
             },
         ))
-        .child(format!("compared with {name} \u{25be}"));
+        .gap(px(4.))
+        .child(format!("compared with {name}"))
+        .child(icon::view(
+            Icon::Expanded,
+            icon::SMALL,
+            if open { theme::ink() } else { theme::muted() },
+        ));
     let mut wrapper = div().relative().child(button);
     if let Some(menu) = menu {
         wrapper = wrapper.child(deferred(
@@ -159,12 +166,13 @@ fn row(index: usize, item: &Item, cx: &Context<Shell>) -> impl IntoElement {
         .px(px(8.))
         .rounded(theme::ROW_RADIUS)
         .text_color(if usable { theme::ink() } else { theme::faint() })
-        .child(
-            div()
-                .w(px(14.))
-                .flex_none()
-                .child(if item.current { "\u{2713}" } else { "" }),
-        )
+        .child(div().w(icon::SIZE).flex_none().when(item.current, |d| {
+            d.child(icon::view(
+                Icon::Done,
+                icon::SIZE,
+                if usable { theme::ink() } else { theme::faint() },
+            ))
+        }))
         .child(div().flex_none().child(item.label))
         .child(
             div()

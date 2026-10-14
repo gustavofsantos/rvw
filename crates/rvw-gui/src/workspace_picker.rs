@@ -18,6 +18,7 @@ use rvw_view::branches::{self, Hit};
 use rvw_view::workspaces::{self, Item};
 
 use crate::data::{self, Identity};
+use crate::icon::{self, Icon};
 use crate::last_workspace;
 use crate::seen::Seen;
 use crate::shell::Shell;
@@ -379,18 +380,20 @@ fn workspace_row(
         .gap(px(12.))
         .text_size(px(theme::KEY_FONT_SIZE));
     if item.pending > 0 {
-        counts = counts.child(
-            div()
-                .text_color(theme::pending())
-                .child(format!("○ {} pending", item.pending)),
-        );
+        counts = counts.child(icon::labelled(
+            Icon::Pending,
+            icon::SMALL,
+            theme::pending(),
+            format!("{} pending", item.pending),
+        ));
     }
     if item.pulled > 0 {
-        counts = counts.child(
-            div()
-                .text_color(theme::agent())
-                .child(format!("◐ {} with the agent", item.pulled)),
-        );
+        counts = counts.child(icon::labelled(
+            Icon::WithAgent,
+            icon::SMALL,
+            theme::agent(),
+            format!("{} with the agent", item.pulled),
+        ));
     }
     row_frame(SharedString::from(format!("workspace-{row}")), highlighted)
         .on_click(cx.listener(

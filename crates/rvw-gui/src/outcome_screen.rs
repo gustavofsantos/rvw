@@ -15,6 +15,7 @@ use rvw_view::outcome::{self, Moment, Story};
 use rvw_view::queue::{glyph_of, Row, State};
 
 use crate::data::Snapshot;
+use crate::icon::{self, Icon};
 use crate::outcome_story::{code_block, diff_block};
 use crate::shell::Shell;
 use crate::theme;
@@ -96,7 +97,9 @@ fn back_link(cx: &Context<Shell>) -> Stateful<Div> {
         .mb(px(12.))
         .rounded(theme::ROW_RADIUS)
         .text_color(theme::muted())
-        .child("← Back")
+        .gap(px(6.))
+        .child(icon::view(Icon::Back, icon::SIZE, theme::muted()))
+        .child("Back")
         .on_click(cx.listener(
             |this: &mut Shell, _: &ClickEvent, _: &mut Window, cx: &mut Context<Shell>| {
                 this.close_outcome(cx);
@@ -135,14 +138,7 @@ fn list_row(
                 .font_weight(FontWeight::MEDIUM)
         })
         .on_click(on_click)
-        .child(
-            div()
-                .w(px(14.))
-                .flex_none()
-                .text_center()
-                .text_color(glyph_colour(row.state, comment))
-                .child(glyph),
-        )
+        .child(icon::status(glyph, glyph_colour(row.state, comment)))
         .child(
             div()
                 .flex_none()
@@ -219,11 +215,10 @@ fn header(story: &Story) -> Div {
                         .text_color(theme::muted())
                         .child(story.location.clone()),
                 )
-                .child(
-                    div()
-                        .text_color(status_colour(story.status))
-                        .child(status_line(story)),
-                ),
+                .child({
+                    let (icon, text) = status_line(story);
+                    icon::labelled(icon, icon::SIZE, status_colour(story.status), text)
+                }),
         )
 }
 
@@ -236,14 +231,13 @@ fn status_colour(status: Status) -> Rgba {
     }
 }
 
-fn status_line(story: &Story) -> String {
-    let (glyph, text) = match story.status {
-        Status::Pending => ("○", "not yet taken".to_owned()),
-        Status::Pulled => ("◐", "with an agent".to_owned()),
-        Status::Done => ("✓", format!("done by {}", story.resolved_by)),
-        Status::Rejected => ("✗", format!("rejected by {}", story.resolved_by)),
-    };
-    format!("{glyph} {text}")
+fn status_line(story: &Story) -> (Icon, String) {
+    match story.status {
+        Status::Pending => (Icon::Pending, "not yet taken".to_owned()),
+        Status::Pulled => (Icon::WithAgent, "with an agent".to_owned()),
+        Status::Done => (Icon::Done, format!("done by {}", story.resolved_by)),
+        Status::Rejected => (Icon::Rejected, format!("rejected by {}", story.resolved_by)),
+    }
 }
 
 /// Whether a decision was recorded, so steps 3 and 4 have something to show.
@@ -418,13 +412,7 @@ fn moment_row(moment: &Moment) -> Div {
         .flex()
         .items_center()
         .gap(px(10.))
-        .child(
-            div()
-                .w(px(20.))
-                .flex_none()
-                .text_color(colour)
-                .child(moment.glyph),
-        )
+        .child(icon::status(moment.glyph, colour))
         .child(
             div()
                 .flex_1()

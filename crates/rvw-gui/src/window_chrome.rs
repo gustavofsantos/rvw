@@ -5,11 +5,12 @@
 
 use gpui::prelude::*;
 use gpui::{
-    canvas, div, point, px, svg, AnyView, App, Bounds, CursorStyle, Decorations, DispatchPhase,
-    Div, HitboxBehavior, MouseButton, MouseDownEvent, Pixels, Point, ResizeEdge, Rgba, Size,
-    Stateful, Tiling, Window, WindowControlArea,
+    canvas, div, point, px, AnyView, App, Bounds, CursorStyle, Decorations, DispatchPhase, Div,
+    HitboxBehavior, MouseButton, MouseDownEvent, Pixels, Point, ResizeEdge, Rgba, Size, Stateful,
+    Tiling, Window, WindowControlArea,
 };
 
+use crate::icon::{self, Icon};
 use crate::theme;
 
 /// Width of the invisible resize band along each edge.
@@ -17,7 +18,6 @@ const RESIZE_BAND: Pixels = px(6.);
 /// Side of the square at each corner that resizes both ways.
 const RESIZE_CORNER: Pixels = px(12.);
 const CONTROL_SIZE: Pixels = px(28.);
-const ICON_SIZE: Pixels = px(14.);
 
 /// The card a hint shows in: a small paper-coloured tooltip.
 struct HintCard {
@@ -48,12 +48,12 @@ pub enum Control {
 }
 
 impl Control {
-    fn icon(self) -> &'static str {
+    fn icon(self) -> Icon {
         match self {
-            Self::Minimize => "icons/window-minimize.svg",
-            Self::Maximize => "icons/window-maximize.svg",
-            Self::Restore => "icons/window-restore.svg",
-            Self::Close => "icons/window-close.svg",
+            Self::Minimize => Icon::Minimize,
+            Self::Maximize => Icon::Maximize,
+            Self::Restore => Icon::Restore,
+            Self::Close => Icon::Close,
         }
     }
 
@@ -326,7 +326,7 @@ fn control_button(control: Control) -> Stateful<Div> {
         .tooltip(move |_: &mut Window, cx: &mut App| -> AnyView {
             cx.new(|_| HintCard { text: label }).into()
         })
-        .child(svg().path(control.icon()).size(ICON_SIZE).text_color(ink))
+        .child(icon::view(control.icon(), icon::SIZE, ink))
 }
 
 #[cfg(test)]

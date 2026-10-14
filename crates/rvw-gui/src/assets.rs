@@ -1,47 +1,44 @@
-//! The bundled assets: the rail's line icons, embedded in the binary so the
+//! The bundled assets: the Phosphor icons, embedded in the binary so the
 //! window never reads a file from disk at runtime.
 
 use std::borrow::Cow;
 
 use gpui::{AssetSource, Result, SharedString};
 
-const ICONS: &[(&str, &[u8])] = &[
-    (
-        "icons/queue.svg",
-        include_bytes!("../assets/icons/queue.svg"),
-    ),
-    (
-        "icons/review.svg",
-        include_bytes!("../assets/icons/review.svg"),
-    ),
-    (
-        "icons/changes.svg",
-        include_bytes!("../assets/icons/changes.svg"),
-    ),
-    (
-        "icons/history.svg",
-        include_bytes!("../assets/icons/history.svg"),
-    ),
-    (
-        "icons/branches.svg",
-        include_bytes!("../assets/icons/branches.svg"),
-    ),
-    (
-        "icons/window-minimize.svg",
-        include_bytes!("../assets/icons/window-minimize.svg"),
-    ),
-    (
-        "icons/window-maximize.svg",
-        include_bytes!("../assets/icons/window-maximize.svg"),
-    ),
-    (
-        "icons/window-restore.svg",
-        include_bytes!("../assets/icons/window-restore.svg"),
-    ),
-    (
-        "icons/window-close.svg",
-        include_bytes!("../assets/icons/window-close.svg"),
-    ),
+/// Embeds `assets/icons/<name>.svg` as `("icons/<name>.svg", bytes)`.
+macro_rules! icons {
+    ($($name:literal),* $(,)?) => {
+        &[$((
+            concat!("icons/", $name, ".svg"),
+            include_bytes!(concat!("../assets/icons/", $name, ".svg")) as &[u8],
+        )),*]
+    };
+}
+
+const ICONS: &[(&str, &[u8])] = icons![
+    "list-checks",
+    "list-checks-fill",
+    "chat-text",
+    "chat-text-fill",
+    "git-diff",
+    "git-diff-fill",
+    "clock-counter-clockwise",
+    "clock-counter-clockwise-fill",
+    "git-branch",
+    "circle",
+    "circle-half",
+    "check",
+    "x",
+    "plus",
+    "caret-down",
+    "caret-right",
+    "arrow-left",
+    "arrow-up",
+    "arrow-down",
+    "check-square",
+    "square",
+    "minus",
+    "copy",
 ];
 
 pub struct Assets;
@@ -77,10 +74,10 @@ mod tests {
     }
 
     #[test]
-    fn the_window_control_icons_are_bundled() {
-        for name in ["minimize", "maximize", "restore", "close"] {
-            let path = format!("icons/window-{name}.svg");
-            assert!(Assets.load(&path).unwrap().is_some(), "{path} missing");
+    fn every_named_icon_is_bundled() {
+        for icon in crate::icon::Icon::ALL {
+            let path = icon.path();
+            assert!(Assets.load(path).unwrap().is_some(), "{path} missing");
         }
     }
 }

@@ -4,13 +4,14 @@
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, svg, AnyElement, ClickEvent, Context, Div, FontWeight, Pixels, Rgba, Stateful, Window,
+    div, px, AnyElement, ClickEvent, Context, Div, FontWeight, Pixels, Rgba, Stateful, Window,
 };
 use rvw_view::keys::Screen;
 
 use crate::compare_picker::{self, CompareMenu};
 use crate::data::Snapshot;
 use crate::git_tools::GitTools;
+use crate::icon::{self, Icon};
 use crate::shell::Shell;
 use crate::theme;
 use crate::window_chrome;
@@ -84,11 +85,13 @@ pub fn top_bar(
                 .gap(px(16.))
                 .child(waiting_counter(counters.waiting_on_you))
                 .child(counter(
-                    format!("◐ {} with claude", counters.with_agent),
+                    Icon::WithAgent,
+                    format!("{} with claude", counters.with_agent),
                     theme::agent(),
                 ))
                 .child(counter(
-                    format!("○ {} in draft", counters.draft),
+                    Icon::Pending,
+                    format!("{} in draft", counters.draft),
                     theme::pending(),
                 )),
         ))
@@ -102,13 +105,18 @@ pub fn top_bar(
 fn git_status(git: &GitTools) -> Option<Div> {
     let facts = &git.facts;
     let mut parts: Vec<Div> = Vec::new();
-    if let Some(text) = ahead_behind_text(facts.ahead_behind) {
+    let sides = ahead_behind_sides(facts.ahead_behind);
+    if !sides.is_empty() {
         parts.push(
             div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
                 .font_family(theme::code_font())
                 .text_size(px(theme::CODE_FONT_SIZE))
-                .text_color(theme::muted())
-                .child(text),
+                .children(sides.into_iter().map(|(icon, count)| {
+                    icon::labelled(icon, icon::SMALL, theme::muted(), count.to_string())
+                })),
         );
     }
     if facts.upstream.is_none() && facts.branch.is_some() && facts.remote.is_some() {
@@ -131,18 +139,17 @@ fn git_status(git: &GitTools) -> Option<Div> {
     Some(div().flex().items_center().gap(px(12.)).children(parts))
 }
 
-/// "↑2 ↓3" for a branch two commits ahead and three behind its upstream. A
-/// zero side is left out; None when the branch is level or has no upstream.
-fn ahead_behind_text(ahead_behind: Option<(usize, usize)>) -> Option<String> {
-    let (ahead, behind) = ahead_behind?;
-    let mut parts = Vec::new();
-    if ahead > 0 {
-        parts.push(format!("\u{2191}{ahead}"));
-    }
-    if behind > 0 {
-        parts.push(format!("\u{2193}{behind}"));
-    }
-    (!parts.is_empty()).then(|| parts.join(" "))
+/// The sides to show for a branch two commits ahead and three behind its
+/// upstream: an up arrow with 2 and a down arrow with 3. A zero side is left
+/// out; empty when the branch is level or has no upstream.
+fn ahead_behind_sides(ahead_behind: Option<(usize, usize)>) -> Vec<(Icon, usize)> {
+    let Some((ahead, behind)) = ahead_behind else {
+        return Vec::new();
+    };
+    [(Icon::Ahead, ahead), (Icon::Behind, behind)]
+        .into_iter()
+        .filter(|&(_, count)| count > 0)
+        .collect()
 }
 
 /// The branch name; a click opens the branch picker, as the rail's B does.
@@ -204,8 +211,8 @@ fn waiting_counter(count: usize) -> Div {
         )
 }
 
-fn counter(label: String, color: Rgba) -> Div {
-    div().text_color(color).child(label)
+fn counter(icon: Icon, label: String, color: Rgba) -> Div {
+    icon::labelled(icon, icon::SMALL, color, label)
 }
 
 /// What a rail icon does.
@@ -216,14 +223,35 @@ enum RailTarget {
 }
 
 /// The rail's five icons. Queue, Review, Changes and History open their
-/// screens, Branches the branch picker. The ids are the old letters.
+/// screens, Branches the branch picker. The ids are the old letters. The
+/// active screen's icon is the filled weight.
 pub fn rail(screen: Screen, cx: &mut Context<Shell>) -> Div {
     let items = [
-        ("Q", "icons/queue.svg", RailTarget::Show(Screen::Queue)),
-        ("R", "icons/review.svg", RailTarget::Show(Screen::Diff)),
-        ("C", "icons/changes.svg", RailTarget::Show(Screen::Changes)),
-        ("H", "icons/history.svg", RailTarget::Show(Screen::History)),
-        ("B", "icons/branches.svg", RailTarget::Branches),
+        (
+            "Q",
+            Icon::Queue,
+            Icon::QueueFill,
+            RailTarget::Show(Screen::Queue),
+        ),
+        (
+            "R",
+            Icon::Review,
+            Icon::ReviewFill,
+            RailTarget::Show(Screen::Diff),
+        ),
+        (
+            "C",
+            Icon::Changes,
+            Icon::ChangesFill,
+            RailTarget::Show(Screen::Changes),
+        ),
+        (
+            "H",
+            Icon::History,
+            Icon::HistoryFill,
+            RailTarget::Show(Screen::History),
+        ),
+        ("B", Icon::Branches, Icon::Branches, RailTarget::Branches),
     ];
     div()
         .flex()
@@ -236,7 +264,7 @@ pub fn rail(screen: Screen, cx: &mut Context<Shell>) -> Div {
         .bg(theme::panel())
         .border_r_1()
         .border_color(theme::hairline())
-        .children(items.map(|(id, icon, target)| {
+        .children(items.map(|(id, regular, fill, target)| {
             let active = matches!(target, RailTarget::Show(s) if s == screen);
             div()
                 .id(id)
@@ -260,11 +288,11 @@ pub fn rail(screen: Screen, cx: &mut Context<Shell>) -> Div {
                         },
                     ))
                 })
-                .child(svg().path(icon).size(px(18.)).text_color(if active {
-                    theme::ink()
-                } else {
-                    theme::faint()
-                }))
+                .child(icon::view(
+                    if active { fill } else { regular },
+                    icon::RAIL_SIZE,
+                    if active { theme::ink() } else { theme::faint() },
+                ))
         }))
 }
 
@@ -290,14 +318,18 @@ fn side(width: Pixels, side: Side, content: Div) -> Div {
 
 #[cfg(test)]
 mod tests {
-    use super::ahead_behind_text;
+    use super::ahead_behind_sides;
+    use crate::icon::Icon;
 
     #[test]
     fn ahead_and_behind_name_only_the_sides_that_differ() {
-        assert_eq!(ahead_behind_text(None), None);
-        assert_eq!(ahead_behind_text(Some((0, 0))), None);
-        assert_eq!(ahead_behind_text(Some((2, 0))).as_deref(), Some("↑2"));
-        assert_eq!(ahead_behind_text(Some((0, 3))).as_deref(), Some("↓3"));
-        assert_eq!(ahead_behind_text(Some((2, 3))).as_deref(), Some("↑2 ↓3"));
+        assert!(ahead_behind_sides(None).is_empty());
+        assert!(ahead_behind_sides(Some((0, 0))).is_empty());
+        assert_eq!(ahead_behind_sides(Some((2, 0))), [(Icon::Ahead, 2)]);
+        assert_eq!(ahead_behind_sides(Some((0, 3))), [(Icon::Behind, 3)]);
+        assert_eq!(
+            ahead_behind_sides(Some((2, 3))),
+            [(Icon::Ahead, 2), (Icon::Behind, 3)]
+        );
     }
 }

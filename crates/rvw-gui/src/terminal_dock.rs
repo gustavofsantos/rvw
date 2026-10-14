@@ -24,6 +24,7 @@ use gpui::{
 use rvw_term::{Color, CursorKind, Event, Scroll, Snapshot, SpawnOptions, Terminal, UrlMatch};
 use rvw_view::terminals::{Launch, TerminalId, Terminals};
 
+use crate::icon::{self, Icon};
 use crate::terminal_grid::{self, Layout, Run, Width};
 use crate::terminal_input::{translate, Translated};
 use crate::terminal_mouse::PointerState;
@@ -706,11 +707,13 @@ impl TerminalView {
             let close = div()
                 .id(("close-tab", index))
                 .px(px(4.))
+                .flex()
+                .items_center()
                 .rounded(theme::CONTROL_RADIUS)
                 .text_color(theme::muted())
                 .hover(|style| style.bg(theme::hairline()))
                 .cursor_pointer()
-                .child("\u{00d7}")
+                .child(icon::view(Icon::Close, icon::SMALL, theme::muted()))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(move |this: &mut Self, _, _, cx| {
                     this.close_tab(id, cx);
@@ -753,7 +756,7 @@ impl TerminalView {
             .text_color(theme::muted())
             .hover(|style| style.bg(theme::hairline()))
             .cursor_pointer()
-            .child("+")
+            .child(icon::view(Icon::Add, icon::SIZE, theme::muted()))
             .on_click(|_, window, cx| window.dispatch_action(Box::new(NewTerminal), cx));
         let program = self
             .snapshot()

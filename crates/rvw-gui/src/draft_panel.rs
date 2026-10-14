@@ -7,6 +7,7 @@ use rvw_view::queue::Row;
 
 use crate::data::Snapshot;
 use crate::draft_edit::Removal;
+use crate::icon;
 use crate::shell::Shell;
 use crate::submit_dialog;
 use crate::theme;
@@ -96,14 +97,7 @@ fn draft_row(row: &Row, cx: &Context<Shell>) -> Stateful<Div> {
         .py(px(10.))
         .border_b_1()
         .border_color(theme::hairline())
-        .child(
-            div()
-                .w(px(14.))
-                .flex_none()
-                .text_center()
-                .text_color(theme::pending())
-                .child(row.state.glyph()),
-        )
+        .child(icon::status(row.state.glyph(), theme::pending()).mt(px(2.)))
         .child(
             div()
                 .flex_1()

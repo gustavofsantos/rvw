@@ -28,6 +28,7 @@ mod history_actions;
 mod history_files;
 mod history_screen;
 mod history_state;
+mod icon;
 mod last_workspace;
 mod live;
 mod outcome_flow;

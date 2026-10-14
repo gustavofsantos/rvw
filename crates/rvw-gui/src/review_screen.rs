@@ -22,6 +22,7 @@ use rvw_view::viewmode::ViewMode;
 use crate::data::{self, Snapshot};
 use crate::diff_list::DiffList;
 use crate::diff_view::range_text;
+use crate::icon::{self, Icon};
 use crate::queue_screen::noun;
 use crate::shell::Shell;
 use crate::theme;
@@ -243,11 +244,14 @@ fn file_row(
         )
         .when(file.open_comments > 0, |d| {
             d.child(
-                div()
-                    .flex_none()
-                    .font_weight(FontWeight::NORMAL)
-                    .text_color(theme::pending())
-                    .child(format!("○ {}", file.open_comments)),
+                icon::labelled(
+                    Icon::Pending,
+                    icon::SMALL,
+                    theme::pending(),
+                    file.open_comments.to_string(),
+                )
+                .flex_none()
+                .font_weight(FontWeight::NORMAL),
             )
         })
 }

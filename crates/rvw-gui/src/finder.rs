@@ -11,6 +11,7 @@ use rvw_view::files::Marks;
 use rvw_view::finder::{self as picker, Hit};
 use rvw_view::keys::Screen;
 
+use crate::icon::{self, Icon};
 use crate::shell::Shell;
 use crate::text_input::{TextInput, TextInputEvent};
 use crate::theme;
@@ -268,10 +269,13 @@ fn hit_row(index: usize, hit: &Hit, highlighted: bool, cx: &Context<Shell>) -> S
         .child(label);
     if hit.mark.open_comments > 0 {
         row = row.child(
-            div()
-                .flex_none()
-                .text_color(theme::pending())
-                .child(format!("○ {}", hit.mark.open_comments)),
+            icon::labelled(
+                Icon::Pending,
+                icon::SMALL,
+                theme::pending(),
+                hit.mark.open_comments.to_string(),
+            )
+            .flex_none(),
         );
     }
     row

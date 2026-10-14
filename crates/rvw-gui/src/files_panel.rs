@@ -15,6 +15,7 @@ use rvw_view::keys::Screen;
 use rvw_view::nav;
 use rvw_view::tree::{self, build_tree, NodeId, Row, Tree};
 
+use crate::icon::{self, Icon};
 use crate::review_screen;
 use crate::shell::Shell;
 use crate::theme;
@@ -124,14 +125,15 @@ fn tree_row(
             .rounded(theme::ROW_RADIUS)
             .text_color(theme::text())
             .on_click(on_click)
-            .child(
-                div()
-                    .w(px(10.))
-                    .flex_none()
-                    .text_size(px(10.))
-                    .text_color(theme::faint())
-                    .child(if node.expanded { "▾" } else { "▸" }),
-            )
+            .child(icon::view(
+                if node.expanded {
+                    Icon::Expanded
+                } else {
+                    Icon::Collapsed
+                },
+                icon::SMALL,
+                theme::faint(),
+            ))
             .child(
                 div()
                     .flex_1()
@@ -186,10 +188,13 @@ fn tree_row(
         )
         .when(mark.open_comments > 0, |d| {
             d.child(
-                div()
-                    .flex_none()
-                    .text_color(theme::pending())
-                    .child(format!("○ {}", mark.open_comments)),
+                icon::labelled(
+                    Icon::Pending,
+                    icon::SMALL,
+                    theme::pending(),
+                    mark.open_comments.to_string(),
+                )
+                .flex_none(),
             )
         })
         .into_any_element()

@@ -22,6 +22,7 @@ use crate::changes_state::{ChangesState, DiffRow, ListRow, OpenChange};
 use crate::code_scroll;
 use crate::git_tools::RepoFacts;
 use crate::history_actions::operation_name;
+use crate::icon::{self, Icon};
 use crate::queue_screen::noun;
 use crate::review_screen::LINE_HEIGHT;
 use crate::shell::Shell;
@@ -174,11 +175,14 @@ fn file_row(entry: &Entry, side: Side, selected: bool, cx: &Context<Shell>) -> A
         )
         .when(entry.open_comments > 0, |d| {
             d.child(
-                div()
-                    .flex_none()
-                    .font_weight(FontWeight::NORMAL)
-                    .text_color(theme::pending())
-                    .child(format!("○ {}", entry.open_comments)),
+                icon::labelled(
+                    Icon::Pending,
+                    icon::SMALL,
+                    theme::pending(),
+                    entry.open_comments.to_string(),
+                )
+                .flex_none()
+                .font_weight(FontWeight::NORMAL),
             )
         })
         .into_any_element()
@@ -396,11 +400,14 @@ fn hunk_row(
             "open comments touch this hunk",
         );
         row = row.child(
-            div()
-                .flex_none()
-                .text_size(px(12.))
-                .text_color(theme::pending())
-                .child(format!("○ {touching} {words}")),
+            icon::labelled(
+                Icon::Pending,
+                icon::SMALL,
+                theme::pending(),
+                format!("{touching} {words}"),
+            )
+            .flex_none()
+            .text_size(px(12.)),
         );
     }
     if !open.whole_file_only {
@@ -691,7 +698,7 @@ fn open_comment_notice(text: String) -> Div {
         .flex()
         .gap(px(8.))
         .text_color(theme::muted())
-        .child(div().flex_none().text_color(theme::pending()).child("○"))
+        .child(icon::view(Icon::Pending, icon::SIZE, theme::pending()))
         .child(div().flex_1().min_w(px(0.)).child(text))
 }
 
@@ -712,13 +719,25 @@ fn message_box(message: &Entity<TextArea>) -> Div {
 /// HEAD is pushed; the hint says why when it is pushed.
 fn amend_row(state: &ChangesState, cx: &Context<Shell>) -> Div {
     let enabled = state.has_head && !state.head_pushed;
-    let glyph = if state.amend { "☑" } else { "☐" };
+    let box_icon = if state.amend {
+        Icon::Checked
+    } else {
+        Icon::Unchecked
+    };
     let mut line = div()
         .id("changes-amend")
         .flex()
         .items_center()
         .gap(px(8.))
-        .child(glyph)
+        .child(icon::view(
+            box_icon,
+            icon::SIZE,
+            if enabled {
+                theme::ink()
+            } else {
+                theme::faint()
+            },
+        ))
         .child("Amend the last commit");
     if enabled {
         line = line
