@@ -112,6 +112,12 @@ pub struct Shell {
     pub(crate) history: HistoryState,
     /// The open history edit card, if any.
     pub(crate) rewrite: Option<crate::rewrite_card::RewriteCard>,
+    /// The commit gate's card, while a commit, amend or push waits on it.
+    pub(crate) gate: Option<crate::gate_card::GateCard>,
+    /// The reason typed in the gate card last, kept for the session.
+    pub(crate) gate_reason: String,
+    /// Numbers the gate's reads and overrides; see `gate_card`.
+    pub(crate) gate_requests: u64,
     /// The terminal dock's terminal, created the first time it is shown.
     pub(crate) terminal: Option<Entity<TerminalView>>,
     /// The new-terminal palette (⌘T), when open.
@@ -133,6 +139,25 @@ pub struct Shell {
 }
 
 impl Shell {
+    /// Whether no text field wants the keyboard, so the shell holds the focus.
+    fn no_field_open(&self, window: &Window, cx: &Context<Self>) -> bool {
+        self.composer.is_none()
+            && self.submit.is_none()
+            && self.finder.is_none()
+            && self.launcher.is_none()
+            && !self.tools.field_open()
+            && self.git.ask.is_none()
+            && self.rewrite.as_ref().is_none_or(|card| !card.editing())
+            && self.gate.as_ref().is_none_or(|card| !card.editing())
+            && !self.message_focused(window, cx)
+            && !self.terminal_focused(window, cx)
+    }
+
+    /// Whether a modal card (the history edit or the commit gate) is open.
+    fn card_open(&self) -> bool {
+        self.rewrite.is_some() || self.gate.is_some()
+    }
+
     /// Opens on the review screen when the workspace has changes, with its
     /// first file selected; otherwise on the queue.
     pub fn new(
@@ -196,6 +221,9 @@ impl Shell {
             changes: ChangesState::default(),
             history: HistoryState::default(),
             rewrite: None,
+            gate: None,
+            gate_reason: String::new(),
+            gate_requests: 0,
             git: GitTools {
                 facts,
                 ..GitTools::default()
@@ -486,7 +514,8 @@ impl Shell {
             }
             return;
         }
-        if self.rewrite_key(event, window, cx)
+        if self.gate_key(event, cx)
+            || self.rewrite_key(event, window, cx)
             || self.restore_key(event, cx)
             || self.git_ask_key(event, cx)
         {
@@ -602,15 +631,8 @@ impl Render for Shell {
         // With no field open, the shell holds the focus so that C reaches it.
         // The restore confirmation is modal and has no field, so it always
         // takes the keyboard to the shell, from the commit message too.
-        let no_field = self.composer.is_none()
-            && self.submit.is_none()
-            && self.finder.is_none()
-            && self.launcher.is_none()
-            && !self.tools.field_open()
-            && self.git.ask.is_none()
-            && self.rewrite.as_ref().is_none_or(|card| !card.editing())
-            && !self.message_focused(window, cx)
-            && !self.terminal_focused(window, cx);
+        let no_field = self.no_field_open(window, cx);
+        self.focus_gate(window, cx);
         if (no_field || self.git.confirm.is_some()) && !self.focus.is_focused(window) {
             self.focus.focus(window);
         }
@@ -648,8 +670,8 @@ impl Render for Shell {
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key))
             .on_action(cx.listener(|this: &mut Self, _: &OpenSubmit, window, cx| {
-                // The history edit card is modal.
-                if this.rewrite.is_some() {
+                // The history edit card and the commit gate's card are modal.
+                if this.card_open() {
                     return;
                 }
                 // ⇧⌘R opens the dialog, and submits it when it is already open.
@@ -660,23 +682,23 @@ impl Render for Shell {
                 }
             }))
             .on_action(cx.listener(|this: &mut Self, _: &OpenFinder, window, cx| {
-                // The history edit card is modal.
-                if this.rewrite.is_some() {
+                // The history edit card and the commit gate's card are modal.
+                if this.card_open() {
                     return;
                 }
                 this.open_finder(window, cx);
             }))
             .on_action(cx.listener(|this: &mut Self, _: &OpenPalette, window, cx| {
-                // The history edit card is modal.
-                if this.rewrite.is_some() {
+                // The history edit card and the commit gate's card are modal.
+                if this.card_open() {
                     return;
                 }
                 this.open_palette(window, cx);
             }))
             .on_action(
                 cx.listener(|this: &mut Self, _: &OpenWorkspaces, window, cx| {
-                    // The history edit card is modal.
-                    if this.rewrite.is_some() {
+                    // The history edit card and the commit gate's card are modal.
+                    if this.card_open() {
                         return;
                     }
                     this.open_workspaces(window, cx);
@@ -708,6 +730,7 @@ impl Render for Shell {
             )
             .children(self.tool_overlays(cx))
             .children(self.rewrite_overlay(cx))
+            .children(self.gate_overlay(cx))
             .children(resize_layer)
     }
 }

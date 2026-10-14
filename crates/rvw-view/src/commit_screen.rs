@@ -362,6 +362,43 @@ pub fn gate_confirm_label(action: GateAction) -> String {
     format!("{} anyway", action.verb())
 }
 
+/// The card's title: "Before you commit", "Before you amend", "Before you push".
+#[must_use]
+pub fn gate_title(action: GateAction) -> String {
+    format!("Before you {}", action.verb().to_lowercase())
+}
+
+/// The id lines a gate card lists: "Still open: r1 r2" and "Decided, no
+/// verdict: r3". A line is left out when its list is empty.
+#[must_use]
+pub fn gate_id_lines(open: &[String], unjudged: &[String]) -> Vec<String> {
+    let mut lines = Vec::new();
+    if !open.is_empty() {
+        lines.push(format!("Still open: {}", open.join(" ")));
+    }
+    if !unjudged.is_empty() {
+        lines.push(format!("Decided, no verdict: {}", unjudged.join(" ")));
+    }
+    lines
+}
+
+/// Whether the card's confirm button goes ahead: a reason is typed, and an
+/// author is set to record it under.
+#[must_use]
+pub fn gate_confirm_ready(reason: &str, author: &str) -> bool {
+    gate_reason_ok(reason) && !author.trim().is_empty()
+}
+
+/// The line that says an author must be set to override the gate; `None`
+/// when one is set.
+#[must_use]
+pub fn gate_author_note(author: &str) -> Option<&'static str> {
+    author
+        .trim()
+        .is_empty()
+        .then_some("set --author to override the gate")
+}
+
 /// J and K: the next (`delta` 1) or previous (-1) file, staged list first, then
 /// unstaged, clamped at the ends. With no current file, or one that is not in
 /// the lists, the first file. `None` when both lists are empty.
@@ -992,5 +1029,51 @@ mod tests {
         assert!(!gate_reason_ok("\t\n"));
         assert!(gate_reason_ok("checked with the author"));
         assert!(gate_reason_ok("  ok  "));
+    }
+
+    #[test]
+    fn the_title_says_before_you_and_the_lowercase_verb() {
+        assert_eq!(gate_title(GateAction::Commit), "Before you commit");
+        assert_eq!(gate_title(GateAction::Amend), "Before you amend");
+        assert_eq!(gate_title(GateAction::Push), "Before you push");
+    }
+
+    #[test]
+    fn the_id_lines_list_each_group_and_leave_out_an_empty_one() {
+        assert!(gate_id_lines(&[], &[]).is_empty());
+        assert_eq!(
+            gate_id_lines(&ids(&["r1", "r2"]), &[]),
+            ["Still open: r1 r2"]
+        );
+        assert_eq!(
+            gate_id_lines(&[], &ids(&["r3"])),
+            ["Decided, no verdict: r3"]
+        );
+        assert_eq!(
+            gate_id_lines(&ids(&["r1"]), &ids(&["r3", "r5"])),
+            ["Still open: r1", "Decided, no verdict: r3 r5"]
+        );
+    }
+
+    #[test]
+    fn the_confirm_button_needs_a_reason_and_an_author() {
+        assert!(!gate_confirm_ready("", "gustav"));
+        assert!(!gate_confirm_ready("   ", "gustav"));
+        assert!(!gate_confirm_ready("wip", ""));
+        assert!(!gate_confirm_ready("wip", "  "));
+        assert!(gate_confirm_ready("wip", "gustav"));
+    }
+
+    #[test]
+    fn the_author_note_shows_only_when_no_author_is_set() {
+        assert_eq!(
+            gate_author_note(""),
+            Some("set --author to override the gate")
+        );
+        assert_eq!(
+            gate_author_note(" \t"),
+            Some("set --author to override the gate")
+        );
+        assert_eq!(gate_author_note("gustav"), None);
     }
 }

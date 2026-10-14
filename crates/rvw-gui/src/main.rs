@@ -21,6 +21,7 @@ mod file_view;
 mod files_panel;
 mod finder;
 mod frame;
+mod gate_card;
 mod git_actions;
 mod git_overlay;
 mod git_tools;

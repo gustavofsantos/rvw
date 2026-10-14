@@ -11,6 +11,7 @@ use rvw_git::stash::{self, StashEntry};
 use rvw_git::{gitx, refs, remote, GitError};
 use rvw_view::palette::Action;
 
+use crate::gate_card::Gated;
 use crate::git_overlay::{self, is_picker};
 use crate::git_tools::last_line;
 use crate::shell::Shell;
@@ -322,14 +323,40 @@ impl Shell {
         self.network_refused(refusal, cx);
     }
 
+    /// Pushes, once the commit gate lets it through. A push that cannot start
+    /// (another command runs) is refused before the gate is asked.
     fn push(&mut self, cx: &mut Context<Self>) {
+        if let Err(message) = self.network_idle() {
+            self.network_refused(Err(message), cx);
+            return;
+        }
+        self.gated(Gated::Push, cx);
+    }
+
+    /// The push itself, run once the gate is clear.
+    pub(crate) fn push_now(&mut self, cx: &mut Context<Self>) {
         let dir = self.repo_path().to_path_buf();
         let job = move || reply(remote::push(&dir), "Pushed".to_owned());
         let refusal = self.start_network(Action::Push, "Pushing…", job, cx);
         self.network_refused(refusal, cx);
     }
 
+    /// Publishes the branch, once the commit gate lets it through: it sends the
+    /// branch's commits, so the gate reads it as a push.
     fn publish(&mut self, cx: &mut Context<Self>) {
+        if self.git.facts.remote.is_none() {
+            self.network_refused(Err("No remote to publish to".to_owned()), cx);
+            return;
+        }
+        if let Err(message) = self.network_idle() {
+            self.network_refused(Err(message), cx);
+            return;
+        }
+        self.gated(Gated::Publish, cx);
+    }
+
+    /// The publish itself, run once the gate is clear.
+    pub(crate) fn publish_now(&mut self, cx: &mut Context<Self>) {
         let Some(remote) = self.git.facts.remote.clone() else {
             self.network_refused(Err("No remote to publish to".to_owned()), cx);
             return;

@@ -20,6 +20,7 @@ use rvw_view::patch::{hunk_patch, lines_patch, Direction};
 use rvw_view::selection::Pos;
 
 use crate::code_scroll;
+use crate::gate_card::Gated;
 use crate::shell::Shell;
 use crate::text_area::{TextArea, TextAreaEvent};
 
@@ -395,7 +396,8 @@ impl Shell {
     }
 
     /// ⇧⌘C and the commit button: commits (or amends) the staged changes
-    /// with the typed message.
+    /// with the typed message. A commit that cannot be made is refused here,
+    /// before the gate; the gate then decides whether it goes ahead.
     pub fn commit_changes(&mut self, cx: &mut Context<Self>) {
         if self.other_field_open() {
             return;
@@ -404,6 +406,26 @@ impl Shell {
             self.show(Screen::Changes, cx);
             return;
         }
+        let Some(field) = self.changes.message.clone() else {
+            return;
+        };
+        let message = field.read(cx).text().trim_end().to_owned();
+        if let Some(reason) = self.commit_problem(&message) {
+            self.fail(reason, cx);
+            return;
+        }
+        let action = if self.changes.amend {
+            Gated::Amend
+        } else {
+            Gated::Commit
+        };
+        self.gated(action, cx);
+        cx.notify();
+    }
+
+    /// Writes the commit or amend the gate let through. The message is read and
+    /// checked again: the gate may have stood open for a while.
+    pub(crate) fn commit_gated(&mut self, cx: &mut Context<Self>) {
         let Some(field) = self.changes.message.clone() else {
             return;
         };
@@ -497,6 +519,7 @@ impl Shell {
             || self.submit.is_some()
             || self.finder.is_some()
             || self.tools.field_open()
+            || self.gate.is_some()
     }
 
     /// Shows `message` as the action's failure.
