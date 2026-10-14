@@ -4,16 +4,20 @@
 use rusqlite::types::{Type, Value};
 use rusqlite::{params, params_from_iter, OptionalExtension, Row, Transaction};
 use rvw_core::types::{
-    comment_id, parse_seq, review_id, Comment, GateOverride, Review, ReviewStatus, Status,
+    comment_id, parse_seq, review_id, Actor, Comment, GateOverride, Location, Review, ReviewStatus,
+    Status, Verdict, VerdictKind,
 };
 use rvw_core::{Error, Result, Tx};
 
 use crate::internal;
 
+// The v2 columns come last, after l.review_seq, so the positional indexes that
+// scan_comment reads for the v1 columns do not move.
 const COMMENT_COLUMNS: &str = "c.seq, c.status, c.lane, c.author, c.file, c.path, c.start_line, \
     c.end_line, c.filetype, c.code, c.comment, c.created_at, c.pulled_at, c.resolved_at, \
     c.resolved_by, c.resolution_note, c.file_version, c.resolved_file_version, c.edited_at, \
-    l.review_seq";
+    l.review_seq, c.reopens_seq, c.points_file, c.points_start, c.points_end, c.verdict, \
+    c.verdict_by, c.verdict_actor, c.verdict_at, c.verdict_note, c.verdict_followup_seq";
 
 const COMMENT_FROM: &str = " FROM comments c \
     LEFT JOIN review_comments l ON l.workspace_id = c.workspace_id AND l.comment_seq = c.seq \
@@ -24,12 +28,19 @@ const REVIEW_COLUMNS: &str = "seq, status, lane, author, decision, summary, crea
 const INSERT_COMMENT: &str =
     "INSERT INTO comments (workspace_id, seq, status, lane, author, file, path, \
     start_line, end_line, filetype, code, comment, created_at, pulled_at, resolved_at, \
-    resolved_by, resolution_note, file_version, resolved_file_version, edited_at) \
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    resolved_by, resolution_note, file_version, resolved_file_version, edited_at, \
+    reopens_seq, points_file, points_start, points_end, verdict, verdict_by, verdict_actor, \
+    verdict_at, verdict_note, verdict_followup_seq) \
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
+// "points at" and "reopens" are fixed when the comment is written, so the
+// update leaves them alone.
 const UPDATE_COMMENT: &str =
     "UPDATE comments SET status = ?, comment = ?, pulled_at = ?, resolved_at = ?, \
-    resolved_by = ?, resolution_note = ?, resolved_file_version = ?, edited_at = ? \
+    resolved_by = ?, resolution_note = ?, resolved_file_version = ?, edited_at = ?, \
+    verdict = ?, verdict_by = ?, verdict_actor = ?, verdict_at = ?, verdict_note = ?, \
+    verdict_followup_seq = ? \
     WHERE workspace_id = ? AND seq = ?";
 
 /// One write or read transaction on a workspace. `ws_id` is 0 for a workspace
@@ -115,6 +126,7 @@ impl Tx for SqlTx<'_> {
 
     fn insert_comment(&mut self, c: &Comment) -> Result<()> {
         let seq = comment_seq(&c.id)?;
+        let x = Extras::of(c)?;
         self.tx
             .execute(
                 INSERT_COMMENT,
@@ -139,6 +151,16 @@ impl Tx for SqlTx<'_> {
                     non_empty(&c.file_version),
                     non_empty(&c.resolved_file_version),
                     non_empty(&c.edited_at),
+                    x.reopens_seq,
+                    x.points_file,
+                    x.points_start,
+                    x.points_end,
+                    x.verdict,
+                    x.verdict_by,
+                    x.verdict_actor,
+                    x.verdict_at,
+                    x.verdict_note,
+                    x.verdict_followup_seq,
                 ],
             )
             .map(drop)
@@ -147,6 +169,7 @@ impl Tx for SqlTx<'_> {
 
     fn update_comment(&mut self, c: &Comment) -> Result<()> {
         let seq = comment_seq(&c.id)?;
+        let x = Extras::of(c)?;
         self.tx
             .execute(
                 UPDATE_COMMENT,
@@ -159,6 +182,12 @@ impl Tx for SqlTx<'_> {
                     c.resolution_note,
                     non_empty(&c.resolved_file_version),
                     non_empty(&c.edited_at),
+                    x.verdict,
+                    x.verdict_by,
+                    x.verdict_actor,
+                    x.verdict_at,
+                    x.verdict_note,
+                    x.verdict_followup_seq,
                     self.ws_id,
                     seq,
                 ],
@@ -271,12 +300,67 @@ impl Tx for SqlTx<'_> {
             .map_err(internal)
     }
 
-    fn insert_override(&mut self, _: &GateOverride) -> Result<()> {
-        Err(Error::internal("gate overrides are not stored yet"))
+    fn insert_override(&mut self, o: &GateOverride) -> Result<()> {
+        let seq: i64 = self
+            .tx
+            .query_row(
+                "SELECT COALESCE(MAX(seq), 0) + 1 FROM gate_overrides WHERE workspace_id = ?",
+                [self.ws_id],
+                |row| row.get(0),
+            )
+            .map_err(internal)?;
+        self.tx
+            .execute(
+                "INSERT INTO gate_overrides (workspace_id, seq, at, lane, action, reason, author, \
+                 actor, open, unjudged) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                params![
+                    self.ws_id,
+                    seq,
+                    o.at,
+                    o.lane,
+                    o.action,
+                    o.reason,
+                    o.by,
+                    o.actor.as_str(),
+                    o.open.join(" "),
+                    o.unjudged.join(" "),
+                ],
+            )
+            .map(drop)
+            .map_err(internal)
     }
 
     fn overrides(&mut self) -> Result<Vec<GateOverride>> {
-        Ok(Vec::new())
+        let workspace = self.workspace.clone();
+        let mut stmt = self
+            .tx
+            .prepare(
+                "SELECT at, lane, action, reason, author, actor, open, unjudged \
+                 FROM gate_overrides WHERE workspace_id = ? ORDER BY seq",
+            )
+            .map_err(internal)?;
+        let overrides = stmt
+            .query_map([self.ws_id], |row| {
+                let raw_actor: String = row.get(5)?;
+                let actor = Actor::parse(&raw_actor).ok_or_else(|| {
+                    bad_column(5, format!("unknown override actor {raw_actor:?}"))
+                })?;
+                Ok(GateOverride {
+                    workspace: workspace.clone(),
+                    lane: row.get(1)?,
+                    action: row.get(2)?,
+                    reason: row.get(3)?,
+                    by: row.get(4)?,
+                    actor,
+                    at: row.get(0)?,
+                    open: split_ids(&row.get::<_, String>(6)?),
+                    unjudged: split_ids(&row.get::<_, String>(7)?),
+                })
+            })
+            .map_err(internal)?
+            .collect::<rusqlite::Result<Vec<GateOverride>>>()
+            .map_err(internal)?;
+        Ok(overrides)
     }
 }
 
@@ -285,16 +369,69 @@ fn comment_seq(id: &str) -> Result<i64> {
     parse_seq(id, "r").ok_or_else(|| Error::internal(format!("malformed comment id {id:?}")))
 }
 
+/// The v2 columns of a comment as SQL values. Each verdict column is set only
+/// when there is a verdict, and the "points at" columns only with a range.
+struct Extras<'a> {
+    reopens_seq: Option<i64>,
+    points_file: Option<&'a str>,
+    points_start: Option<i64>,
+    points_end: Option<i64>,
+    verdict: Option<&'static str>,
+    verdict_by: Option<&'a str>,
+    verdict_actor: Option<&'static str>,
+    verdict_at: Option<&'a str>,
+    verdict_note: Option<&'a str>,
+    verdict_followup_seq: Option<i64>,
+}
+
+impl<'a> Extras<'a> {
+    fn of(c: &'a Comment) -> Result<Self> {
+        let (points_file, points_start, points_end) = match &c.points_at {
+            Some(at) => (
+                Some(at.file.as_str()),
+                Some(at.start_line),
+                Some(at.end_line),
+            ),
+            None => (None, None, None),
+        };
+        let verdict = c.verdict.as_ref();
+        let followup = verdict.and_then(|v| v.followup.as_deref());
+        Ok(Extras {
+            reopens_seq: c.reopens.as_deref().map(comment_seq).transpose()?,
+            points_file,
+            points_start,
+            points_end,
+            verdict: verdict.map(|v| v.kind.as_str()),
+            verdict_by: verdict.map(|v| v.by.as_str()),
+            verdict_actor: verdict.map(|v| v.actor.as_str()),
+            verdict_at: verdict.map(|v| v.at.as_str()),
+            verdict_note: verdict.and_then(|v| v.note.as_deref()),
+            verdict_followup_seq: followup.map(comment_seq).transpose()?,
+        })
+    }
+}
+
 fn scan_comment(row: &Row<'_>, workspace: &str) -> rusqlite::Result<Comment> {
     let seq: i64 = row.get(0)?;
     let raw_status: String = row.get(1)?;
     let status = Status::parse(&raw_status)
         .ok_or_else(|| bad_column(1, format!("unknown status {raw_status:?}")))?;
     let review_seq: Option<i64> = row.get(19)?;
+    let reopens_seq: Option<i64> = row.get(20)?;
+    let points_file: Option<String> = row.get(21)?;
+    let points_at = match points_file {
+        Some(file) => Some(Location {
+            file,
+            start_line: row.get(22)?,
+            end_line: row.get(23)?,
+        }),
+        None => None,
+    };
+    let verdict = scan_verdict(row)?;
     Ok(Comment {
-        points_at: None,
-        reopens: None,
-        verdict: None,
+        points_at,
+        reopens: reopens_seq.map(comment_id),
+        verdict,
         id: comment_id(seq),
         status,
         workspace: workspace.to_owned(),
@@ -317,6 +454,33 @@ fn scan_comment(row: &Row<'_>, workspace: &str) -> rusqlite::Result<Comment> {
         review_id: review_seq.map(review_id).unwrap_or_default(),
         edited_at: text_or_empty(row, 18)?,
     })
+}
+
+/// The verdict columns (24 to 29) of a comment row: `None` unless the verdict
+/// column is set, and then all of its fields must be valid.
+fn scan_verdict(row: &Row<'_>) -> rusqlite::Result<Option<Verdict>> {
+    let Some(raw_kind) = row.get::<_, Option<String>>(24)? else {
+        return Ok(None);
+    };
+    let kind = VerdictKind::parse(&raw_kind)
+        .ok_or_else(|| bad_column(24, format!("unknown verdict {raw_kind:?}")))?;
+    let raw_actor = text_or_empty(row, 26)?;
+    let actor = Actor::parse(&raw_actor)
+        .ok_or_else(|| bad_column(26, format!("unknown verdict actor {raw_actor:?}")))?;
+    let followup_seq: Option<i64> = row.get(29)?;
+    Ok(Some(Verdict {
+        kind,
+        by: text_or_empty(row, 25)?,
+        actor,
+        at: text_or_empty(row, 27)?,
+        note: row.get(28)?,
+        followup: followup_seq.map(comment_id),
+    }))
+}
+
+/// A space-separated id list as stored in `gate_overrides`; "" is the empty list.
+fn split_ids(raw: &str) -> Vec<String> {
+    raw.split_whitespace().map(str::to_owned).collect()
 }
 
 fn scan_review(row: &Row<'_>, workspace: &str) -> rusqlite::Result<Review> {
