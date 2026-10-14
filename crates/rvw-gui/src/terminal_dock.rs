@@ -22,9 +22,11 @@ use gpui::{
     StrikethroughStyle, Style, Subscription, Task, TextRun, UTF16Selection, UnderlineStyle, Window,
 };
 use rvw_term::{Color, CursorKind, Event, Scroll, Snapshot, SpawnOptions, Terminal, UrlMatch};
+use rvw_view::resize;
 use rvw_view::terminals::{Launch, TerminalId, Terminals};
 
 use crate::icon::{self, Icon};
+use crate::resize_handle::{self, Edge};
 use crate::terminal_grid::{self, Layout, Run, Width};
 use crate::terminal_input::{translate, Translated};
 use crate::terminal_mouse::PointerState;
@@ -40,7 +42,6 @@ pub const KEY_CONTEXT: &str = "Terminal";
 /// here the chords bound in `!Terminal` would never fire outside a terminal.
 pub const APP_CONTEXT: &str = "Rvw";
 
-const DOCK_HEIGHT: Pixels = px(300.);
 const HEADER_HEIGHT: Pixels = px(32.);
 const PADDING: Pixels = px(12.);
 const FONT_SIZE: f32 = 13.;
@@ -146,10 +147,10 @@ fn cell_size(window: &Window) -> (Pixels, Pixels) {
 
 /// The grid a dock the width of the window fits, before the first paint
 /// measures the real one.
-fn first_grid(window: &Window) -> (u16, u16) {
+fn first_grid(window: &Window, dock_height: f32) -> (u16, u16) {
     let (cell_width, cell_height) = cell_size(window);
     let width = window.viewport_size().width - PADDING * 2.;
-    let height = DOCK_HEIGHT - HEADER_HEIGHT;
+    let height = px(dock_height) - HEADER_HEIGHT;
     terminal_grid::grid_size(
         f32::from(width),
         f32::from(height),
@@ -193,6 +194,8 @@ pub struct TerminalView {
     pub(crate) hover_url: Option<UrlMatch>,
     /// The find bar over the grid.
     search: SearchBar,
+    /// The dock's height the reviewer dragged it to; see `dock_height`.
+    height: f32,
     next_id: u64,
     poll: Option<Task<()>>,
     /// Kills every process when the application quits.
@@ -200,6 +203,12 @@ pub struct TerminalView {
 }
 
 impl TerminalView {
+    /// The dock's height in a window: the dragged one, kept within what the
+    /// window allows now.
+    fn dock_height(&self, window: &Window) -> f32 {
+        resize::DOCK.clamp(self.height, f32::from(window.viewport_size().height))
+    }
+
     pub fn new(workspace: PathBuf, cx: &mut Context<Self>) -> Self {
         let quit = cx.on_app_quit(|this, _| {
             // Dropping a terminal closes it: SIGHUP to its group, then
@@ -228,6 +237,7 @@ impl TerminalView {
             pointer: PointerState::default(),
             hover_url: None,
             search: SearchBar::default(),
+            height: resize::DOCK_DEFAULT,
             next_id: 1,
             poll: None,
             _quit: quit,
@@ -283,7 +293,8 @@ impl TerminalView {
     /// Starts a terminal in the workspace root as a new, active tab and
     /// shows the dock.
     pub fn launch(&mut self, launch: &Launch, window: &mut Window, cx: &mut Context<Self>) {
-        let (cols, rows) = first_grid(window);
+        let height = self.dock_height(window);
+        let (cols, rows) = first_grid(window, height);
         let options = SpawnOptions {
             command: launch.argv(),
             working_directory: Some(self.workspace.clone()),
@@ -797,7 +808,8 @@ impl Focusable for TerminalView {
 }
 
 impl Render for TerminalView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let height = self.dock_height(window);
         let overlays = self.overlays();
         let body = match self.error.as_ref() {
             Some(error) => div()
@@ -816,7 +828,8 @@ impl Render for TerminalView {
             .flex()
             .flex_col()
             .w_full()
-            .h(DOCK_HEIGHT)
+            .relative()
+            .h(px(height))
             .flex_shrink_0()
             .bg(theme::paper())
             .border_t_1()
@@ -844,7 +857,16 @@ impl Render for TerminalView {
                 }),
             );
         dock = numbered_tabs(dock, cx);
-        dock.child(self.header(cx)).child(body)
+        let handle = resize_handle::handle(
+            "dock-resize",
+            Edge::Top,
+            height,
+            resize::DOCK,
+            |this: &mut Self, height, _| this.height = height,
+            |this: &mut Self, _| this.height = resize::DOCK_DEFAULT,
+            cx,
+        );
+        dock.child(self.header(cx)).child(body).child(handle)
     }
 }
 

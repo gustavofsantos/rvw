@@ -36,6 +36,7 @@ mod outcome_screen;
 mod outcome_story;
 mod palette_overlay;
 mod queue_screen;
+mod resize_handle;
 mod review_screen;
 mod rewrite_card;
 mod seen;

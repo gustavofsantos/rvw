@@ -23,6 +23,7 @@ pub mod palette;
 pub mod panels;
 pub mod patch;
 pub mod queue;
+pub mod resize;
 pub mod selection;
 pub mod split;
 pub mod terminals;
