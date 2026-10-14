@@ -22,3 +22,4 @@ rvw-git.workspace = true
 [dev-dependencies]
 tempfile = "3"
 rvw-store.workspace = true
+jsonschema = { version = "0.30", default-features = false }

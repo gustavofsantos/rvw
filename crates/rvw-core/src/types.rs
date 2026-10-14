@@ -139,13 +139,13 @@ pub struct Comment {
     #[schemars(required, schema_with = "nullable_string")]
     /// what was done, or why not
     pub resolution_note: Option<String>,
-    #[schemars(required)]
+    #[schemars(required, schema_with = "nullable_location")]
     /// another file range this comment refers to, null when it points nowhere
     pub points_at: Option<Location>,
     #[schemars(required, schema_with = "nullable_string")]
     /// id of the decided comment this one reopens, null when it reopens none
     pub reopens: Option<String>,
-    #[schemars(required)]
+    #[schemars(required, schema_with = "nullable_verdict")]
     /// the reviewer's judgement of the decision, null until one is given
     pub verdict: Option<Verdict>,
 
@@ -360,6 +360,18 @@ pub struct Handoff {
 /// present, and `null` when unset.
 fn nullable_string(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
     schemars::json_schema!({ "type": ["string", "null"] })
+}
+
+/// `Location` or `null`: the schema of `points_at`, which is present on every
+/// comment and `null` when it points nowhere.
+fn nullable_location(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({ "anyOf": [generator.subschema_for::<Location>(), { "type": "null" }] })
+}
+
+/// `Verdict` or `null`: the schema of `verdict`, which is present on every
+/// comment and `null` until a reviewer judges the decision.
+fn nullable_verdict(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({ "anyOf": [generator.subschema_for::<Verdict>(), { "type": "null" }] })
 }
 
 // ── ids ──────────────────────────────────────────────────────────────────────

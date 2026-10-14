@@ -332,7 +332,7 @@ pub struct VerdictOutput {
     /// the comment with its verdict
     pub comment: Comment,
     /// the new pending comment a reopen created, null for an accept
-    #[schemars(required)]
+    #[schemars(required, schema_with = "nullable_comment_schema")]
     pub followup: Option<Comment>,
 }
 
@@ -377,6 +377,10 @@ pub struct OverrideInput {
     /// who overrides
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub author: String,
+}
+
+fn nullable_comment_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({ "anyOf": [generator.subschema_for::<Comment>(), { "type": "null" }] })
 }
 
 fn nullable_string_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {

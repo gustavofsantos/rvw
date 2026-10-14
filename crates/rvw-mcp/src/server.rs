@@ -901,4 +901,135 @@ mod tests {
         .unwrap_err();
         assert!(err.contains("is not inside a git repository"), "{err}");
     }
+
+    /// Calls a tool and checks that its result satisfies the tool's own output
+    /// schema, as a strict client (Cursor) does before it hands the result on.
+    fn checked(srv: &RvwServer, name: &str, arguments: Value) -> Value {
+        let Value::Object(arguments) = arguments else {
+            panic!("tool arguments are a JSON object");
+        };
+        let value =
+            invoke(&srv.0, name, arguments).unwrap_or_else(|e| panic!("{name} failed: {e}"));
+        let tool = srv.0.tools.iter().find(|t| t.name == name).expect(name);
+        let schema = Value::Object((**tool.output_schema.as_ref().expect("output schema")).clone());
+        let validator = jsonschema::validator_for(&schema).expect("valid output schema");
+        let errors: Vec<String> = validator
+            .iter_errors(&value)
+            .map(|e| format!("{}: {e}", e.instance_path))
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "{name} result does not match its output schema: {errors:?}\n{value:#}"
+        );
+        value
+    }
+
+    #[test]
+    fn every_tool_result_satisfies_its_output_schema() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = repo(dir.path());
+        let svc = service(dir.path());
+        let alice = serve(&svc, "auth", "alice");
+        let bob = serve(&svc, "auth", "bob");
+        let ws = json!({ "workspace": root });
+
+        // A plain note: points_at, verdict, reopens and the timestamps are null.
+        let plain = checked(
+            &alice,
+            "add",
+            json!({"workspace": root, "file": "app.py", "start_line": 1, "comment": "plain"}),
+        );
+        assert_eq!(plain["points_at"], Value::Null);
+        assert_eq!(plain["verdict"], Value::Null);
+        checked(
+            &alice,
+            "add",
+            json!({"workspace": root, "file": "app.py", "start_line": 2, "comment": "pointing",
+                   "points_at": {"file": "app.py", "start_line": 3, "end_line": 3}}),
+        );
+        checked(
+            &alice,
+            "add",
+            json!({"workspace": root, "file": "app.py", "start_line": 3, "comment": "to edit"}),
+        );
+        checked(
+            &alice,
+            "add",
+            json!({"workspace": root, "file": "app.py", "start_line": 3, "comment": "to remove"}),
+        );
+        checked(
+            &alice,
+            "edit",
+            json!({"workspace": root, "id": "r3", "comment": "edited"}),
+        );
+        checked(&alice, "remove", json!({"workspace": root, "id": "r4"}));
+
+        let listed = checked(&alice, "list", json!({"workspace": root, "status": "all"}));
+        assert_eq!(listed["comments"][0]["verdict"], Value::Null);
+        checked(&alice, "count", ws.clone());
+        checked(
+            &alice,
+            "show_comment",
+            json!({"workspace": root, "id": "r2"}),
+        );
+        checked(&alice, "gate", ws.clone());
+        checked(&alice, "workspaces", json!({}));
+        checked(&alice, "workspaces", json!({"all": true}));
+
+        checked(
+            &alice,
+            "submit",
+            json!({"workspace": root, "decision": "comment", "summary": "see notes", "comment_ids": ["r1"]}),
+        );
+        checked(&alice, "list_reviews", ws.clone());
+        checked(
+            &alice,
+            "show_review",
+            json!({"workspace": root, "id": "rv1"}),
+        );
+
+        checked(&bob, "pull", json!({"workspace": root, "peek": true}));
+        let pulled = checked(&bob, "pull", ws.clone());
+        assert_eq!(pulled["comments"][0]["points_at"]["file"], "app.py");
+        for id in ["r1", "r2", "r3"] {
+            checked(
+                &bob,
+                "resolve",
+                json!({"workspace": root, "id": id, "outcome": "rejected", "note": "no"}),
+            );
+        }
+
+        // A verdict and a reopen fill the other nullable objects.
+        let claude = serve(&svc, "", "claude");
+        let judged = checked(
+            &claude,
+            "judge",
+            json!({"workspace": root, "id": "r1", "verdict": "reopened", "note": "again"}),
+        );
+        assert_eq!(judged["comment"]["verdict"]["kind"], "reopened");
+        checked(
+            &claude,
+            "judge",
+            json!({"workspace": root, "id": "r2", "verdict": "accepted"}),
+        );
+        checked(&claude, "list", json!({"workspace": root, "status": "all"}));
+        checked(
+            &claude,
+            "show_comment",
+            json!({"workspace": root, "id": "r1"}),
+        );
+        // A pinned pull that takes nothing reports the work waiting elsewhere.
+        checked(
+            &alice,
+            "add",
+            json!({"workspace": root, "file": "app.py", "start_line": 1, "comment": "waits"}),
+        );
+        let elsewhere = checked(&serve(&svc, "payments", "bob"), "pull", ws.clone());
+        assert!(elsewhere.get("elsewhere").is_some(), "{elsewhere:#}");
+        checked(
+            &claude,
+            "override_gate",
+            json!({"workspace": root, "action": "push", "reason": "urgent"}),
+        );
+    }
 }
