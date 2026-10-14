@@ -1,7 +1,7 @@
 //! One terminal: a child on a PTY, the emulation of its output, and the
 //! threads between them.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::io;
 use std::path::PathBuf;
@@ -19,6 +19,7 @@ use alacritty_terminal::term::Config;
 use alacritty_terminal::tty::{self, Options as PtyOptions, Shell};
 use alacritty_terminal::Term;
 
+use crate::notify::Notification;
 use crate::pump::{self, Pump, PumpError};
 use crate::scroll::{self, Scroll};
 use crate::search::Search;
@@ -30,6 +31,8 @@ pub const MAX_SCROLLBACK: usize = 100_000;
 /// The most bytes one `write` accepts. A larger paste is the caller's to
 /// split, so a runaway producer cannot grow the input queue without bound.
 pub const MAX_WRITE: usize = 1 << 20;
+/// Notification requests kept between [`Terminal::take_notifications`] calls.
+pub const MAX_NOTIFICATIONS: usize = 16;
 /// How long `kill` waits, after SIGKILL, for the child to be reaped.
 const REAP_WAIT: Duration = Duration::from_secs(5);
 const DEFAULT_GRACE: Duration = Duration::from_secs(2);
@@ -118,6 +121,9 @@ pub enum Event {
     Changed,
     /// The child exited. Sent once; `exit_status` and `Snapshot::exit` agree.
     Exited(Exit),
+    /// A program asked for the user's attention (OSC 9 or 777): take
+    /// [`Terminal::take_notifications`]. Queued again only once taken.
+    Notified,
 }
 
 /// What to run and how big.
@@ -160,6 +166,7 @@ pub(crate) struct Shared {
     pub(crate) dirty: AtomicBool,
     bell: AtomicBool,
     title: Mutex<Option<String>>,
+    notices: Mutex<VecDeque<Notification>>,
     exit: Mutex<Option<Exit>>,
     exit_cv: Condvar,
     /// Columns in the high 16 bits, rows in the low 16.
@@ -180,6 +187,7 @@ impl Shared {
             dirty: AtomicBool::new(false),
             bell: AtomicBool::new(false),
             title: Mutex::new(None),
+            notices: Mutex::new(VecDeque::new()),
             exit: Mutex::new(None),
             exit_cv: Condvar::new(),
             size: AtomicU32::new(u32::from(cols) << 16 | u32::from(rows)),
@@ -194,6 +202,22 @@ impl Shared {
         if !self.dirty.swap(true, Ordering::AcqRel) {
             // A dropped receiver means nobody is listening.
             let _ = self.events.send(Event::Changed);
+        }
+    }
+
+    /// Keep a request for the owner. A full queue drops the oldest: the
+    /// newest says where things stand.
+    pub(crate) fn push_notification(&self, notice: Notification) {
+        let first = {
+            let mut queue = lock(&self.notices);
+            if queue.len() == MAX_NOTIFICATIONS {
+                queue.pop_front();
+            }
+            queue.push_back(notice);
+            queue.len() == 1
+        };
+        if first {
+            let _ = self.events.send(Event::Notified);
         }
     }
 
@@ -487,6 +511,12 @@ impl Terminal {
         snapshot.title.clone_from(&lock(&self.shared.title));
         snapshot.exit = self.exit_status();
         snapshot
+    }
+
+    /// The notification requests since the last call, oldest first. At most
+    /// [`MAX_NOTIFICATIONS`] are kept between calls.
+    pub fn take_notifications(&self) -> Vec<Notification> {
+        lock(&self.shared.notices).drain(..).collect()
     }
 
     /// Move the viewport over the scrollback. The alternate screen has none,

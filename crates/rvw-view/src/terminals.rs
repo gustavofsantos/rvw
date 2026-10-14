@@ -34,6 +34,9 @@ pub struct Terminal {
     /// The command line the terminal was started with.
     pub command: String,
     pub status: Status,
+    /// What the program asked the user's attention with, until the tab is
+    /// looked at. Only the latest is kept.
+    pub attention: Option<String>,
 }
 
 impl Terminal {
@@ -197,6 +200,7 @@ impl Terminals {
             kind: Kind::Process,
             command: command.to_owned(),
             status: Status::Running,
+            attention: None,
         });
         self.active = Some(id);
         self.shown = true;
@@ -266,6 +270,39 @@ impl Terminals {
             }
             None => false,
         }
+    }
+
+    /// Records that the program in `id` asked for attention with `text`.
+    /// Returns false when `id` is not listed.
+    pub fn notify(&mut self, id: TerminalId, text: &str) -> bool {
+        match self.list.iter_mut().find(|t| t.id == id) {
+            Some(t) => {
+                t.attention = Some(text.to_owned());
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Whether the active tab is on screen: the dock is shown and a terminal
+    /// is active. What the user is looking at needs no badge.
+    #[must_use]
+    pub fn watching(&self, id: TerminalId) -> bool {
+        self.dock_shown() && self.active == Some(id)
+    }
+
+    /// Forgets the attention request of `id`: true when there was one.
+    pub fn clear_attention(&mut self, id: TerminalId) -> bool {
+        self.list
+            .iter_mut()
+            .find(|t| t.id == id)
+            .is_some_and(|t| t.attention.take().is_some())
+    }
+
+    /// Terminals still asking for attention.
+    #[must_use]
+    pub fn attention(&self) -> Vec<&Terminal> {
+        self.list.iter().filter(|t| t.attention.is_some()).collect()
     }
 
     /// Makes `id` active. Returns false when it is not listed.
@@ -378,6 +415,23 @@ mod tests {
         t.add(B, "cargo test");
         t.add(C, "zsh");
         t
+    }
+
+    #[test]
+    fn attention_is_kept_until_the_tab_is_watched() {
+        let mut t = three();
+        assert!(t.notify(A, "needs input"));
+        assert!(!t.notify(TerminalId(9), "x"));
+        assert_eq!(t.attention().len(), 1);
+        assert!(!t.watching(A));
+        t.switch_to(A);
+        assert!(t.watching(A));
+        t.hide_dock();
+        assert!(!t.watching(A));
+        t.show_dock();
+        assert!(t.clear_attention(A));
+        assert!(!t.clear_attention(A));
+        assert!(t.attention().is_empty());
     }
 
     #[test]

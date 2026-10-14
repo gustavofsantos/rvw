@@ -110,7 +110,7 @@ fn exit_code_is_reported_by_event_and_snapshot() {
         let left = deadline.saturating_duration_since(Instant::now());
         match term.events().recv_timeout(left).expect("event") {
             Event::Exited(exit) => break exit,
-            Event::Changed => {}
+            Event::Changed | Event::Notified => {}
         }
     };
     assert_eq!(
@@ -342,4 +342,19 @@ fn typing_returns_to_live_and_reports_do_not() {
     let s = wait_for(&term, |s| s.text().contains("zz"));
     assert_eq!(s.display_offset, 0);
     assert!(s.selection.is_empty());
+}
+
+#[test]
+fn a_notification_request_reaches_the_owner() {
+    let term =
+        sh(r"printf '\033]9;build done\007\033]777;notify;Claude;needs input\033\\'; echo after");
+    wait_for(&term, |s| s.text().contains("after"));
+    let notices = term.take_notifications();
+    assert_eq!(notices.len(), 2);
+    assert_eq!(notices[0].body, "build done");
+    assert_eq!(notices[1].title, "Claude");
+    assert_eq!(notices[1].body, "needs input");
+    assert!(term.take_notifications().is_empty());
+    // The request is not on the screen.
+    assert!(!term.snapshot().text().contains("build done"));
 }

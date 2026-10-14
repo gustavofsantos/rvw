@@ -439,6 +439,19 @@ impl TerminalView {
                     live.dirty = true;
                 }
             }
+            for notice in live.term.take_notifications() {
+                let text = if notice.title.is_empty() {
+                    notice.body
+                } else {
+                    format!("{}: {}", notice.title, notice.body)
+                };
+                self.model.notify(live.id, &text);
+                changed = true;
+            }
+            // A tab on screen is already looked at.
+            if self.model.watching(live.id) && self.model.clear_attention(live.id) {
+                changed = true;
+            }
             if let Some(exit) = live.term.exit_status() {
                 if self
                     .model
@@ -787,6 +800,15 @@ impl TerminalView {
                         theme::muted()
                     })
                     .when(selected, |d| d.bg(theme::hairline()))
+                    .when(tab.attention.is_some(), |d| {
+                        d.child(
+                            div()
+                                .size(px(7.))
+                                .flex_none()
+                                .rounded_full()
+                                .bg(theme::pending()),
+                        )
+                    })
                     .child(div().truncate().child(tab.title()))
                     .child(close)
                     .on_click(cx.listener(move |this: &mut Self, _, window, cx| {

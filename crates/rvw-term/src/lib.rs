@@ -8,6 +8,7 @@
 
 mod keys;
 mod mouse;
+mod notify;
 mod pump;
 mod scroll;
 mod search;
@@ -21,6 +22,7 @@ pub use mouse::{
     encode_alternate_scroll, encode_mouse, MouseButton, MouseEvent, MouseEventKind, Wheel,
     MAX_WHEEL_LINES,
 };
+pub use notify::Notification;
 pub use scroll::Scroll;
 pub use search::{MAX_MATCHES, MAX_QUERY};
 pub use select::{GridPoint, SelectionKind, Side};
@@ -28,7 +30,8 @@ pub use snapshot::{
     Cell, CellFlags, Color, Cursor, CursorKind, MatchSpan, Mode, RowSpan, SearchStatus, Snapshot,
 };
 pub use terminal::{
-    Error, Event, Exit, SpawnOptions, Terminal, TerminalId, MAX_SCROLLBACK, MAX_WRITE,
+    Error, Event, Exit, SpawnOptions, Terminal, TerminalId, MAX_NOTIFICATIONS, MAX_SCROLLBACK,
+    MAX_WRITE,
 };
 pub use url::UrlMatch;
 

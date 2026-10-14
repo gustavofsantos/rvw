@@ -23,6 +23,7 @@ use alacritty_terminal::tty::{ChildEvent, EventedPty, EventedReadWrite, Pty};
 use alacritty_terminal::vte::ansi::{Processor, StdSyncHandler};
 use polling::{Event as Readiness, Events, PollMode, Poller};
 
+use crate::notify::Scanner;
 use crate::terminal::{Exit, Listener, Shared};
 
 /// Bytes read per `read` call; the only buffer between PTY and parser.
@@ -110,6 +111,7 @@ pub(crate) fn spawn(
                 term,
                 shared,
                 parser: Processor::<StdSyncHandler>::default(),
+                scanner: Scanner::new(),
                 buf: vec![0; READ_CHUNK],
                 out: VecDeque::new(),
                 written: 0,
@@ -127,6 +129,8 @@ struct PumpLoop {
     term: Arc<FairMutex<Term<Listener>>>,
     shared: Arc<Shared>,
     parser: Processor<StdSyncHandler>,
+    /// Finds notification requests in what the parser is given.
+    scanner: Scanner,
     buf: Vec<u8>,
     /// Input waiting for the PTY; `written` bytes of the front are gone.
     out: VecDeque<Vec<u8>>,
@@ -283,6 +287,9 @@ impl PumpLoop {
             match self.pty.reader().read(&mut self.buf) {
                 Ok(0) => break,
                 Ok(n) => {
+                    let shared = &self.shared;
+                    self.scanner
+                        .feed(&self.buf[..n], |notice| shared.push_notification(notice));
                     let mut term = self.term.lock();
                     self.parser.advance(&mut *term, &self.buf[..n]);
                     parsed += n;
