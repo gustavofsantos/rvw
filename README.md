@@ -81,7 +81,9 @@ asks first.
 `⌘B` collapses or shows the left panel and `⇧⌘B` the right one (`Ctrl+B` and
 `Ctrl+Shift+B` on Linux; with a terminal focused only the Ctrl+Shift form acts).
 The buttons at the top bar's two ends do the same, and the centre takes the
-room. The panels stay collapsed across screens until the window closes.
+room. Drag a panel's inner edge (or the dock's top edge) to resize it, and
+double-click the edge to reset it. Collapsed panels and sizes last until the
+window closes.
 
 ## Examples
 

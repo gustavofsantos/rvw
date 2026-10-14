@@ -634,6 +634,7 @@ impl Render for Shell {
         let dock = self.terminal_dock(cx);
         let rail_screen = self.rail_screen();
         let resize_layer = crate::window_chrome::resize_layer(window);
+        let extent = f32::from(window.viewport_size().width);
         let window = frame::window(
             frame::top_bar(
                 &self.snapshot,
@@ -646,7 +647,9 @@ impl Render for Shell {
             frame::rail(rail_screen, cx),
             panels,
             self.shown,
+            extent,
             dock,
+            cx,
         );
 
         div()

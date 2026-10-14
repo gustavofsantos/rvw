@@ -4,16 +4,18 @@
 
 use gpui::prelude::*;
 use gpui::{
-    actions, div, px, AnyElement, App, ClickEvent, Context, Div, FontWeight, KeyBinding, Pixels,
-    Rgba, Stateful, Window,
+    actions, div, px, AnyElement, App, ClickEvent, Context, Div, FontWeight, KeyBinding, Rgba,
+    Stateful, Window,
 };
 use rvw_view::keys::Screen;
 use rvw_view::panels::{Panels as Shown, Side};
+use rvw_view::resize;
 
 use crate::compare_picker::{self, CompareMenu};
 use crate::data::Snapshot;
 use crate::git_tools::GitTools;
 use crate::icon::{self, Icon};
+use crate::resize_handle::{self, Edge};
 use crate::shell::Shell;
 use crate::theme;
 use crate::window_chrome;
@@ -43,23 +45,34 @@ pub struct Panels {
 
 /// The whole window: top bar, the body of rail and panels, the terminal dock
 /// when shown.
-pub fn window(top: Div, rail: Div, panels: Panels, shown: Shown, dock: Option<AnyElement>) -> Div {
+pub fn window(
+    top: Div,
+    rail: Div,
+    panels: Panels,
+    shown: Shown,
+    extent: f32,
+    dock: Option<AnyElement>,
+    cx: &mut Context<Shell>,
+) -> Div {
+    let left = shown
+        .left
+        .then(|| side(Side::Left, shown.width(Side::Left, extent), panels.left, cx));
+    let right = shown.right.then(|| {
+        side(
+            Side::Right,
+            shown.width(Side::Right, extent),
+            panels.right,
+            cx,
+        )
+    });
     let body = div()
         .flex()
         .flex_1()
         .min_h(px(0.))
         .child(rail)
-        .children(
-            shown
-                .left
-                .then(|| side(theme::LEFT_PANEL_WIDTH, Side::Left, panels.left)),
-        )
+        .children(left)
         .child(div().flex().flex_1().min_w(px(0.)).child(panels.centre))
-        .children(
-            shown
-                .right
-                .then(|| side(theme::RIGHT_PANEL_WIDTH, Side::Right, panels.right)),
-        );
+        .children(right);
 
     div()
         .flex()
@@ -327,14 +340,34 @@ fn panel_toggle(side: Side, shown: Shown, cx: &Context<Shell>) -> Stateful<Div> 
         .child(glyph)
 }
 
-fn side(width: Pixels, side: Side, content: Div) -> Div {
+/// A side panel at `width`, with the strip on its inner edge that resizes it.
+fn side(side: Side, width: f32, content: Div, cx: &mut Context<Shell>) -> Div {
+    let edge = match side {
+        Side::Left => Edge::Right,
+        Side::Right => Edge::Left,
+    };
+    let strip = resize_handle::handle(
+        match side {
+            Side::Left => "left-panel-resize",
+            Side::Right => "right-panel-resize",
+        },
+        edge,
+        width,
+        resize::SIDE,
+        move |this: &mut Shell, width, _| this.shown.set_width(side, width),
+        move |this: &mut Shell, _| this.shown.reset_width(side),
+        cx,
+    );
     let panel = div()
+        .relative()
         .flex()
         .flex_col()
-        .w(width)
+        .w(px(width))
+        .flex_none()
         .h_full()
         .bg(theme::panel())
-        .child(content);
+        .child(content)
+        .child(strip);
     match side {
         Side::Left => panel.border_r_1().border_color(theme::hairline()),
         Side::Right => panel.border_l_1().border_color(theme::hairline()),

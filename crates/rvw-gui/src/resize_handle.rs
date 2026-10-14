@@ -23,6 +23,8 @@ pub enum Edge {
     Top,
     /// The left panel's right edge: moving right enlarges it.
     Right,
+    /// The right panel's left edge: moving left enlarges it.
+    Left,
 }
 
 impl Edge {
@@ -80,6 +82,12 @@ pub fn handle<V: 'static>(
         Edge::Right => strip
             .top_0()
             .right_0()
+            .h_full()
+            .w(px(THICKNESS))
+            .cursor_col_resize(),
+        Edge::Left => strip
+            .top_0()
+            .left_0()
             .h_full()
             .w(px(THICKNESS))
             .cursor_col_resize(),

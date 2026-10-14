@@ -1,6 +1,9 @@
 //! Which of a window's two side panels are shown. The state is the window's,
 //! not a screen's, so a panel collapsed on one screen stays collapsed on the
-//! next. It lives in memory only.
+//! next, and so is a panel's width, which is kept while it is collapsed. It
+//! lives in memory only.
+
+use crate::resize::{LEFT_DEFAULT, RIGHT_DEFAULT, SIDE};
 
 /// A side panel of the window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -9,11 +12,14 @@ pub enum Side {
     Right,
 }
 
-/// The panels shown; both are, to begin with.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The panels shown, and how wide each is; both shown at their default
+/// widths to begin with.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Panels {
     pub left: bool,
     pub right: bool,
+    pub left_width: f32,
+    pub right_width: f32,
 }
 
 impl Default for Panels {
@@ -21,6 +27,8 @@ impl Default for Panels {
         Self {
             left: true,
             right: true,
+            left_width: LEFT_DEFAULT,
+            right_width: RIGHT_DEFAULT,
         }
     }
 }
@@ -40,6 +48,35 @@ impl Panels {
         match side {
             Side::Left => self.left,
             Side::Right => self.right,
+        }
+    }
+}
+
+impl Panels {
+    /// The panel's width in a window `extent` wide: the chosen one, kept
+    /// within what the window allows now.
+    #[must_use]
+    pub fn width(self, side: Side, extent: f32) -> f32 {
+        let chosen = match side {
+            Side::Left => self.left_width,
+            Side::Right => self.right_width,
+        };
+        SIDE.clamp(chosen, extent)
+    }
+
+    /// Remembers a width the reviewer dragged the panel to.
+    pub fn set_width(&mut self, side: Side, width: f32) {
+        match side {
+            Side::Left => self.left_width = width,
+            Side::Right => self.right_width = width,
+        }
+    }
+
+    /// Gives the panel its default width back.
+    pub fn reset_width(&mut self, side: Side) {
+        match side {
+            Side::Left => self.left_width = LEFT_DEFAULT,
+            Side::Right => self.right_width = RIGHT_DEFAULT,
         }
     }
 }
@@ -66,5 +103,25 @@ mod tests {
         panels.toggle(Side::Left);
         assert!(panels.shown(Side::Left));
         assert!(!panels.shown(Side::Right));
+    }
+
+    #[test]
+    fn a_width_is_kept_while_the_panel_is_collapsed() {
+        let mut panels = Panels::default();
+        panels.set_width(Side::Left, 420.);
+        panels.toggle(Side::Left);
+        panels.toggle(Side::Left);
+        assert_eq!(panels.width(Side::Left, 1600.), 420.);
+        assert_eq!(panels.width(Side::Right, 1600.), 340.);
+    }
+
+    #[test]
+    fn a_width_is_clamped_to_the_window_and_resets() {
+        let mut panels = Panels::default();
+        panels.set_width(Side::Right, 900.);
+        assert_eq!(panels.width(Side::Right, 1000.), 400.);
+        assert_eq!(panels.width(Side::Right, 3000.), 900.);
+        panels.reset_width(Side::Right);
+        assert_eq!(panels.width(Side::Right, 1600.), 340.);
     }
 }
