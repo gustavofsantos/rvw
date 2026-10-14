@@ -23,6 +23,7 @@ mod finder;
 mod frame;
 mod gate_card;
 mod git_actions;
+mod git_log;
 mod git_overlay;
 mod git_tools;
 mod highlights;
@@ -94,6 +95,7 @@ fn run() -> Result<(), String> {
         Some(path) => std::path::absolute(path).map_err(|e| e.to_string())?,
         None => rvw_store::default_path().map_err(|e| e.message)?,
     };
+    git_log::start();
     let store = rvw_store::Store::open(&db).map_err(|e| e.message)?;
     let service = rvw_core::Service::new(Box::new(store));
 

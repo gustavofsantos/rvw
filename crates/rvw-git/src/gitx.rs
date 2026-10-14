@@ -6,7 +6,32 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+/// One finished git process, as `set_logger`'s callback sees it. The stdin
+/// payload (a commit message, a blob) is never part of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitLog {
+    pub dir: PathBuf,
+    pub args: Vec<String>,
+    /// `None` when git was killed by a signal.
+    pub code: Option<i32>,
+    pub stdout_bytes: usize,
+    /// Git's stdout, kept only when the command failed: a hook may report there.
+    pub stdout: String,
+    pub stderr: String,
+    pub took: Duration,
+}
+
+type Logger = Box<dyn Fn(&GitLog) + Send + Sync>;
+
+static LOGGER: OnceLock<Logger> = OnceLock::new();
+
+/// Reports every git process this crate runs to `log`, once it ends. Only the
+/// first call takes effect; without one nothing is reported.
+pub fn set_logger(log: impl Fn(&GitLog) + Send + Sync + 'static) {
+    let _ = LOGGER.set(Box::new(log));
+}
 
 /// A git command that failed. `stderr` is git's trimmed message (or the OS
 /// error text when git could not be started).
@@ -136,6 +161,7 @@ pub(crate) fn exec_stop(
     }
     // No credential prompt can open on a terminal nobody sees, and a status
     // read never takes the index lock an agent's git command may need.
+    let started = Instant::now();
     let mut child = Command::new("git")
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_OPTIONAL_LOCKS", "0")
@@ -203,14 +229,31 @@ pub(crate) fn exec_stop(
     };
     let stdout = collect(out_rx);
     let stderr = collect(err_rx);
-    if killed {
-        return Err(fail("context canceled".to_owned()));
-    }
-    Ok(Ran {
+    let ran = Ran {
         stdout: String::from_utf8_lossy(&stdout).into_owned(),
         code: status.code(),
         stderr: String::from_utf8_lossy(&stderr).trim().to_owned(),
-    })
+    };
+    if let Some(log) = LOGGER.get() {
+        let failed = ran.code != Some(0);
+        log(&GitLog {
+            dir: dir.to_path_buf(),
+            args: owned_args(args),
+            code: ran.code,
+            stdout_bytes: stdout.len(),
+            stdout: if failed {
+                ran.stdout.trim().to_owned()
+            } else {
+                String::new()
+            },
+            stderr: ran.stderr.clone(),
+            took: started.elapsed(),
+        });
+    }
+    if killed {
+        return Err(fail("context canceled".to_owned()));
+    }
+    Ok(ran)
 }
 
 /// Runs git and returns its stdout; any exit other than 0 is a `GitError`

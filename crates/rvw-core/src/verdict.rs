@@ -8,13 +8,36 @@ use crate::service::{
 };
 use crate::types::{comment_id, Actor, Comment, LineRange, Status, Verdict, VerdictKind, VERDICTS};
 
+/// Who may give a verdict on a decision. Not an operation field: an adapter
+/// picks it, so MCP and the CLI cannot be asked to waive the rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reviewer {
+    /// Anyone but whoever decided the comment. What `judge` enforces.
+    Second,
+    /// Whoever decided the comment may judge it too. Only the GUI asks for it,
+    /// for the human who owns the queue.
+    Anyone,
+}
+
 #[allow(clippy::needless_pass_by_value, clippy::missing_errors_doc)] // operations take their input by value, as the adapters build it per call
 impl Service {
     /// Judges a decided comment, as the reviewer named in `input.author`.
     /// Accepting agrees with the decision. Reopening disagrees: it records the
     /// verdict on the original and creates a pending follow-up comment with the
-    /// original's placement, which the next pull hands over.
+    /// original's placement, which the next pull hands over. Whoever decided
+    /// the comment cannot judge it.
     pub fn judge(&self, input: VerdictInput, actor: Actor) -> Result<VerdictOutput> {
+        self.judge_as(input, actor, Reviewer::Second)
+    }
+
+    /// `judge` with the choice of who may judge. The verdict records its author
+    /// as given, so a self-judgement stays visible: its `by` is the decider.
+    pub fn judge_as(
+        &self,
+        input: VerdictInput,
+        actor: Actor,
+        reviewer: Reviewer,
+    ) -> Result<VerdictOutput> {
         let kind = VerdictKind::parse(&input.verdict).ok_or_else(|| {
             Error::invalid(format!(
                 "verdict \"{}\" is not one of {}",
@@ -40,7 +63,7 @@ impl Service {
         let placement = if reopening {
             let original = self.read(&input.workspace, |tx| {
                 let c = find(tx, &input.id)?;
-                check_judgeable(&c, &by)?;
+                check_judgeable(&c, &by, reviewer)?;
                 Ok(c)
             })?;
             Some(followup_placement(&original, range)?)
@@ -52,7 +75,7 @@ impl Service {
         let text = trim_newlines(&input.note).to_string();
         self.write(&input.workspace, |tx| {
             let mut original = find(tx, &input.id)?;
-            check_judgeable(&original, &by)?;
+            check_judgeable(&original, &by, reviewer)?;
             let at = self.stamp();
             let Some(placement) = placement else {
                 original.verdict = Some(new_verdict(kind, &by, actor, &at, note, None));
@@ -120,8 +143,8 @@ fn override_range(input: &VerdictInput) -> Result<Option<LineRange>> {
 
 /// Whether `by` may give a verdict on `c`. Only a decision made after a
 /// handoff waits for one, and a verdict is given once, by someone other than
-/// the decider.
-fn check_judgeable(c: &Comment, by: &str) -> Result<()> {
+/// the decider unless `reviewer` waives that.
+fn check_judgeable(c: &Comment, by: &str, reviewer: Reviewer) -> Result<()> {
     if !c.status.resolved() {
         return Err(Error::conflict(format!(
             "{} is {} — only a decided comment can be judged",
@@ -140,7 +163,7 @@ fn check_judgeable(c: &Comment, by: &str) -> Result<()> {
             c.id
         )));
     }
-    if c.resolved_by.as_deref() == Some(by) {
+    if reviewer == Reviewer::Second && c.resolved_by.as_deref() == Some(by) {
         return Err(Error::conflict(format!(
             "{} was decided by {by} — a second reviewer must judge it",
             c.id
@@ -591,6 +614,36 @@ mod tests {
             "r1 was decided by claude — a second reviewer must judge it"
         );
         assert!(stored(&f, "r1").awaits_verdict());
+    }
+
+    #[test]
+    fn the_decider_may_judge_when_the_reviewer_rule_is_waived() {
+        let f = setup();
+        f.add_at(1, "x", "", "alice");
+        f.pull("");
+        decide(&f, "r1", OUTCOME_DONE, "");
+
+        let given = f
+            .svc
+            .judge_as(
+                input(&f, "r1", "accepted", "", "claude"),
+                Actor::Human,
+                Reviewer::Anyone,
+            )
+            .expect("self-judgement");
+        let verdict = given.comment.verdict.expect("verdict");
+        assert_eq!(verdict.by, "claude");
+        assert_eq!(verdict.actor, Actor::Human);
+        // The other rules still hold: a verdict is final.
+        let err = f
+            .svc
+            .judge_as(
+                input(&f, "r1", "accepted", "", "claude"),
+                Actor::Human,
+                Reviewer::Anyone,
+            )
+            .unwrap_err();
+        assert_eq!(err.message, "r1 already has a verdict — it is final");
     }
 
     #[test]

@@ -109,7 +109,13 @@ orange at a time. Each action has one key; a key never changes meaning.
 - **Verdict is a judgement, not a stray click.** Accept and Reopen live in the
   queue and on the outcome page, never inline on the diff. The submit dialog's
   choice is labelled "Decision" (it was "Verdict"): a verdict now means only a
-  second reviewer's judgement of a decision made after a handoff.
+  second reviewer's judgement of a decision made after a handoff. The GUI
+  alone lets the human who owns the queue judge a decision recorded under
+  their own name; the verdict keeps that name, so it stays visible.
+- **The git tab is a log, not a shell.** The dock's "Git log" tab lists every
+  git command rvw runs, with how it ended and git's own output when it failed
+  (a commit hook's report included). It has no process behind it and takes no
+  input. The commit panel still shows one line of the error.
 - **Context comments.** A comment on a file not changed on this branch is
   labelled "context". It may point at a changed location ("Points at
   service.rs:90-96"). The agent receives it with the review.

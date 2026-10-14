@@ -148,7 +148,10 @@ rvw show rv1                   # the whole review sheet
 A decision made after a handoff waits for a second reviewer. Accept it, which
 makes it final, or reopen it: the note becomes a pending follow-up on the same
 lane, file and range (`--lines` moves it), and the next pull hands it over.
-Nobody can judge their own decision.
+Nobody can judge their own decision, except in the GUI: the human who owns the
+queue may accept or reopen a decision recorded under their own name (an agent
+that ran `rvw resolve` without `--author` gets `$USER`). The CLI and MCP keep
+the rule.
 
 ```sh
 rvw accept r1 --note "checked the new test" --author alice

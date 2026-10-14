@@ -17,10 +17,20 @@ pub enum Status {
     Exited(Option<i32>),
 }
 
+/// What a tab in the dock holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// A process on a PTY, typed into by the reviewer.
+    Process,
+    /// The log of the git commands rvw runs: read-only, no process behind it.
+    Git,
+}
+
 /// One terminal in the dock.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Terminal {
     pub id: TerminalId,
+    pub kind: Kind,
     /// The command line the terminal was started with.
     pub command: String,
     pub status: Status,
@@ -30,6 +40,9 @@ impl Terminal {
     /// The tab's text: the command, then the exit status once finished.
     #[must_use]
     pub fn title(&self) -> String {
+        if self.kind == Kind::Git {
+            return self.command.clone();
+        }
         match self.status {
             Status::Running => self.command.clone(),
             Status::Exited(Some(code)) => format!("{} (exit {code})", self.command),
@@ -39,10 +52,12 @@ impl Terminal {
 
     #[must_use]
     pub fn running(&self) -> bool {
-        self.status == Status::Running
+        self.kind == Kind::Process && self.status == Status::Running
     }
 }
 
+/// The tab label of the git log.
+pub const GIT_LABEL: &str = "git";
 /// The tab label of the user's own shell.
 pub const SHELL_LABEL: &str = "shell";
 /// The longest command line kept, in bytes.
@@ -55,6 +70,8 @@ pub enum Launch {
     Shell,
     /// A command line, run as `/bin/sh -c`.
     Command(String),
+    /// The git log tab: not a process.
+    Git,
 }
 
 impl Launch {
@@ -64,6 +81,7 @@ impl Launch {
         match self {
             Self::Shell => SHELL_LABEL.to_owned(),
             Self::Command(line) => line.clone(),
+            Self::Git => GIT_LABEL.to_owned(),
         }
     }
 
@@ -71,7 +89,7 @@ impl Launch {
     #[must_use]
     pub fn argv(&self) -> Option<Vec<String>> {
         match self {
-            Self::Shell => None,
+            Self::Shell | Self::Git => None,
             Self::Command(line) => Some(vec!["/bin/sh".to_owned(), "-c".to_owned(), line.clone()]),
         }
     }
@@ -98,8 +116,13 @@ pub fn launch_entries(query: &str) -> Vec<LaunchEntry> {
         title: "Shell".to_owned(),
         note: "your shell",
     };
+    let git = LaunchEntry {
+        launch: Launch::Git,
+        title: "Git log".to_owned(),
+        note: "every git command rvw runs, read-only",
+    };
     if query.is_empty() {
-        return vec![shell];
+        return vec![shell, git];
     }
     let mut out = Vec::new();
     if query.len() <= MAX_COMMAND_LEN {
@@ -111,6 +134,9 @@ pub fn launch_entries(query: &str) -> Vec<LaunchEntry> {
     }
     if shell.title.to_lowercase().contains(&query.to_lowercase()) {
         out.push(shell);
+    }
+    if git.title.to_lowercase().contains(&query.to_lowercase()) {
+        out.push(git);
     }
     out
 }
@@ -168,7 +194,37 @@ impl Terminals {
         }
         self.list.push(Terminal {
             id,
+            kind: Kind::Process,
             command: command.to_owned(),
+            status: Status::Running,
+        });
+        self.active = Some(id);
+        self.shown = true;
+        true
+    }
+
+    /// The git log tab, if one is open.
+    #[must_use]
+    pub fn git(&self) -> Option<TerminalId> {
+        self.list.iter().find(|t| t.kind == Kind::Git).map(|t| t.id)
+    }
+
+    /// Adds the git log tab, active, and shows the dock. There is one: when it
+    /// is open already that one becomes active. Returns whether a tab was
+    /// added, false when `id` is taken and no git tab exists.
+    pub fn add_git(&mut self, id: TerminalId) -> bool {
+        if let Some(open) = self.git() {
+            self.active = Some(open);
+            self.shown = true;
+            return false;
+        }
+        if self.get(id).is_some() {
+            return false;
+        }
+        self.list.push(Terminal {
+            id,
+            kind: Kind::Git,
+            command: GIT_LABEL.to_owned(),
             status: Status::Running,
         });
         self.active = Some(id);
@@ -535,10 +591,24 @@ mod tests {
     }
 
     #[test]
-    fn entries_with_no_query_list_only_the_shell() {
+    fn entries_with_no_query_list_the_shell_and_the_git_log() {
         let rows = launch_entries("  ");
-        assert_eq!(rows.len(), 1);
+        assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].launch, Launch::Shell);
+        assert_eq!(rows[1].launch, Launch::Git);
+    }
+
+    #[test]
+    fn the_git_log_is_one_read_only_tab_that_never_blocks_quitting() {
+        let mut t = Terminals::new();
+        assert!(t.add_git(TerminalId(1)));
+        assert!(t.add(TerminalId(2), "sh"));
+        assert!(!t.add_git(TerminalId(3)));
+        assert_eq!(t.active(), Some(TerminalId(1)));
+        assert_eq!(t.git(), Some(TerminalId(1)));
+        assert_eq!(t.get(TerminalId(1)).unwrap().title(), "git");
+        t.close(TerminalId(2));
+        assert!(t.quit_guard().is_none());
     }
 
     #[test]

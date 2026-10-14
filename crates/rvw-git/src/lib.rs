@@ -23,4 +23,4 @@ pub mod worktree;
 #[cfg(test)]
 pub(crate) mod testrepo;
 
-pub use gitx::{cancel_flag, os_error_text, Change, GitError, Hunk};
+pub use gitx::{cancel_flag, os_error_text, set_logger, Change, GitError, GitLog, Hunk};

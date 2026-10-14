@@ -12,3 +12,4 @@ pub use error::{Error, ErrorKind, Result};
 pub use gate::undecided;
 pub use repository::{Repository, Tx};
 pub use service::Service;
+pub use verdict::Reviewer;

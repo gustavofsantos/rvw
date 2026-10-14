@@ -8,6 +8,7 @@ use std::sync::Arc;
 use gpui::{AppContext, Context, Window};
 use rvw_core::operations::{GetInput, VerdictInput};
 use rvw_core::types::{Actor, VerdictKind};
+use rvw_core::Reviewer;
 use rvw_view::keys::Screen;
 use rvw_view::nav;
 use rvw_view::outcome::{self, Moment, Story};
@@ -168,7 +169,9 @@ impl Shell {
 
     /// Accepts the decision on the open comment, or reopens it with the note
     /// in the field. The call runs off the UI thread, as the human at this
-    /// window. On success the queue reads again and the outcome is read again
+    /// window. The human who owns the queue may judge a decision they made
+    /// themselves (a legacy comment an agent recorded under their name); the
+    /// CLI and MCP keep the second-reviewer rule. On success the queue reads again and the outcome is read again
     /// to show the verdict; on failure the message shows in the right panel.
     pub fn judge_outcome(&mut self, kind: VerdictKind, cx: &mut Context<Self>) {
         if !self.can_judge() {
@@ -218,7 +221,7 @@ impl Shell {
                 .background_executor()
                 .spawn(async move {
                     service
-                        .judge(input, Actor::Human)
+                        .judge_as(input, Actor::Human, Reviewer::Anyone)
                         .map(|given| given.comment.id)
                         .map_err(|e| e.message)
                 })

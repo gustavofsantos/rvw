@@ -18,13 +18,15 @@ use gpui::{
     ClipboardItem, Context, CursorStyle, DispatchPhase, ElementId, ElementInputHandler, Entity,
     EntityInputHandler, FocusHandle, Focusable, GlobalElementId, Hitbox, HitboxBehavior,
     KeyBinding, KeyDownEvent, LayoutId, ModifiersChangedEvent, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, Rgba, ScrollWheelEvent, ShapedLine,
-    StrikethroughStyle, Style, Subscription, Task, TextRun, UTF16Selection, UnderlineStyle, Window,
+    MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, Rgba, ScrollHandle, ScrollWheelEvent,
+    ShapedLine, StrikethroughStyle, Style, Subscription, Task, TextRun, UTF16Selection,
+    UnderlineStyle, Window,
 };
 use rvw_term::{Color, CursorKind, Event, Scroll, Snapshot, SpawnOptions, Terminal, UrlMatch};
 use rvw_view::resize;
 use rvw_view::terminals::{Launch, TerminalId, Terminals};
 
+use crate::git_log;
 use crate::icon::{self, Icon};
 use crate::resize_handle::{self, Edge};
 use crate::terminal_grid::{self, Layout, Run, Width};
@@ -197,6 +199,9 @@ pub struct TerminalView {
     /// The dock's height the reviewer dragged it to; see `dock_height`.
     height: f32,
     next_id: u64,
+    /// The git tab's scroll, and how many git entries it has shown.
+    git_scroll: ScrollHandle,
+    git_seen: u64,
     poll: Option<Task<()>>,
     /// Kills every process when the application quits.
     _quit: Subscription,
@@ -239,6 +244,8 @@ impl TerminalView {
             search: SearchBar::default(),
             height: resize::DOCK_DEFAULT,
             next_id: 1,
+            git_scroll: ScrollHandle::new(),
+            git_seen: 0,
             poll: None,
             _quit: quit,
         }
@@ -293,6 +300,10 @@ impl TerminalView {
     /// Starts a terminal in the workspace root as a new, active tab and
     /// shows the dock.
     pub fn launch(&mut self, launch: &Launch, window: &mut Window, cx: &mut Context<Self>) {
+        if *launch == Launch::Git {
+            self.open_git(window, cx);
+            return;
+        }
         let height = self.dock_height(window);
         let (cols, rows) = first_grid(window, height);
         let options = SpawnOptions {
@@ -323,6 +334,25 @@ impl TerminalView {
             Err(error) => self.error = Some(format!("The terminal did not start: {error}")),
         }
         cx.notify();
+    }
+
+    /// Shows the git log tab, opening it the first time. It is read-only: no
+    /// process, so nothing typed goes anywhere.
+    fn open_git(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let id = TerminalId(self.next_id);
+        if self.model.add_git(id) {
+            self.next_id += 1;
+        }
+        self.git_seen = git_log::recorded();
+        self.git_scroll
+            .scroll_to_item(git_log::entries().len().saturating_sub(1));
+        self.after_switch(window, cx);
+        self.start_poll(cx);
+    }
+
+    /// Whether the active tab is the git log.
+    fn git_active(&self) -> bool {
+        self.model.active().is_some() && self.model.active() == self.model.git()
     }
 
     /// Closes a tab. A running process is ended, off the UI thread; a
@@ -430,12 +460,19 @@ impl TerminalView {
                 }
             }
         }
+        if self.git_active() && self.model.dock_shown() && git_log::recorded() != self.git_seen {
+            self.git_seen = git_log::recorded();
+            // New entries are at the bottom, which is where the log follows.
+            self.git_scroll
+                .scroll_to_item(git_log::entries().len().saturating_sub(1));
+            changed = true;
+        }
         if changed {
             // Where the link was is no longer known to be where it is.
             self.hover_url = None;
             cx.notify();
         }
-        !self.model.running().is_empty()
+        !self.model.running().is_empty() || self.model.git().is_some()
     }
 
     /// What the window asks before quitting, naming the running terminals;
@@ -816,6 +853,7 @@ impl Render for TerminalView {
                 .p(PADDING)
                 .text_color(theme::needs_you())
                 .child(error.clone()),
+            None if self.git_active() => self.git_body(),
             None => div()
                 .relative()
                 .flex_1()
@@ -867,6 +905,47 @@ impl Render for TerminalView {
             cx,
         );
         dock.child(self.header(cx)).child(body).child(handle)
+    }
+}
+
+impl TerminalView {
+    /// The git tab's body: every git command rvw ran, oldest first, failures
+    /// in red. Read-only: it paints text and takes no input.
+    fn git_body(&self) -> gpui::Div {
+        let rows = git_log::entries().into_iter().map(|entry| {
+            let shown = git_log::lines(&entry);
+            let detail = shown.detail.into_iter().map(|line| {
+                div()
+                    .pl(px(16.))
+                    .text_color(if shown.failed {
+                        theme::rejected()
+                    } else {
+                        theme::muted()
+                    })
+                    .child(line)
+            });
+            div()
+                .flex()
+                .flex_col()
+                .pb(px(6.))
+                .child(
+                    div()
+                        .text_color(theme::ink())
+                        .child(format!("$ {}", shown.command)),
+                )
+                .children(detail)
+        });
+        div().relative().flex_1().min_h(px(0.)).px(PADDING).child(
+            div()
+                .id("git-log")
+                .size_full()
+                .overflow_y_scroll()
+                .track_scroll(&self.git_scroll)
+                .font_family(theme::code_font())
+                .text_size(px(FONT_SIZE))
+                .py(px(8.))
+                .children(rows),
+        )
     }
 }
 
