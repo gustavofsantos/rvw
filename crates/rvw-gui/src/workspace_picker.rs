@@ -29,7 +29,11 @@ actions!(rvw_workspace, [OpenWorkspaces]);
 
 /// Binds ⌘O (Ctrl-O off macOS) to open the picker. Call once at startup.
 pub fn bind_keys(cx: &mut App) {
-    cx.bind_keys([KeyBinding::new("secondary-o", OpenWorkspaces, None)]);
+    cx.bind_keys([KeyBinding::new(
+        "secondary-o",
+        OpenWorkspaces,
+        crate::terminal_dock::rvw_chord_context(),
+    )]);
 }
 
 /// An open picker. The workspaces are read once, when it opens.

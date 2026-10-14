@@ -199,6 +199,50 @@ pub fn syntax(class: Class) -> Option<Rgba> {
     }
 }
 
+/// The terminal's 16 ANSI colours: 0 to 7 normal, 8 to 15 bright. The theme
+/// has no terminal palette, so the two sets live here; the foreground and
+/// background of a terminal are `ink` and `paper`.
+pub fn ansi(index: u8) -> Rgba {
+    const LIGHT: [u32; 16] = [
+        0x001b_1b1a,
+        0x00c0_392b,
+        0x002e_7d32,
+        0x009a_6700,
+        0x001f_5fbf,
+        0x008e_44ad,
+        0x0000_838f,
+        0x0066_6660,
+        0x0077_7772,
+        0x00d9_4a3a,
+        0x003d_9a42,
+        0x00b8_7a00,
+        0x0030_74e0,
+        0x00a8_5bc8,
+        0x0000_9fae,
+        0x00a0_a09a,
+    ];
+    const DARK: [u32; 16] = [
+        0x0048_4845,
+        0x00e0_6c5f,
+        0x0066_bb6a,
+        0x00e0_b050,
+        0x0066_a3f5,
+        0x00c0_82e0,
+        0x004f_c4c4,
+        0x00c8_c8c2,
+        0x0070_706b,
+        0x00f2_8b80,
+        0x0085_d68a,
+        0x00f0_c870,
+        0x0088_bbff,
+        0x00d6_a4ee,
+        0x0075_dede,
+        0x00ee_eee8,
+    ];
+    let i = usize::from(index & 15);
+    by_mode(rgb(LIGHT[i]), rgb(DARK[i]))
+}
+
 /// Spells a macOS-style chord ("⇧⌘R", "⌘↵", "↵") the way this platform names
 /// its keys: as is on macOS, "Ctrl+Shift+R" elsewhere. Text with no modifier
 /// or return glyph ("J K", "O") is returned unchanged.

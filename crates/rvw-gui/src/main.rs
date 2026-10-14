@@ -42,6 +42,9 @@ mod seen;
 mod shell;
 mod split_view;
 mod submit_dialog;
+mod terminal_dock;
+mod terminal_grid;
+mod terminal_input;
 mod text_area;
 mod text_area_element;
 mod text_area_math;
@@ -188,6 +191,7 @@ fn show_window(
             finder::bind_keys(cx);
             palette_overlay::bind_keys(cx);
             changes_state::bind_keys(cx);
+            terminal_dock::bind_keys(cx);
             workspace_picker::bind_keys(cx);
             quit_with_the_window(cx);
             let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
@@ -231,7 +235,11 @@ fn quit_with_the_window(cx: &mut App) {
     })
     .detach();
     cx.on_action(|_: &Quit, cx| cx.quit());
-    cx.bind_keys([KeyBinding::new("secondary-q", Quit, None)]);
+    cx.bind_keys([KeyBinding::new(
+        "secondary-q",
+        Quit,
+        terminal_dock::rvw_chord_context(),
+    )]);
     cx.set_menus(vec![Menu {
         name: "rvw".into(),
         items: vec![MenuItem::action("Quit rvw", Quit)],

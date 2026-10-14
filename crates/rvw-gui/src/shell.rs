@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, App, Context, Div, FocusHandle, Focusable, KeyDownEvent, Render,
+    div, px, App, Context, Div, Entity, FocusHandle, Focusable, KeyDownEvent, Render,
     UniformListScrollHandle, Window,
 };
 use rvw_core::Service;
@@ -39,6 +39,7 @@ use crate::queue_screen;
 use crate::review_screen::{self, Selected};
 use crate::seen::Seen;
 use crate::submit_dialog::{OpenSubmit, SubmitDialog};
+use crate::terminal_dock::{TerminalView, ToggleTerminal};
 use crate::text_area::TextArea;
 use crate::theme;
 use crate::tools::Tools;
@@ -110,6 +111,8 @@ pub struct Shell {
     pub(crate) history: HistoryState,
     /// The open history edit card, if any.
     pub(crate) rewrite: Option<crate::rewrite_card::RewriteCard>,
+    /// The terminal dock's terminal, created the first time it is shown.
+    pub(crate) terminal: Option<Entity<TerminalView>>,
     /// Holds the keys (C) when no field has focus.
     focus: FocusHandle,
     /// The database the queue lives in. The live poller fingerprints it
@@ -192,6 +195,7 @@ impl Shell {
                 facts,
                 ..GitTools::default()
             },
+            terminal: None,
             focus: cx.focus_handle(),
         };
         // The staged list lights Commit on every screen, so it is read now,
@@ -464,6 +468,10 @@ impl Shell {
 
     /// Keys with no field open: C, and the file keys J, K and the arrows.
     fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // A focused terminal has its keys; the window's plain keys are not its.
+        if self.terminal_focused(window, cx) {
+            return;
+        }
         // The open dialog takes every key: Esc closes it from wherever focus is.
         if self.submit.is_some() {
             if event.keystroke.key == "escape" {
@@ -585,21 +593,17 @@ impl Render for Shell {
             && !self.tools.field_open()
             && self.git.ask.is_none()
             && self.rewrite.as_ref().is_none_or(|card| !card.editing())
-            && !self.message_focused(window, cx);
+            && !self.message_focused(window, cx)
+            && !self.terminal_focused(window, cx);
         if (no_field || self.git.confirm.is_some()) && !self.focus.is_focused(window) {
             self.focus.focus(window);
         }
         self.sync_highlights(cx);
         self.sync_diff_list(window);
         let panels = self.panels(cx);
-        // The Files tab is part of the review screen, so R stays lit; the
-        // outcome screen lights the screen it was opened from.
-        let rail_screen = match (self.screen, self.outcome.as_ref()) {
-            (Screen::Files, _) => Screen::Diff,
-            (Screen::Outcome, Some(open)) => outcome_screen::rail_screen(open.back),
-            (Screen::Outcome, None) => Screen::Queue,
-            (screen, _) => screen,
-        };
+        let terminal_focused = self.terminal_focused(window, cx);
+        let dock = self.terminal_dock(cx);
+        let rail_screen = self.rail_screen();
         let key_screen = if self.finder.is_some() || self.tools.open() {
             Screen::Search
         } else {
@@ -616,7 +620,8 @@ impl Render for Shell {
             ),
             frame::rail(rail_screen, cx),
             panels,
-            key_strip(&self.key_context(key_screen)),
+            dock,
+            key_strip(&self.key_context(key_screen), terminal_focused),
         );
 
         div()
@@ -672,6 +677,7 @@ impl Render for Shell {
             .on_action(cx.listener(|this: &mut Self, _: &RestoreLatest, _, cx| {
                 this.restore_latest(cx);
             }))
+            .on_action(cx.listener(Self::on_toggle_terminal))
             .child(window)
             .children(self.submit.as_ref().map(|dialog| {
                 crate::submit_dialog::overlay(dialog, &self.snapshot, &self.identity.lane, cx)
@@ -694,6 +700,61 @@ impl Shell {
             .message
             .as_ref()
             .is_some_and(|message| message.focus_handle(cx).is_focused(window))
+    }
+
+    /// The screen the rail lights. The Files tab is part of the review
+    /// screen, so R stays lit; the outcome screen lights the screen it was
+    /// opened from.
+    fn rail_screen(&self) -> Screen {
+        match (self.screen, self.outcome.as_ref()) {
+            (Screen::Files, _) => Screen::Diff,
+            (Screen::Outcome, Some(open)) => outcome_screen::rail_screen(open.back),
+            (Screen::Outcome, None) => Screen::Queue,
+            (screen, _) => screen,
+        }
+    }
+
+    /// ⌘J, or Ctrl-Shift-J: the terminal dock.
+    fn on_toggle_terminal(
+        &mut self,
+        _: &ToggleTerminal,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // The history edit card is modal.
+        if self.rewrite.is_none() {
+            self.toggle_terminal(window, cx);
+        }
+    }
+
+    /// The terminal dock, when it is shown.
+    fn terminal_dock(&self, cx: &App) -> Option<gpui::AnyElement> {
+        self.terminal
+            .as_ref()
+            .filter(|terminal| terminal.read(cx).shown())
+            .map(crate::terminal_dock::dock)
+    }
+
+    /// Whether the terminal dock's terminal has the keyboard.
+    pub(crate) fn terminal_focused(&self, window: &Window, cx: &App) -> bool {
+        self.terminal
+            .as_ref()
+            .is_some_and(|terminal| terminal.read(cx).has_focus(window, cx))
+    }
+
+    /// Shows the terminal dock, starting the terminal the first time, or
+    /// hides it. Hiding gives the keyboard back to the window.
+    pub(crate) fn toggle_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let workspace = PathBuf::from(&self.identity.workspace);
+        let terminal = self
+            .terminal
+            .get_or_insert_with(|| cx.new(|cx| TerminalView::new(workspace, cx)))
+            .clone();
+        terminal.update(cx, |terminal, cx| terminal.toggle(window, cx));
+        if !terminal.read(cx).shown() {
+            self.focus_shell(window);
+        }
+        cx.notify();
     }
 
     /// Gives the keyboard back to the shell, so S, J and K reach it.

@@ -19,7 +19,11 @@ actions!(rvw_finder, [OpenFinder]);
 
 /// Binds ⌘P (Ctrl-P off macOS) to open the finder. Call once at startup.
 pub fn bind_keys(cx: &mut App) {
-    cx.bind_keys([KeyBinding::new("secondary-p", OpenFinder, None)]);
+    cx.bind_keys([KeyBinding::new(
+        "secondary-p",
+        OpenFinder,
+        crate::terminal_dock::rvw_chord_context(),
+    )]);
 }
 
 /// An open finder: its field, the matches for the field's text, and which

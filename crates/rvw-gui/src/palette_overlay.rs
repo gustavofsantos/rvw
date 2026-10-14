@@ -22,7 +22,11 @@ actions!(rvw_palette, [OpenPalette]);
 
 /// Binds ⌘K (Ctrl-K off macOS) to open the palette. Call once at startup.
 pub fn bind_keys(cx: &mut App) {
-    cx.bind_keys([KeyBinding::new("secondary-k", OpenPalette, None)]);
+    cx.bind_keys([KeyBinding::new(
+        "secondary-k",
+        OpenPalette,
+        crate::terminal_dock::rvw_chord_context(),
+    )]);
 }
 
 /// An open palette: its field, the entries for the field's text and which

@@ -33,7 +33,11 @@ const CHANGES_CODE_GUTTER: gpui::Pixels = gpui::px(114.);
 pub fn bind_keys(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("secondary-shift-c", CommitChanges, None),
-        KeyBinding::new("secondary-z", RestoreLatest, None),
+        KeyBinding::new(
+            "secondary-z",
+            RestoreLatest,
+            crate::terminal_dock::rvw_chord_context(),
+        ),
     ]);
 }
 

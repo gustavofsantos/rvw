@@ -73,8 +73,11 @@ The three milestones are in the locked order.
 
 ## Open
 
-1. Input method (IME) and the compose key: not decided, and gpui's support has
-   to be checked on each platform before T1.2 is called done.
+1. Input method (IME) and the compose key: T1.2 routes plain text through
+   gpui's input handler, so dead keys, the compose key and input methods that
+   gpui supports reach the program as committed text, with the composition
+   drawn at the cursor. Not yet run on any platform; the user's manual run
+   decides. Option is a compose key on macOS, not Meta.
 2. Which commands the `⌘T` palette lists: this repository's history and a
    per-repository file. The file's name and format are not decided; rvw takes
    no environment variables.

@@ -3,7 +3,9 @@
 //! supplies everything around them.
 
 use gpui::prelude::*;
-use gpui::{div, px, svg, ClickEvent, Context, Div, FontWeight, Pixels, Rgba, Stateful, Window};
+use gpui::{
+    div, px, svg, AnyElement, ClickEvent, Context, Div, FontWeight, Pixels, Rgba, Stateful, Window,
+};
 use rvw_view::keys::Screen;
 
 use crate::compare_picker::{self, CompareMenu};
@@ -20,8 +22,9 @@ pub struct Panels {
     pub right: Div,
 }
 
-/// The whole window: top bar, the body of rail and panels, then the key strip.
-pub fn window(top: Div, rail: Div, panels: Panels, keys: Div) -> Div {
+/// The whole window: top bar, the body of rail and panels, the terminal dock
+/// when shown, then the key strip.
+pub fn window(top: Div, rail: Div, panels: Panels, dock: Option<AnyElement>, keys: Div) -> Div {
     let body = div()
         .flex()
         .flex_1()
@@ -39,6 +42,7 @@ pub fn window(top: Div, rail: Div, panels: Panels, keys: Div) -> Div {
         .bg(theme::paper())
         .child(top)
         .child(body)
+        .children(dock)
         .child(keys)
 }
 

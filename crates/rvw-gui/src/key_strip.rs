@@ -7,7 +7,74 @@ use rvw_view::keys::{self, Context as KeyContext, Group, Key, Light};
 
 use crate::theme;
 
-pub fn key_strip(context: &KeyContext) -> Div {
+/// The chords of rvw that act while a terminal has the keyboard, each with
+/// what it does, spelled for the platform. Every other key goes to the
+/// program. On macOS the command key never reaches a program, so the chords
+/// are the usual ones; elsewhere they are the Ctrl-Shift forms, so Ctrl alone
+/// stays the shell's.
+pub fn terminal_chords(is_mac: bool) -> Vec<(String, &'static str)> {
+    let keys: [(&str, &str, &'static str); 7] = [
+        ("\u{2318}J", "J", "Hide dock"),
+        ("\u{2318}P", "P", "Find file"),
+        ("\u{2318}K", "K", "Actions"),
+        ("\u{2318}O", "O", "Workspaces"),
+        ("\u{21e7}\u{2318}R", "R", "Submit"),
+        ("\u{2318}Z", "Z", "Restore"),
+        ("\u{2318}Q", "Q", "Quit"),
+    ];
+    keys.into_iter()
+        .map(|(mac, letter, label)| {
+            let chord = if is_mac {
+                mac.to_owned()
+            } else {
+                format!("Ctrl+Shift+{letter}")
+            };
+            (chord, label)
+        })
+        .collect()
+}
+
+/// The strip while a terminal has the keyboard: it says so, and lists the
+/// only chords that are not the terminal's.
+fn terminal_strip() -> Div {
+    let mut strip = div()
+        .flex()
+        .items_center()
+        .gap(px(20.))
+        .h(theme::KEY_STRIP_HEIGHT)
+        .px(px(24.))
+        .border_t_1()
+        .border_color(theme::hairline())
+        .child(
+            div()
+                .text_size(px(theme::KEY_FONT_SIZE))
+                .text_color(theme::muted())
+                .child("The terminal receives every key except"),
+        );
+    for (chord, label) in terminal_chords(cfg!(target_os = "macos")) {
+        strip = strip.child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .text_size(px(theme::KEY_FONT_SIZE))
+                .child(
+                    div()
+                        .font_family(theme::code_font())
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(theme::ink())
+                        .child(chord),
+                )
+                .child(div().text_color(theme::muted()).child(label)),
+        );
+    }
+    strip
+}
+
+pub fn key_strip(context: &KeyContext, terminal_focused: bool) -> Div {
+    if terminal_focused {
+        return terminal_strip();
+    }
     let mut strip = div()
         .flex()
         .items_center()
@@ -79,4 +146,23 @@ impl Render for HintCard {
 
 fn separator() -> Div {
     div().w(px(1.)).h(px(28.)).mx(px(8.)).bg(theme::hairline())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::terminal_chords;
+
+    #[test]
+    fn the_terminal_chords_are_spelled_for_the_platform() {
+        let mac = terminal_chords(true);
+        assert_eq!(mac[0], ("\u{2318}J".to_owned(), "Hide dock"));
+        assert!(mac.iter().any(|(chord, _)| chord == "\u{21e7}\u{2318}R"));
+        let other = terminal_chords(false);
+        assert_eq!(other[0], ("Ctrl+Shift+J".to_owned(), "Hide dock"));
+        // Ctrl alone is never an rvw chord where a terminal has the keyboard.
+        assert!(other
+            .iter()
+            .all(|(chord, _)| chord.starts_with("Ctrl+Shift+")));
+        assert_eq!(mac.len(), other.len());
+    }
 }
