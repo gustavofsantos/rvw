@@ -34,6 +34,17 @@ pub fn bind_keys(cx: &mut App) {
 /// The opened lanes (workspace, shell), shared with every lane's `Shell`.
 pub(crate) type SharedLanes = std::rc::Rc<std::cell::RefCell<Vec<(String, Entity<Shell>)>>>;
 
+/// What a worktree is called in the sidebar: its branch, or its directory's
+/// name when detached.
+fn lane_name(tree: &rvw_git::worktree::Worktree) -> String {
+    tree.branch.clone().unwrap_or_else(|| {
+        tree.path.file_name().map_or_else(
+            || "detached".to_owned(),
+            |n| n.to_string_lossy().into_owned(),
+        )
+    })
+}
+
 struct OpenLane {
     workspace: String,
     shell: Entity<Shell>,
@@ -210,7 +221,7 @@ impl LaneHost {
                         queue::waiting_on_you(&lane.shell.read(cx).snapshot.comments) > 0
                     });
                 LaneInput {
-                    name: tree.branch.clone().unwrap_or_else(|| "detached".to_owned()),
+                    name: lane_name(tree),
                     branch: tree.branch.clone(),
                     path: Some(tree.path.clone()),
                     main: tree.main,
@@ -233,7 +244,7 @@ impl LaneHost {
             .worktrees
             .iter()
             .find(|tree| tree.path.to_string_lossy() == current_workspace.as_str())
-            .map(|tree| tree.branch.clone().unwrap_or_else(|| "detached".to_owned()));
+            .map(lane_name);
         let current = current_name
             .as_deref()
             .map(|name| (self.project.name.as_str(), name));
@@ -243,7 +254,7 @@ impl LaneHost {
         let Some(path) = self
             .worktrees
             .iter()
-            .find(|tree| tree.branch.as_deref().unwrap_or("detached") == lane)
+            .find(|tree| lane_name(tree) == lane)
             .map(|tree| tree.path.clone())
         else {
             return;
@@ -314,6 +325,9 @@ impl LaneHost {
                     .text_size(px(12.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme::muted())
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
                     .child(group.name.clone())
                     .into_any_element(),
             );
@@ -321,7 +335,7 @@ impl LaneHost {
                 let tree = self
                     .worktrees
                     .iter()
-                    .find(|tree| tree.branch.as_deref().unwrap_or("detached") == row.name);
+                    .find(|tree| lane_name(tree) == row.name);
                 let path = tree.map(|tree| tree.path.clone());
                 let selected = path
                     .as_ref()
@@ -361,7 +375,15 @@ impl LaneHost {
                                 .rounded_full()
                                 .when_some(dot, gpui::Styled::bg),
                         )
-                        .child(div().flex_1().min_w(px(0.)).overflow_hidden().child(label))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(px(0.))
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .child(label),
+                        )
                         .on_click(cx.listener(move |this, _, window, cx| {
                             if let Some(path) = path.clone() {
                                 this.open_path(&path, window, cx);
