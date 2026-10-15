@@ -9,7 +9,7 @@ use rvw_core::types::{
 };
 use rvw_core::{Error, Result, Tx};
 
-use crate::{internal, workspace_id};
+use crate::internal;
 
 const SESSION_COLUMNS: &str = "session_id, tool, model, summary, reported_at";
 
@@ -362,70 +362,68 @@ impl Tx for SqlTx<'_> {
         Ok(overrides)
     }
 
-    fn session(&self, workspace: &str, session_id: &str) -> Result<Option<Session>> {
-        let ws_id = workspace_id(&self.tx, workspace, false)?;
+    fn session(&self, session_id: &str) -> Result<Option<Session>> {
         let sql = format!(
             "SELECT {SESSION_COLUMNS} FROM sessions WHERE workspace_id = ? AND session_id = ?"
         );
         let Some(mut session) = self
             .tx
-            .query_row(&sql, params![ws_id, session_id], scan_session)
+            .query_row(&sql, params![self.ws_id, session_id], scan_session)
             .optional()
             .map_err(internal)?
         else {
             return Ok(None);
         };
-        session.commits = session_commits(&self.tx, ws_id, session_id)?;
+        session.commits = session_commits(&self.tx, self.ws_id, session_id)?;
         Ok(Some(session))
     }
 
-    fn insert_session(&mut self, workspace: &str, s: &Session) -> Result<()> {
-        let ws_id = workspace_id(&self.tx, workspace, false)?;
+    fn insert_session(&mut self, s: &Session) -> Result<()> {
         self.tx
             .execute(
                 "INSERT INTO sessions (workspace_id, session_id, tool, model, summary, reported_at) \
                  VALUES (?, ?, ?, ?, ?, ?)",
-                params![ws_id, s.session_id, s.tool, s.model, s.summary, s.reported_at],
+                params![
+                    self.ws_id,
+                    s.session_id,
+                    s.tool,
+                    s.model,
+                    s.summary,
+                    s.reported_at
+                ],
             )
             .map_err(internal)?;
-        add_commits(&self.tx, ws_id, &s.session_id, &s.commits)
+        add_commits(&self.tx, self.ws_id, &s.session_id, &s.commits)
     }
 
-    fn add_session_commits(
-        &mut self,
-        workspace: &str,
-        session_id: &str,
-        commits: &[String],
-    ) -> Result<()> {
-        let ws_id = workspace_id(&self.tx, workspace, false)?;
+    fn add_session_commits(&mut self, session_id: &str, commits: &[String]) -> Result<()> {
         let known: bool = self
             .tx
             .query_row(
                 "SELECT EXISTS (SELECT 1 FROM sessions WHERE workspace_id = ? AND session_id = ?)",
-                params![ws_id, session_id],
+                params![self.ws_id, session_id],
                 |row| row.get(0),
             )
             .map_err(internal)?;
         if !known {
             return Err(Error::internal(format!("no session {session_id}")));
         }
-        add_commits(&self.tx, ws_id, session_id, commits)
+        add_commits(&self.tx, self.ws_id, session_id, commits)
     }
 
-    fn sessions(&self, workspace: &str) -> Result<Vec<Session>> {
-        let ws_id = workspace_id(&self.tx, workspace, false)?;
+    fn sessions(&self) -> Result<Vec<Session>> {
         let sql = format!(
             "SELECT {SESSION_COLUMNS} FROM sessions WHERE workspace_id = ? \
              ORDER BY reported_at DESC, session_id"
         );
         let mut stmt = self.tx.prepare(&sql).map_err(internal)?;
         let mut sessions = stmt
-            .query_map(params![ws_id], scan_session)
+            .query_map(params![self.ws_id], scan_session)
             .map_err(internal)?
             .collect::<rusqlite::Result<Vec<Session>>>()
             .map_err(internal)?;
         for s in &mut sessions {
-            s.commits = session_commits(&self.tx, ws_id, &s.session_id)?;
+            s.commits = session_commits(&self.tx, self.ws_id, &s.session_id)?;
         }
         Ok(sessions)
     }

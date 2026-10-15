@@ -1208,9 +1208,8 @@ pub(crate) mod testing {
             Ok(self.data.overrides.clone())
         }
 
-        // Each copy holds one workspace's data, so the workspace argument has
-        // nothing to select here.
-        fn session(&self, _workspace: &str, session_id: &str) -> Result<Option<Session>> {
+        // Each copy holds one workspace's data, so there is nothing to select.
+        fn session(&self, session_id: &str) -> Result<Option<Session>> {
             Ok(self
                 .data
                 .sessions
@@ -1219,7 +1218,7 @@ pub(crate) mod testing {
                 .cloned())
         }
 
-        fn insert_session(&mut self, _workspace: &str, s: &Session) -> Result<()> {
+        fn insert_session(&mut self, s: &Session) -> Result<()> {
             if self
                 .data
                 .sessions
@@ -1240,12 +1239,7 @@ pub(crate) mod testing {
             Ok(())
         }
 
-        fn add_session_commits(
-            &mut self,
-            _workspace: &str,
-            session_id: &str,
-            commits: &[String],
-        ) -> Result<()> {
+        fn add_session_commits(&mut self, session_id: &str, commits: &[String]) -> Result<()> {
             match self
                 .data
                 .sessions
@@ -1260,7 +1254,7 @@ pub(crate) mod testing {
             }
         }
 
-        fn sessions(&self, _workspace: &str) -> Result<Vec<Session>> {
+        fn sessions(&self) -> Result<Vec<Session>> {
             let mut all = self.data.sessions.clone();
             all.sort_by(|a, b| {
                 b.reported_at

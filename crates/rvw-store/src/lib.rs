@@ -613,8 +613,8 @@ mod tests {
         store
             .update(WS, &mut |tx: &mut dyn Tx| {
                 let report = report("s1", "2026-01-05T09:00:00+00:00", &["a1b2c3d"]);
-                tx.insert_session(WS, &report)?;
-                assert_eq!(tx.session(WS, "s1")?, Some(report.clone()));
+                tx.insert_session(&report)?;
+                assert_eq!(tx.session("s1")?, Some(report.clone()));
                 Ok(())
             })
             .unwrap();
@@ -1042,21 +1042,21 @@ mod tests {
         let full = report("s1", "2026-01-01T00:00:00+00:00", &["c3d4e5f", "a1b2c3d"]);
         store
             .update(WS, &mut |tx: &mut dyn Tx| {
-                tx.insert_session(WS, &full)?;
-                tx.insert_session(WS, &bare)
+                tx.insert_session(&full)?;
+                tx.insert_session(&bare)
             })
             .unwrap();
         store
             .view(WS, &mut |tx: &mut dyn Tx| {
-                assert_eq!(tx.session(WS, "s1")?, Some(full.clone()));
-                assert_eq!(tx.session(WS, "s2")?, Some(bare.clone()));
-                assert_eq!(tx.session(WS, "s3")?, None);
+                assert_eq!(tx.session("s1")?, Some(full.clone()));
+                assert_eq!(tx.session("s2")?, Some(bare.clone()));
+                assert_eq!(tx.session("s3")?, None);
                 Ok(())
             })
             .unwrap();
         store
             .view("/elsewhere", &mut |tx: &mut dyn Tx| {
-                assert_eq!(tx.session("/elsewhere", "s1")?, None);
+                assert_eq!(tx.session("s1")?, None);
                 Ok(())
             })
             .unwrap();
@@ -1067,16 +1067,16 @@ mod tests {
         let (_dir, store) = fresh();
         store
             .update(WS, &mut |tx: &mut dyn Tx| {
-                tx.insert_session(WS, &report("s1", "2026-01-01T00:00:00+00:00", &["a1"]))
+                tx.insert_session(&report("s1", "2026-01-01T00:00:00+00:00", &["a1"]))
             })
             .unwrap();
         let second = store.update(WS, &mut |tx: &mut dyn Tx| {
-            tx.insert_session(WS, &report("s1", "2026-01-09T00:00:00+00:00", &["b2"]))
+            tx.insert_session(&report("s1", "2026-01-09T00:00:00+00:00", &["b2"]))
         });
         assert!(second.is_err());
         store
             .view(WS, &mut |tx: &mut dyn Tx| {
-                let kept = tx.session(WS, "s1")?.expect("first report kept");
+                let kept = tx.session("s1")?.expect("first report kept");
                 assert_eq!(kept.commits, strings(&["a1"]));
                 assert_eq!(kept.reported_at, "2026-01-01T00:00:00+00:00");
                 Ok(())
@@ -1089,17 +1089,14 @@ mod tests {
         let (_dir, store) = fresh();
         store
             .update(WS, &mut |tx: &mut dyn Tx| {
-                tx.insert_session(
-                    WS,
-                    &report("s1", "2026-01-01T00:00:00+00:00", &["c1", "c2"]),
-                )?;
-                tx.add_session_commits(WS, "s1", &strings(&["c2", "c3", "c1", "c4", "c4"]))?;
-                tx.add_session_commits(WS, "s1", &[])
+                tx.insert_session(&report("s1", "2026-01-01T00:00:00+00:00", &["c1", "c2"]))?;
+                tx.add_session_commits("s1", &strings(&["c2", "c3", "c1", "c4", "c4"]))?;
+                tx.add_session_commits("s1", &[])
             })
             .unwrap();
         store
             .view(WS, &mut |tx: &mut dyn Tx| {
-                let s = tx.session(WS, "s1")?.expect("s1 stored");
+                let s = tx.session("s1")?.expect("s1 stored");
                 assert_eq!(s.commits, strings(&["c1", "c2", "c3", "c4"]));
                 Ok(())
             })
@@ -1110,11 +1107,11 @@ mod tests {
     fn adding_commits_to_an_unknown_session_is_an_error() {
         let (_dir, store) = fresh();
         let added = store.update(WS, &mut |tx: &mut dyn Tx| {
-            tx.add_session_commits(WS, "ghost", &strings(&["c1"]))
+            tx.add_session_commits("ghost", &strings(&["c1"]))
         });
         assert!(added.is_err());
         let empty = store.update(WS, &mut |tx: &mut dyn Tx| {
-            tx.add_session_commits(WS, "ghost", &[])
+            tx.add_session_commits("ghost", &[])
         });
         assert!(empty.is_err(), "an empty list still needs a known session");
     }
@@ -1124,38 +1121,35 @@ mod tests {
         let (_dir, store) = fresh();
         store
             .update(WS, &mut |tx: &mut dyn Tx| {
-                tx.insert_session(WS, &report("old", "2026-01-01T00:00:00+00:00", &["x1"]))?;
-                tx.insert_session(WS, &report("b", "2026-01-02T00:00:00+00:00", &[]))?;
-                tx.insert_session(WS, &report("a", "2026-01-02T00:00:00+00:00", &["y1", "y2"]))?;
-                tx.insert_session(WS, &report("new", "2026-01-03T00:00:00+00:00", &[]))
+                tx.insert_session(&report("old", "2026-01-01T00:00:00+00:00", &["x1"]))?;
+                tx.insert_session(&report("b", "2026-01-02T00:00:00+00:00", &[]))?;
+                tx.insert_session(&report("a", "2026-01-02T00:00:00+00:00", &["y1", "y2"]))?;
+                tx.insert_session(&report("new", "2026-01-03T00:00:00+00:00", &[]))
             })
             .unwrap();
         store
             .update("/elsewhere", &mut |tx: &mut dyn Tx| {
-                tx.insert_session(
-                    "/elsewhere",
-                    &report("other", "2026-01-09T00:00:00+00:00", &[]),
-                )
+                tx.insert_session(&report("other", "2026-01-09T00:00:00+00:00", &[]))
             })
             .unwrap();
         store
             .view(WS, &mut |tx: &mut dyn Tx| {
-                let ids: Vec<String> = tx.sessions(WS)?.into_iter().map(|s| s.session_id).collect();
+                let ids: Vec<String> = tx.sessions()?.into_iter().map(|s| s.session_id).collect();
                 assert_eq!(ids, strings(&["new", "a", "b", "old"]));
-                let a = tx.sessions(WS)?.into_iter().nth(1).expect("second session");
+                let a = tx.sessions()?.into_iter().nth(1).expect("second session");
                 assert_eq!(a.commits, strings(&["y1", "y2"]));
                 Ok(())
             })
             .unwrap();
         store
             .view("/elsewhere", &mut |tx: &mut dyn Tx| {
-                assert_eq!(tx.sessions("/elsewhere")?.len(), 1);
+                assert_eq!(tx.sessions()?.len(), 1);
                 Ok(())
             })
             .unwrap();
         store
             .view("/nowhere", &mut |tx: &mut dyn Tx| {
-                assert!(tx.sessions("/nowhere")?.is_empty());
+                assert!(tx.sessions()?.is_empty());
                 Ok(())
             })
             .unwrap();

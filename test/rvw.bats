@@ -1746,11 +1746,11 @@ SH
   [[ "$output" == *"Usage:"*"rvw gate override"* ]]
 }
 
-@test "store: a fresh database is at schema version 2" {
+@test "store: a fresh database is at schema version 3" {
   queue app.py 1 "note"
   run sqlite3 "$DB" 'PRAGMA user_version'
   [ "$status" -eq 0 ]
-  [ "$output" = "2" ]
+  [ "$output" = "3" ]
 }
 
 @test "json: points_at, reopens and verdict are always present, null until set" {
