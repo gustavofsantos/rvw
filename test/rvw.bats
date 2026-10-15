@@ -1746,6 +1746,18 @@ SH
   [[ "$output" == *"Usage:"*"rvw gate override"* ]]
 }
 
+@test "help: sessions sits in the command list, alphabetically" {
+  run "$RVW" --help
+  [ "$status" -eq 0 ]
+  names=$(awk '/^Available Commands:/{f=1; next} /^$/{f=0} f{print $1}' <<<"$output")
+  [ "$names" = "$(sort <<<"$names")" ]
+  grep -qx sessions <<<"$names"
+
+  run "$RVW" sessions --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage:"*"rvw sessions"* ]]
+}
+
 @test "store: a fresh database is at schema version 3" {
   queue app.py 1 "note"
   run sqlite3 "$DB" 'PRAGMA user_version'
@@ -1783,6 +1795,59 @@ mcp_session() {
     done
   } | "$RVW" mcp serve ${MCP_FLAGS:-} >"$out"
   cat "$out"
+}
+
+@test "sessions: an empty workspace prints nothing on stdout, a notice on stderr" {
+  run "$RVW" sessions
+  [ "$status" -eq 0 ]
+  [ "$output" = "rvw: no reported sessions for $WORKSPACE" ]
+
+  [ -z "$("$RVW" sessions 2>/dev/null)" ]
+}
+
+@test "sessions: lists what agents reported over MCP, newest first" {
+  mcp_session \
+    '"method":"tools/call","params":{"name":"report_session","arguments":{"workspace":"'"$WORKSPACE"'","session_id":"s-old","tool":"claude-code","model":"opus-old","summary":"first pass","commits":["abc1234"]}}' >/dev/null
+  sleep 1
+  mcp_session \
+    '"method":"tools/call","params":{"name":"report_session","arguments":{"workspace":"'"$WORKSPACE"'","session_id":"s-new","tool":"claude-code","model":"haiku","summary":"","commits":["def5678","0123456"]}}' >/dev/null
+
+  run "$RVW" sessions
+  [ "$status" -eq 0 ]
+  [ "$output" = "s-new  claude-code haiku  2 commits  -
+s-old  claude-code opus-old  1 commit  first pass" ]
+}
+
+@test "sessions: --format json is the sessions object, newest first" {
+  mcp_session \
+    '"method":"tools/call","params":{"name":"report_session","arguments":{"workspace":"'"$WORKSPACE"'","session_id":"s-json","tool":"claude-code","model":"haiku","summary":"did it","commits":["abc1234"]}}' >/dev/null
+
+  run "$RVW" sessions --format json
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.sessions[0].session_id' <<<"$output")" = "s-json" ]
+  [ "$(jq -r '.sessions[0].tool' <<<"$output")" = "claude-code" ]
+  [ "$(jq -r '.sessions[0].model' <<<"$output")" = "haiku" ]
+  [ "$(jq -r '.sessions[0].summary' <<<"$output")" = "did it" ]
+  [ "$(jq -c '.sessions[0].commits' <<<"$output")" = '["abc1234"]' ]
+  [ "$(jq -r '.sessions[0].reported_at' <<<"$output")" != "null" ]
+  [ "$(jq -r 'keys | join(",")' <<<"$output")" = "sessions" ]
+}
+
+@test "sessions: --format markdown names each session and its commits" {
+  mcp_session \
+    '"method":"tools/call","params":{"name":"report_session","arguments":{"workspace":"'"$WORKSPACE"'","session_id":"s-md","tool":"claude-code","model":"haiku","summary":"fixed the parser","commits":["abc1234"]}}' >/dev/null
+
+  run "$RVW" sessions --format markdown
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"s-md"* ]]
+  [[ "$output" == *"fixed the parser"* ]]
+  [[ "$output" == *"abc1234"* ]]
+}
+
+@test "sessions: refuses an unknown format" {
+  run "$RVW" sessions --format ids
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"--format 'ids' is not one of text, json, markdown"* ]]
 }
 
 @test "mcp serve: an agent adds, pulls and resolves over stdio" {
@@ -2040,7 +2105,7 @@ SH
   [ "$status" -eq 0 ]
   [[ "$output" == *"per-workspace queue of code review feedback"* ]]
 
-  for sub in add submit list pull show edit resolve reject count workspaces path mcp tui; do
+  for sub in add submit list pull show edit resolve reject count workspaces path sessions mcp tui; do
     run "$RVW" "$sub" --help
     [ "$status" -eq 0 ]
     [[ "$output" == *"Usage:"*"rvw $sub"* ]]

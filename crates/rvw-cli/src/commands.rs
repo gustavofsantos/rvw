@@ -6,7 +6,8 @@ use std::io::{IsTerminal, Read, Write};
 use clap::{Arg, ArgAction, ArgMatches, Command, value_parser};
 use rvw_core::operations::{
     AddInput, EditInput, GateInput, GetInput, OverrideInput, PullInput, QueryInput, RemoveInput,
-    ResolveInput, SHEET_FILTERS, SheetsInput, SubmitInput, VerdictInput, WorkspacesInput,
+    ResolveInput, SHEET_FILTERS, SessionsInput, SheetsInput, SubmitInput, VerdictInput,
+    WorkspacesInput,
 };
 use rvw_core::service::MAX_SOURCE;
 use rvw_core::types::{Actor, Comment, GATE_ACTIONS, Handoff, LineRange, Location, VerdictKind};
@@ -311,6 +312,14 @@ pub fn root() -> Command {
     .arg(bool_flag("all", "include workspaces with nothing pending"))
     .arg(format_flag("text", &["text", "json"]));
 
+    let sessions_cmd = sub(
+        "sessions",
+        "list the sessions agents reported, newest first",
+        help::SESSIONS_LONG,
+    )
+    .after_help(help::SESSIONS_EXAMPLE)
+    .arg(format_flag("text", &["text", "json", "markdown"]));
+
     let path = sub("path", "print where the queue lives", help::PATH_LONG).arg(bool_flag(
         "workspace-only",
         "print the resolved workspace directory",
@@ -413,7 +422,7 @@ pub fn root() -> Command {
         )
         .subcommands([
             add, submit, list, pull, show, edit, remove, resolve, reject, accept, reopen, gate,
-            count, workspaces, path, mcp, tui, help_cmd,
+            count, workspaces, path, sessions_cmd, mcp, tui, help_cmd,
         ])
 }
 
@@ -437,6 +446,7 @@ pub fn run(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
         Some(("reopen", s)) => reopen(app, s, out),
         Some(("gate", s)) => gate_cmd(app, s, out),
         Some(("workspaces", s)) => workspaces(app, s, out),
+        Some(("sessions", s)) => sessions(app, s, out),
         Some(("path", s)) => path(app, s, out),
         Some(("mcp", s)) => mcp_cmd(app, s, out),
         Some(("tui", s)) => tui(app, s),
@@ -866,6 +876,32 @@ fn show(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
             render::markdown(&ws, &[], std::slice::from_ref(&ev.comment), false)
         )),
         _ => w(write!(out, "{}", render::display(&ev))),
+    }
+}
+
+fn sessions(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
+    let format = s(m, "format");
+    one_of("--format", &format, &["text", "json", "markdown"])?;
+    let ws = app.workspace()?;
+    let svc = app.svc()?;
+    let result = svc
+        .sessions(SessionsInput {
+            workspace: ws.clone(),
+        })
+        .map_err(core_err)?;
+    match format.as_str() {
+        "json" => json(&result),
+        "markdown" => w(write!(
+            out,
+            "{}",
+            render::sessions_markdown(&ws, &result.sessions)
+        )),
+        _ => {
+            if !w(render::sessions_text(out, &result.sessions))? {
+                App::notice(&format!("no reported sessions for {ws}"));
+            }
+            Ok(())
+        }
     }
 }
 

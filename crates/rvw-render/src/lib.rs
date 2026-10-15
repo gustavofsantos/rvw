@@ -7,8 +7,8 @@ pub mod terminal;
 
 pub use display::{display, sheet};
 pub use render::{
-    Envelope, attribution, comment_line, first_line, ids, json, markdown, review_line, sheet_line,
-    text,
+    Envelope, attribution, comment_line, first_line, ids, json, markdown, review_line,
+    session_line, sessions_markdown, sessions_text, sheet_line, text,
 };
 pub use terminal::{Terminal, is_control, safe};
 

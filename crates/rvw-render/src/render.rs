@@ -4,7 +4,7 @@
 use std::io::{self, Write};
 
 use rvw_core::operations::ReviewSheet;
-use rvw_core::types::{Comment, Handoff, Review};
+use rvw_core::types::{Comment, Handoff, Review, Session};
 use serde::Serialize;
 
 /// Writes `v` as JSON indented by two spaces, followed by a newline. Characters
@@ -145,6 +145,71 @@ pub(crate) fn link_lines(c: &Comment) -> Vec<String> {
     lines
 }
 
+/// The one-line summary of a reported session:
+/// `s-1  claude-code haiku  2 commits  summary`, or `-` when it has none.
+#[must_use]
+pub fn session_line(s: &Session) -> String {
+    let summary = s
+        .summary
+        .as_deref()
+        .map(first_line)
+        .filter(|t| !t.is_empty())
+        .unwrap_or("-");
+    let n = s.commits.len();
+    let noun = if n == 1 { "commit" } else { "commits" };
+    format!(
+        "{}  {} {}  {n} {noun}  {summary}",
+        s.session_id, s.tool, s.model
+    )
+}
+
+/// Writes sessions one per line, newest first, and reports whether it wrote
+/// anything.
+///
+/// # Errors
+///
+/// Returns an error when `w` cannot be written.
+pub fn sessions_text(w: &mut impl Write, sessions: &[Session]) -> io::Result<bool> {
+    for s in sessions {
+        writeln!(w, "{}", session_line(s))?;
+    }
+    Ok(!sessions.is_empty())
+}
+
+/// The reported sessions as markdown: each one's agent, when it was reported,
+/// the commits it made and its summary.
+#[must_use]
+pub fn sessions_markdown(ws: &str, sessions: &[Session]) -> String {
+    if sessions.is_empty() {
+        return format!("No reported sessions for {ws}.\n");
+    }
+    let mut out: Vec<String> = vec![format!("# Reported sessions — {ws}"), String::new()];
+    for s in sessions {
+        out.push(format!("## {}", s.session_id));
+        out.push(String::new());
+        out.push(format!("- **Agent:** {} {}", s.tool, s.model));
+        out.push(format!("- **Reported:** {}", s.reported_at));
+        let commits = if s.commits.is_empty() {
+            "none".to_owned()
+        } else {
+            s.commits
+                .iter()
+                .map(|c| format!("`{c}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        out.push(format!("- **Commits:** {commits}"));
+        out.push(String::new());
+        out.push(
+            s.summary
+                .clone()
+                .unwrap_or_else(|| "No summary.".to_owned()),
+        );
+        out.push(String::new());
+    }
+    format!("{}\n", out.join("\n").trim_end())
+}
+
 /// Writes one id per line, reviews first.
 ///
 /// # Errors
@@ -246,7 +311,7 @@ fn decision_label(d: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use rvw_core::types::{Location, Status, VerdictKind};
+    use rvw_core::types::{Location, Session, Status, VerdictKind};
 
     use super::*;
     use crate::fixtures::{comment, review, verdict};
@@ -611,5 +676,26 @@ mod tests {
         assert_eq!(decision_label(""), "");
         assert_eq!(decision_label("approve"), "Approve");
         assert_eq!(decision_label("request-changes"), "Request changes");
+    }
+
+    #[test]
+    fn a_session_line_shows_its_commits_and_a_dash_without_a_summary() {
+        let s = Session {
+            session_id: "s-1".into(),
+            tool: "claude-code".into(),
+            model: "haiku".into(),
+            summary: None,
+            commits: vec!["abc1234".into(), "def5678".into()],
+            reported_at: "2026-10-12T09:00:00+00:00".into(),
+        };
+        assert_eq!(session_line(&s), "s-1  claude-code haiku  2 commits  -");
+        let with = Session {
+            summary: Some("fixed it\nmore".into()),
+            ..s
+        };
+        assert_eq!(
+            session_line(&with),
+            "s-1  claude-code haiku  2 commits  fixed it"
+        );
     }
 }

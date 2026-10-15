@@ -1,0 +1,18 @@
+List the sessions agents reported for this workspace, newest first, with the
+commits each one made. Nothing is written: an agent reports its own session
+over MCP, and a person reads the record here.
+
+Usage:
+  rvw sessions [flags]
+
+Examples:
+  rvw sessions
+  rvw sessions --format markdown
+
+Flags:
+      --format string   output shape: text, json, markdown (default: text) (default "text")
+  -h, --help            help for sessions
+
+Global Flags:
+      --db string          database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)
+      --workspace string   queue to act on: the git toplevel of this directory (default: $PWD)

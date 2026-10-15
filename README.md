@@ -168,6 +168,14 @@ rvw list --reviews             # submitted reviews and their state
 rvw count                      # pending handoffs, for a statusline
 rvw workspaces                 # every workspace with something pending
 rvw gate                       # open or unjudged comments, before a commit or push
+rvw sessions                   # agent sessions reported for this workspace, newest first
+```
+
+`rvw sessions` lists the sessions an agent reported over MCP (`report_session`),
+with the commits each one made. It only reads; a person cannot report a session.
+
+```sh
+rvw sessions --format json     # the same records, as one JSON object
 ```
 
 `rvw gate` only reports; it does not stop a commit. When you go ahead anyway,

@@ -52,6 +52,7 @@ Examples:
   rvw show r3                           # one comment, its decision and its diff
   rvw show rv1                          # a whole review sheet
   rvw count                             # pending handoff count, for a statusline
+  rvw sessions                          # what agents reported here, newest first
   rvw workspaces                        # every workspace holding comments
   rvw mcp config                        # connect Claude Code to the MCP server
   rvw tui                               # read code and comment in a terminal UI
@@ -71,6 +72,7 @@ Available Commands:
   remove      delete a queued review comment before it is handed over
   reopen      send a decided comment back to the agent as a follow-up
   resolve     record that a comment was acted on
+  sessions    list the sessions agents reported, newest first
   show        show one review comment (or review sheet) with its source evidence
   submit      submit a review over pending review comments
   tui         browse the workspace and leave review comments in a terminal UI

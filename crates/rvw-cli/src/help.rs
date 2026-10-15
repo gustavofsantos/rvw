@@ -59,6 +59,7 @@ pub const EXAMPLES: &str =
   rvw show r3                           # one comment, its decision and its diff
   rvw show rv1                          # a whole review sheet
   rvw count                             # pending handoff count, for a statusline
+  rvw sessions                          # what agents reported here, newest first
   rvw workspaces                        # every workspace holding comments
   rvw mcp config                        # connect Claude Code to the MCP server
   rvw tui                               # read code and comment in a terminal UI";
@@ -170,6 +171,14 @@ required: it says what is still wrong.";
 pub const REOPEN_EXAMPLE: &str = "  rvw reopen r3 --note \"the rename missed the caller in api.py\"
   rvw reopen r3 --lines 40-44 --note \"still returns early\" --author alice
   rvw reopen r3 --note \"see above\" --format ids   # prints the follow-up's id";
+
+pub const SESSIONS_LONG: &str =
+    "List the sessions agents reported for this workspace, newest first, with the
+commits each one made. Nothing is written: an agent reports its own session
+over MCP, and a person reads the record here.";
+
+pub const SESSIONS_EXAMPLE: &str = "  rvw sessions
+  rvw sessions --format markdown";
 
 pub const GATE_LONG: &str =
     "Report what stands between the workspace and a commit or push. Open comments
