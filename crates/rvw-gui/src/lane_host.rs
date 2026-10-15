@@ -13,6 +13,7 @@ use rvw_view::lanes::{self, Dot, LaneInput, ProjectInput, Sidebar};
 use rvw_view::queue;
 
 use crate::data::{Identity, Snapshot};
+use crate::lane_projects::{self, HostProject, LaneEntry};
 use crate::shell::Shell;
 use crate::theme;
 
@@ -34,17 +35,6 @@ pub fn bind_keys(cx: &mut App) {
 /// The opened lanes (workspace, shell), shared with every lane's `Shell`.
 pub(crate) type SharedLanes = std::rc::Rc<std::cell::RefCell<Vec<(String, Entity<Shell>)>>>;
 
-/// What a worktree is called in the sidebar: its branch, or its directory's
-/// name when detached.
-fn lane_name(tree: &rvw_git::worktree::Worktree) -> String {
-    tree.branch.clone().unwrap_or_else(|| {
-        tree.path.file_name().map_or_else(
-            || "detached".to_owned(),
-            |n| n.to_string_lossy().into_owned(),
-        )
-    })
-}
-
 struct OpenLane {
     workspace: String,
     shell: Entity<Shell>,
@@ -54,22 +44,35 @@ pub struct LaneHost {
     /// Lanes opened so far, in the order they were first opened.
     open: Vec<OpenLane>,
     active: usize,
-    /// The repository's worktrees, read when the host starts and whenever a
-    /// lane is opened. Each is a lane.
-    worktrees: Vec<rvw_git::worktree::Worktree>,
-    project: rvw_project::Project,
+    /// The project files read at launch, then the implicit project.
+    projects: Vec<HostProject>,
+    /// Project files that did not open, one line each.
+    notices: Vec<String>,
     shared: SharedLanes,
 }
 
 impl LaneHost {
-    pub fn new(first: Entity<Shell>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let workspace = first.read(cx).snapshot.workspace.clone();
-        let name = std::path::Path::new(&workspace)
-            .file_name()
-            .map_or_else(|| workspace.clone(), |n| n.to_string_lossy().into_owned());
-        let project = rvw_project::implicit(&name, std::path::Path::new(&workspace));
-        let worktrees =
-            rvw_git::worktree::list(std::path::Path::new(&workspace)).unwrap_or_default();
+    pub fn new(
+        first: Entity<Shell>,
+        config_dir: &std::path::Path,
+        home: &std::path::Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let (workspace, db) = {
+            let shell = first.read(cx);
+            (shell.snapshot.workspace.clone(), shell.db_path.clone())
+        };
+        let data_dir = db
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_default();
+        let (projects, notices) = lane_projects::load(
+            config_dir,
+            &data_dir,
+            home,
+            std::path::Path::new(&workspace),
+        );
         let this = cx.entity().downgrade();
         let shared = SharedLanes::default();
         shared.borrow_mut().push((workspace.clone(), first.clone()));
@@ -83,15 +86,51 @@ impl LaneHost {
             this.update(cx, |host, cx| host.close_allowed(window, cx))
                 .unwrap_or(true)
         });
-        LaneHost {
+        let mut host = LaneHost {
             open: vec![OpenLane {
-                workspace,
+                workspace: workspace.clone(),
                 shell: first,
             }],
             active: 0,
-            worktrees,
-            project,
+            projects,
+            notices,
             shared,
+        };
+        host.autostart(&workspace, window, cx);
+        host
+    }
+
+    /// Starts the project terminals a lane names, the first time it opens.
+    fn autostart(&mut self, workspace: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(shell) = self
+            .open
+            .iter()
+            .find(|lane| lane.workspace == workspace)
+            .map(|lane| lane.shell.clone())
+        else {
+            return;
+        };
+        let commands: Vec<String> = self
+            .projects
+            .iter()
+            .flat_map(|project| {
+                project
+                    .entries()
+                    .into_iter()
+                    .filter(|entry| {
+                        entry
+                            .path
+                            .as_ref()
+                            .is_some_and(|path| path.to_string_lossy() == workspace)
+                    })
+                    .flat_map(|entry| entry.terminals)
+                    .filter_map(|name| project.terminal_command(&name).map(str::to_owned))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        for command in commands {
+            let launch = rvw_view::terminals::Launch::Command(command);
+            shell.update(cx, |shell, cx| shell.start_terminal(&launch, window, cx));
         }
     }
 
@@ -147,6 +186,7 @@ impl LaneHost {
             shell,
         });
         self.refresh_worktrees();
+        self.autostart(&workspace, window, cx);
         self.show(&workspace, window, cx);
     }
 
@@ -185,10 +225,8 @@ impl LaneHost {
     }
 
     fn refresh_worktrees(&mut self) {
-        if let Some(first) = self.open.first()
-            && let Ok(list) = rvw_git::worktree::list(std::path::Path::new(&first.workspace))
-        {
-            self.worktrees = list;
+        for project in &mut self.projects {
+            project.refresh();
         }
     }
 
@@ -204,61 +242,102 @@ impl LaneHost {
             .update(cx, |shell, cx| shell.close_allowed(window, cx))
     }
 
-    /// The sidebar model: one project (the implicit one), every worktree a
-    /// lane. A lane's dot is waiting when its opened shell has a decision
-    /// waiting on the reviewer.
-    fn sidebar(&self, cx: &App) -> Sidebar {
-        let inputs: Vec<LaneInput> = self
-            .worktrees
+    /// Every project's rows, in sidebar order.
+    fn entries(&self) -> Vec<Vec<LaneEntry>> {
+        self.projects.iter().map(HostProject::entries).collect()
+    }
+
+    /// The sidebar model. A lane's dot is waiting when its opened shell has a
+    /// decision waiting on the reviewer.
+    fn sidebar(&self, entries: &[Vec<LaneEntry>], cx: &App) -> Sidebar {
+        let inputs: Vec<Vec<LaneInput>> = entries
             .iter()
-            .map(|tree| {
-                let path = tree.path.to_string_lossy().into_owned();
-                let waiting = self
-                    .open
-                    .iter()
-                    .find(|lane| lane.workspace == path)
-                    .is_some_and(|lane| {
-                        queue::waiting_on_you(&lane.shell.read(cx).snapshot.comments) > 0
-                    });
-                LaneInput {
-                    name: lane_name(tree),
-                    branch: tree.branch.clone(),
-                    path: Some(tree.path.clone()),
-                    main: tree.main,
-                    waiting,
-                    running: false,
-                }
+            .map(|rows| {
+                rows.iter()
+                    .map(|entry| {
+                        let waiting = entry.path.as_ref().is_some_and(|path| {
+                            let path = path.to_string_lossy();
+                            self.open
+                                .iter()
+                                .find(|lane| lane.workspace == path)
+                                .is_some_and(|lane| {
+                                    queue::waiting_on_you(&lane.shell.read(cx).snapshot.comments)
+                                        > 0
+                                })
+                        });
+                        LaneInput {
+                            name: entry.name.clone(),
+                            branch: entry.branch.clone(),
+                            path: entry.path.clone(),
+                            main: entry.main,
+                            waiting,
+                            running: false,
+                        }
+                    })
+                    .collect()
             })
             .collect();
-        lanes::build(&[ProjectInput {
-            project: &self.project,
-            lanes: inputs,
-            open: true,
-        }])
+        let groups: Vec<ProjectInput<'_>> = self
+            .projects
+            .iter()
+            .zip(inputs)
+            .map(|(project, lanes)| ProjectInput {
+                project: &project.project,
+                lanes,
+                open: true,
+            })
+            .collect();
+        lanes::build(&groups)
     }
 
     fn step(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
-        let sidebar = self.sidebar(cx);
-        let current_workspace = &self.open[self.active].workspace;
-        let current_name = self
-            .worktrees
+        let entries = self.entries();
+        let sidebar = self.sidebar(&entries, cx);
+        let active = &self.open[self.active].workspace;
+        let current = self
+            .projects
             .iter()
-            .find(|tree| tree.path.to_string_lossy() == current_workspace.as_str())
-            .map(lane_name);
-        let current = current_name
-            .as_deref()
-            .map(|name| (self.project.name.as_str(), name));
-        let Some((_, lane)) = lanes::step(&sidebar, current, delta) else {
+            .zip(&entries)
+            .find_map(|(project, rows)| {
+                rows.iter()
+                    .find(|entry| {
+                        entry
+                            .path
+                            .as_ref()
+                            .is_some_and(|path| path.to_string_lossy() == active.as_str())
+                    })
+                    .map(|entry| (project.project.name.as_str(), entry.name.as_str()))
+            });
+        let Some((project, lane)) = lanes::step(&sidebar, current, delta) else {
             return;
         };
-        let Some(path) = self
-            .worktrees
+        let entry = self
+            .projects
             .iter()
-            .find(|tree| lane_name(tree) == lane)
-            .map(|tree| tree.path.clone())
-        else {
-            return;
-        };
+            .zip(&entries)
+            .filter(|(candidate, _)| candidate.project.name == project)
+            .flat_map(|(_, rows)| rows)
+            .find(|entry| entry.name == lane)
+            .cloned();
+        if let Some(entry) = entry {
+            self.open_entry(&entry, window, cx);
+        }
+    }
+
+    /// Shows a lane's worktree, creating it first when the project file names
+    /// a lane that has none.
+    fn open_entry(&mut self, entry: &LaneEntry, window: &mut Window, cx: &mut Context<Self>) {
+        if entry.path.is_none() {
+            let made = rvw_git::lanes::create(&entry.repo, &entry.target, &entry.name, None);
+            if let Err(error) = made {
+                let line = error.stderr.lines().last().unwrap_or_default().to_owned();
+                self.notices.push(line);
+                cx.notify();
+                return;
+            }
+            self.refresh_worktrees();
+        }
+        let path = entry.path.clone().unwrap_or_else(|| entry.target.clone());
         self.open_path(&path, window, cx);
     }
 
@@ -312,31 +391,19 @@ impl LaneHost {
     }
 
     fn sidebar_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let sidebar = self.sidebar(cx);
+        let entries = self.entries();
+        let sidebar = self.sidebar(&entries, cx);
         let active_path = self.open[self.active].workspace.clone();
         let mut rows = Vec::new();
         rows.push(Self::sidebar_buttons(cx));
-        for group in &sidebar.projects {
-            rows.push(
-                div()
-                    .px(px(14.))
-                    .pt(px(14.))
-                    .pb(px(6.))
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(theme::muted())
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .child(group.name.clone())
-                    .into_any_element(),
-            );
+        for (group_index, group) in sidebar.projects.iter().enumerate() {
+            rows.push(group_header(group.name.clone()));
             for (index, row) in group.lanes.iter().enumerate() {
-                let tree = self
-                    .worktrees
-                    .iter()
-                    .find(|tree| lane_name(tree) == row.name);
-                let path = tree.map(|tree| tree.path.clone());
+                let entry = entries
+                    .get(group_index)
+                    .and_then(|rows| rows.iter().find(|entry| entry.name == row.name))
+                    .cloned();
+                let path = entry.as_ref().and_then(|entry| entry.path.clone());
                 let selected = path
                     .as_ref()
                     .is_some_and(|p| p.to_string_lossy() == active_path.as_str());
@@ -345,7 +412,9 @@ impl LaneHost {
                     Dot::Running => Some(theme::agent()),
                     Dot::Idle => None,
                 };
-                let label = if row.main {
+                let label = if row.missing {
+                    format!("{}  not created", row.name)
+                } else if row.main {
                     format!("{}  main", row.name)
                 } else {
                     row.name.clone()
@@ -385,8 +454,8 @@ impl LaneHost {
                                 .child(label),
                         )
                         .on_click(cx.listener(move |this, _, window, cx| {
-                            if let Some(path) = path.clone() {
-                                this.open_path(&path, window, cx);
+                            if let Some(entry) = entry.clone() {
+                                this.open_entry(&entry, window, cx);
                             }
                         }))
                         .into_any_element(),
@@ -403,7 +472,31 @@ impl LaneHost {
             .border_r_1()
             .border_color(theme::hairline())
             .children(rows)
+            .children(self.notices.iter().map(|line| {
+                div()
+                    .px(px(14.))
+                    .pt(px(8.))
+                    .text_size(px(11.))
+                    .text_color(theme::muted())
+                    .child(line.clone())
+            }))
     }
+}
+
+/// A project's name above its lanes, on one line.
+fn group_header(name: String) -> gpui::AnyElement {
+    div()
+        .px(px(14.))
+        .pt(px(14.))
+        .pb(px(6.))
+        .text_size(px(12.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(theme::muted())
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .text_ellipsis()
+        .child(name)
+        .into_any_element()
 }
 
 impl Render for LaneHost {

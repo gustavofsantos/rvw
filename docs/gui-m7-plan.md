@@ -261,6 +261,18 @@ rail, panels and terminal dock. Moving the dock into centre tabs and
 replacing the rail is a separate, larger rebuild of `Shell`'s layout and is
 left for the user to confirm (see the report of 2026-10-15).
 
+## Projects in the host (2026-10-15)
+
+`rvw-gui --config DIR` (else `$XDG_CONFIG_HOME/rvw/projects`, else
+`~/.config/rvw/projects`) is read at launch: each `*.toml` is one project
+(`lane_projects.rs`); a refused file is one line under the sidebar. A
+repository no file lists gets the implicit project. A file's `[[lane]]` is a
+row: its worktree is `<data dir>/lanes/<project>/<repo>/<lane>`; a lane with no
+worktree reads "not created" and clicking it creates the branch and worktree
+at HEAD. A lane's `terminals` start when the lane is first opened. Not done
+yet: facts per lane, `⌘L`/`⌘N`, writing `[[lane]]` on New/Archive (those still
+use the plain worktree flow), the last lane, collapsing projects.
+
 ## Open
 
 1. Is `--config DIR` the right flag name, given that `config.toml` (fonts,

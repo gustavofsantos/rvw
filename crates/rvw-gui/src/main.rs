@@ -38,6 +38,7 @@ mod history_screen;
 mod history_state;
 mod icon;
 mod lane_host;
+mod lane_projects;
 mod last_workspace;
 mod live;
 mod outcome_flow;
@@ -85,6 +86,8 @@ actions!(rvw_app, [Quit]);
 struct Args {
     workspace: Option<PathBuf>,
     db: Option<PathBuf>,
+    /// The directory of the project files (`--config`).
+    config: Option<PathBuf>,
     lane: String,
     author: String,
 }
@@ -124,7 +127,14 @@ fn run() -> Result<(), String> {
         author: args.author,
         lane: args.lane,
     };
-    show_window(snapshot, service, identity, db);
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    let xdg = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute());
+    let projects = rvw_project::projects_dir(args.config.as_deref(), xdg.as_deref(), &home);
+    show_window(snapshot, service, identity, db, (projects, home));
     Ok(())
 }
 
@@ -172,6 +182,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
         match flag.as_str() {
             "--workspace" => parsed.workspace = Some(PathBuf::from(flag_value(&mut args, &flag)?)),
             "--db" => parsed.db = Some(PathBuf::from(flag_value(&mut args, &flag)?)),
+            "--config" => parsed.config = Some(PathBuf::from(flag_value(&mut args, &flag)?)),
             "--lane" => parsed.lane = flag_value(&mut args, &flag)?,
             "--author" => parsed.author = flag_value(&mut args, &flag)?,
             other => return Err(format!("unknown argument {other}")),
@@ -186,7 +197,14 @@ fn flag_value(args: &mut impl Iterator<Item = String>, flag: &str) -> Result<Str
 
 /// Starts the application and opens the one window. Errors here happen after
 /// the database is open, so they are reported from inside the app callback.
-fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identity, db: PathBuf) {
+/// `projects` is the project files' directory and the home directory `~` expands to.
+fn show_window(
+    snapshot: Snapshot,
+    service: rvw_core::Service,
+    identity: Identity,
+    db: PathBuf,
+    projects: (PathBuf, PathBuf),
+) {
     Application::new()
         .with_assets(assets::Assets)
         .run(move |cx: &mut App| {
@@ -226,7 +244,7 @@ fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identit
                 theme::follow(window.appearance());
                 let service = std::sync::Arc::new(service);
                 let shell = cx.new(|cx| Shell::new(snapshot, service, identity, db, window, cx));
-                cx.new(|cx| lane_host::LaneHost::new(shell, window, cx))
+                cx.new(|cx| lane_host::LaneHost::new(shell, &projects.0, &projects.1, window, cx))
             });
             if let Err(error) = opened {
                 eprintln!("rvw-gui: {error}");
