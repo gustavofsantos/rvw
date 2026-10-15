@@ -5,6 +5,7 @@ mod gate;
 pub mod operations;
 pub mod repository;
 pub mod service;
+mod session;
 pub mod types;
 mod verdict;
 
