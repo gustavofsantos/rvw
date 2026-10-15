@@ -1,6 +1,6 @@
 # GUI M6 plan: ledger
 
-Status: approved on 2026-10-15 with the defaults of the open questions. Started.
+Status: built on 2026-10-15; awaiting the user's manual run of the GUI.
 Scope: [gui-v1-product-brief.md](gui-v1-product-brief.md) milestone M6: C1, C3,
 C4, P4, P5, with the content matching of D2. Like M4 and M5 it touches the
 core, CLI and GUI. [gui-m5-plan.md](gui-m5-plan.md) built the sessions this
@@ -126,3 +126,32 @@ printable; the export includes each comment's snapshot and diff.
 5. Should the export include the code snapshot and resolution diff of every
    comment, or only decisions? Proposal: include them, since a reviewer
    outside the team has no queue to look them up in.
+
+## Status at the end of the session (2026-10-15)
+
+| Done | Where |
+|---|---|
+| Ledger types | `rvw-core/operations.rs` (slice 0) |
+| Patch ids of a file's change | `rvw-git/patch_id.rs` (slice 1) |
+| Matching rules | `rvw-core/ledger_match.rs` (slice 2) |
+| `Service::ledger` | `rvw-core/ledger.rs` (slice 3) |
+| Markdown, HTML, JSON renderers | `rvw-render/ledger.rs` (slice 4) |
+| `rvw ledger`, README | `rvw-cli`, bats, help fixtures (slice 5) |
+| Review section in the commit detail (C1) | `rvw-gui/history_*`, `rvw-view/ledger_review.rs` (slice 6) |
+| Review counts on the session timeline (P4) | `rvw-gui/history_*` (slice 7) |
+| Export audit card and action (C3, C4) | `rvw-gui/export_*`, palette (slice 8) |
+| Session summary above the composer (P5) | `rvw-gui/why_line.rs`, `rvw-view/why_line.rs` (slice 9) |
+
+Open after the run:
+
+- Not run by hand: no display was available to the workers. Open History on a
+  commit with a resolved comment, a session's commits, the `Export audit…`
+  palette action on a feature branch, and the composer on a line an agent
+  reported.
+- The commit detail waits for the ledger read; a slow ledger delays it.
+- Untested: the 5000-commit bound and multi-page paging of `ledger`.
+- `blobs_patch_id` assumes mode 100644 (an executable file does not match by
+  patch-id).
+- Not built: manual links (D2), a "contained" link kind, an MCP `ledger`
+  tool. P5 blames the file on disk, so in a compare against another revision
+  the line numbers may differ.
