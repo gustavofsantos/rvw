@@ -1,6 +1,7 @@
 # GUI plan: select by gutter, edit in place
 
-Status: approved on 2026-10-15 (decisions below). Built before M7's frame.
+Status: built on 2026-10-15 (slices 2 to 7b); awaiting the user's manual run.
+Approved the same day (decisions below); built before M7's frame.
 Scope: not a milestone of the v1 brief. It sits beside M7 and touches the
 diff list, the whole-file view and the selection model.
 
@@ -86,3 +87,25 @@ M7's frame slices (7 to 11), which then build on them.
 3. **Order: before M7's frame.** Slices 1 to 7 run before M7 slices 7 to 11.
    M7's pure slices (1 to 6) continue beside the pure slices here.
 4. **Save is `⌘S` only.** No save on focus loss.
+
+## Status at the end of the session (2026-10-15)
+
+Built: gutter selection (5, e0100bb), caret, character selection and copy
+(6, 24f12b2), typing, undo, clipboard (7a, 3d30fd3), save, dirty dots, disk
+card, quit guard, Edit action (7b). Pure parts: textpos, filebuf, filesave.
+
+Not run by hand: no display. To try: click a line number and drag; click in
+code, drag, double-click, `⌘C`; open a file's File view, type, undo, `⌘S`;
+change the file in another editor while dirty; quit with unsaved edits;
+`e` in the Changes view.
+
+Known gaps:
+
+- An edited file is drawn without syntax colours until saved.
+- A text drag past the list edge does not auto-scroll.
+- Tab width is fixed at 4 columns, drawn as spaces.
+- No "Show diff" on the disk card; `⌘S` saves the open file only.
+- A file with mixed line endings is written in its majority style.
+- Every edit rebuilds the row list (O(lines), up to the 1 MiB cap); not
+  measured.
+- `FileBuf::rebase` would replace the `Edit.base` override in the GUI.
