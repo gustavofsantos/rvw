@@ -77,6 +77,27 @@ default database is the user's real queue.
 - A verdict's actor is the surface it came through (MCP = agent, CLI/TUI/GUI =
   human), never a field an adapter accepts.
 
+## Working with the user: orchestrator and workers
+
+The main Claude Code session is the orchestrator and reports to the user like
+a manager. It plans, decides slice boundaries, reviews and commits. Heavy
+implementation goes to the `rvw-worker` agent (`.claude/agents/rvw-worker.md`,
+Haiku).
+
+- Work on the checked-out branch (`develop`); do not use worktrees.
+- A milestone starts with a plan in `docs/gui-mN-plan.md` (decisions, a slice
+  table with files owned and proof, open questions). The user approves it
+  before any slice is built.
+- Dispatch one slice per worker: name the plan file, the slice number, the
+  files it owns, the behavior and the proof. Run workers in parallel only when
+  their files are disjoint.
+- Workers never commit. The orchestrator reads each diff, runs `make check`,
+  and makes one conventional commit per slice. A slice that fails review goes
+  back to a worker with the specific finding.
+- The orchestrator builds `rvw-gui`; workers do not.
+- Report to the user by exception: results, decisions needed, failures. Ask
+  only for decisions that are the user's to make.
+
 ## Conventions
 
 - Conventional commits: `feat:`, `fix:`, `test:`, `docs:`, `feat!:` for
