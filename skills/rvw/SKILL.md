@@ -1,7 +1,7 @@
 ---
 name: rvw
 description: Work the local rvw code review queue. Use when the user asks to pull, check, address or work through review comments or feedback, mentions rvw, or asks you to review code and leave comments for another agent.
-allowed-tools: mcp__rvw__pull, mcp__rvw__list, mcp__rvw__list_reviews, mcp__rvw__count, mcp__rvw__show_comment, mcp__rvw__show_review, mcp__rvw__resolve, mcp__rvw__add, mcp__rvw__submit, mcp__rvw__remove, mcp__rvw__judge, mcp__rvw__gate
+allowed-tools: mcp__rvw__pull, mcp__rvw__list, mcp__rvw__list_reviews, mcp__rvw__count, mcp__rvw__show_comment, mcp__rvw__show_review, mcp__rvw__resolve, mcp__rvw__add, mcp__rvw__submit, mcp__rvw__remove, mcp__rvw__judge, mcp__rvw__gate, mcp__rvw__report_session
 ---
 
 # rvw
@@ -113,6 +113,23 @@ wrong, required):
   of the same file.
 - rvw records the surface a verdict came through, not who you are: through
   this server it is recorded as `agent`, whatever `author` says.
+
+## Report your session
+
+After you commit, call `report_session` so history can show that an agent
+made the commit and open the session that did. Give your own session id, the
+tool you run in (`claude-code`), your model, a one-line `summary`, and the
+commit ids you made (7 to 40 hex characters):
+
+```json
+{"workspace": "/abs/project", "session_id": "session_01Abc", "tool": "claude-code", "model": "claude-sonnet-5-5", "summary": "added the sessions table", "commits": ["a1b2c3d"]}
+```
+
+- Call it again as you make more commits; a repeat adds commits. The first
+  report's `tool`, `model` and `summary` stay, and a repeat that names a
+  different tool or model is refused.
+- Report only what you did. rvw never writes a marker into a commit, and an
+  agent that does not report leaves no provenance.
 
 ## Before a commit or push
 
