@@ -36,13 +36,18 @@ pub fn ledger_markdown(l: &LedgerOutput) -> String {
     if !l.unlinked.is_empty() {
         out.push(String::new());
     }
-    out.extend(["## Gate overrides".to_owned(), String::new()]);
-    if l.overrides.is_empty() {
-        out.extend(["None.".to_owned(), String::new()]);
-    }
-    for o in &l.overrides {
-        override_markdown(&mut out, o);
-    }
+    out.extend([
+        "## Gate overrides".to_owned(),
+        String::new(),
+        "Gate overrides recorded for the branch's lane.".to_owned(),
+        String::new(),
+    ]);
+    overrides_markdown(&mut out, &l.overrides);
+    out.extend([
+        "## Gate overrides not linked to any commit".to_owned(),
+        String::new(),
+    ]);
+    overrides_markdown(&mut out, &l.unscoped_overrides);
     format!("{}\n", out.join("\n").trim_end())
 }
 
@@ -95,12 +100,12 @@ pub fn ledger_html(l: &LedgerOutput) -> String {
     h.push("</section>".to_owned());
     h.push("<section class=\"overrides\">".to_owned());
     h.push("<h2>Gate overrides</h2>".to_owned());
-    if l.overrides.is_empty() {
-        h.push("<p>None.</p>".to_owned());
-    }
-    for o in &l.overrides {
-        override_html(&mut h, o);
-    }
+    h.push("<p>Gate overrides recorded for the branch's lane.</p>".to_owned());
+    overrides_html(&mut h, &l.overrides);
+    h.push("</section>".to_owned());
+    h.push("<section class=\"unscoped-overrides\">".to_owned());
+    h.push("<h2>Gate overrides not linked to any commit</h2>".to_owned());
+    overrides_html(&mut h, &l.unscoped_overrides);
     h.push("</section>".to_owned());
     h.extend(["</main>", "</body>", "</html>"].map(str::to_owned));
     format!("{}\n", h.join("\n"))
@@ -136,7 +141,7 @@ fn summary(l: &LedgerOutput) -> String {
         "{} commit(s), {linked} linked comment(s), {} unlinked, {} override(s).",
         l.commits.len(),
         l.unlinked.len(),
-        l.overrides.len()
+        l.overrides.len() + l.unscoped_overrides.len()
     )
 }
 
@@ -270,6 +275,16 @@ fn unlinked_markdown(u: &UnlinkedComment) -> String {
     )
 }
 
+/// The override items of one section, or `None.` when there are none.
+fn overrides_markdown(out: &mut Vec<String>, overrides: &[GateOverride]) {
+    if overrides.is_empty() {
+        out.extend(["None.".to_owned(), String::new()]);
+    }
+    for o in overrides {
+        override_markdown(out, o);
+    }
+}
+
 fn override_markdown(out: &mut Vec<String>, o: &GateOverride) {
     out.push(format!(
         "### {} by {} ({}) at {}",
@@ -354,6 +369,16 @@ fn linked_html(h: &mut Vec<String>, lc: &LinkedComment) {
         ));
     }
     h.push("</article>".to_owned());
+}
+
+/// The override items of one section, or `None.` when there are none.
+fn overrides_html(h: &mut Vec<String>, overrides: &[GateOverride]) {
+    if overrides.is_empty() {
+        h.push("<p>None.</p>".to_owned());
+    }
+    for o in overrides {
+        override_html(h, o);
+    }
 }
 
 fn override_html(h: &mut Vec<String>, o: &GateOverride) {
@@ -516,7 +541,7 @@ mod tests {
             }],
             overrides: vec![GateOverride {
                 workspace: "/ws".into(),
-                lane: None,
+                lane: Some("feat/parser".into()),
                 action: "commit".into(),
                 reason: "hotfix".into(),
                 by: "alice".into(),
@@ -524,6 +549,17 @@ mod tests {
                 at: "2026-01-03T12:00:00Z".into(),
                 open: vec!["r7".into()],
                 unjudged: vec!["r1".into()],
+            }],
+            unscoped_overrides: vec![GateOverride {
+                workspace: "/ws".into(),
+                lane: None,
+                action: "push".into(),
+                reason: "ship it".into(),
+                by: "bob".into(),
+                actor: Actor::Agent,
+                at: "2026-01-04T09:00:00Z".into(),
+                open: vec!["r3".into()],
+                unjudged: vec![],
             }],
             sessions: vec![Session {
                 session_id: "s-1".into(),
@@ -543,6 +579,7 @@ mod tests {
             commits: vec![],
             unlinked: vec![],
             overrides: vec![],
+            unscoped_overrides: vec![],
             sessions: vec![],
         }
     }
@@ -555,7 +592,7 @@ mod tests {
 **Workspace:** /ws
 **Range:** main..HEAD
 
-2 commit(s), 1 linked comment(s), 1 unlinked, 1 override(s).
+2 commit(s), 1 linked comment(s), 1 unlinked, 2 override(s).
 
 ## aaaaaaa Fix the parser
 
@@ -603,13 +640,49 @@ No linked comments.
 
 ## Gate overrides
 
+Gate overrides recorded for the branch's lane.
+
 ### commit by alice (human) at 2026-01-03T12:00:00Z
 
+- **Lane:** feat/parser
 - **Reason:** hotfix
 - **Open:** r7
 - **Unjudged:** r1
+
+## Gate overrides not linked to any commit
+
+### push by bob (agent) at 2026-01-04T09:00:00Z
+
+- **Reason:** ship it
+- **Open:** r3
+- **Unjudged:** none
 ";
         assert_eq!(ledger_markdown(&fixture()), want);
+    }
+
+    #[test]
+    fn unscoped_overrides_alone_are_listed_apart_from_the_branch_overrides() {
+        let mut l = fixture();
+        l.overrides.clear();
+        let out = ledger_markdown(&l);
+        assert!(out.contains(
+            "## Gate overrides\n\nGate overrides recorded for the branch's lane.\n\nNone.\n\n\
+             ## Gate overrides not linked to any commit\n\n### push by bob (agent)"
+        ));
+        assert!(out.ends_with("- **Unjudged:** none\n"));
+    }
+
+    #[test]
+    fn html_lists_unscoped_overrides_in_their_own_section() {
+        let mut l = fixture();
+        l.overrides.clear();
+        let out = ledger_html(&l);
+        assert!(out.contains(
+            "<section class=\"unscoped-overrides\">\n\
+             <h2>Gate overrides not linked to any commit</h2>\n\
+             <article class=\"override\">"
+        ));
+        assert!(out.contains("<h2>Gate overrides</h2>\n<p>Gate overrides recorded for the branch's lane.</p>\n<p>None.</p>"));
     }
 
     #[test]
@@ -629,6 +702,12 @@ No commits in range.
 None.
 
 ## Gate overrides
+
+Gate overrides recorded for the branch's lane.
+
+None.
+
+## Gate overrides not linked to any commit
 
 None.
 ";
