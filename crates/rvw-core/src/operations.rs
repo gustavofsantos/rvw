@@ -436,10 +436,10 @@ pub struct LedgerInput {
     /// to HEAD, which needs a default branch other than the current one
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub range: String,
-    /// only commits at or after this date, RFC 3339 or YYYY-MM-DD
+    /// only commits with a committer date at or after this, RFC 3339 or YYYY-MM-DD
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub since: String,
-    /// only commits at or before this date, RFC 3339 or YYYY-MM-DD
+    /// only commits with a committer date at or before this, RFC 3339 or YYYY-MM-DD
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub until: String,
     /// only this lane's comments; empty means every lane
@@ -507,10 +507,12 @@ pub struct LedgerOutput {
     pub range: String,
     /// commits, oldest first
     pub commits: Vec<LedgerCommit>,
-    /// decided comments that matched no commit in the range
+    /// decided comments on files the range touches that matched no commit
     pub unlinked: Vec<UnlinkedComment>,
-    /// gate overrides recorded within the commits' time span
+    /// gate overrides recorded for the lane of the range's branch
     pub overrides: Vec<crate::types::GateOverride>,
+    /// gate overrides recorded with no lane; not linked to any commit
+    pub unscoped_overrides: Vec<crate::types::GateOverride>,
     /// reported sessions that own a commit in the range
     pub sessions: Vec<Session>,
 }
