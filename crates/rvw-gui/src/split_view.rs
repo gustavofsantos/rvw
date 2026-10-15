@@ -1,19 +1,18 @@
 //! The split diff: the Unified | Split control of the file header and one
 //! row of two columns. Which lines pair up is `rvw_view::split`; the rows
 //! come from `diffrows::split_rows`, and a cell is drawn like a unified line
-//! (same tints, same syntax colours, same selection by position).
+//! (same tints, same syntax colours, same selection by position). Each cell
+//! has its own gutter, which is where a line is selected from.
 
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, ClickEvent, Context, CursorStyle, Div, FontWeight, MouseButton, Stateful,
-    WeakEntity, Window, div, px,
+    AnyElement, ClickEvent, Context, Div, FontWeight, Stateful, WeakEntity, Window, div, px,
 };
 use rvw_view::diff::LineKind;
 use rvw_view::selection::{Pos, Selection};
 
-use crate::code_scroll;
 use crate::diff_list::Model;
-use crate::diff_view::{code_text, line_handlers};
+use crate::diff_view::{code_area, code_text, drag_move, gutter};
 use crate::review_screen::LINE_HEIGHT;
 use crate::shell::Shell;
 use crate::theme;
@@ -122,7 +121,6 @@ fn cell(
         Side::Old => line.old_no,
         Side::New => line.new_no,
     };
-    let (on_down, on_move) = line_handlers(pos, shell);
     let spans = model.spans.borrow().clone();
     let spans = spans
         .as_deref()
@@ -130,35 +128,17 @@ fn cell(
         .and_then(|hunk| hunk.get(pos.line))
         .map_or(&[][..], Vec::as_slice);
     base.when_some(background, gpui::Styled::bg)
-        .cursor(CursorStyle::IBeam)
-        .on_mouse_down(MouseButton::Left, on_down)
-        .on_mouse_move(on_move)
-        .child(
-            div()
-                .w(px(46.))
-                .flex_none()
-                .pr(px(14.))
-                .text_right()
-                .text_color(theme::faint())
-                .child(number.map_or(String::new(), |n| n.to_string())),
-        )
-        .child(
-            div()
-                .w(px(2.))
-                .flex_none()
-                .h_full()
-                .when_some(marker, gpui::Styled::bg),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.))
-                .pl(px(14.))
-                .whitespace_nowrap()
-                .overflow_hidden()
-                .child(code_scroll::shifted(
-                    code_text(&line.text, spans),
-                    model.scroll_x.get(),
-                )),
-        )
+        .on_mouse_move(drag_move(pos, shell))
+        .child(gutter(
+            number.map_or(String::new(), |n| n.to_string()),
+            marker,
+            pos,
+            shell,
+        ))
+        .child(code_area(
+            code_text(&line.text, spans),
+            model.scroll_x.get(),
+            pos,
+            shell,
+        ))
 }

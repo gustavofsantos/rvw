@@ -1,5 +1,6 @@
 //! Press-drag-release selection of diff lines, as in a terminal. The shell
-//! owns the drag; rows only report a press and the line under the pointer.
+//! owns the drag; the gutters report a press, and the rows report the line
+//! under the pointer. A press in the code area never starts a drag.
 //! Moving over rows costs a comparison unless the line under the pointer is
 //! new, and while the pointer is held at or beyond the list's top or bottom
 //! edge a 60 Hz timer scrolls the list and extends the selection.
@@ -51,8 +52,8 @@ pub fn autoscroll_step(y: f32, top: f32, bottom: f32) -> f32 {
 }
 
 impl Shell {
-    /// A press on the line at `pos`: selects it (or extends with Shift) and
-    /// starts a drag, unless the line cannot be selected.
+    /// A press on the gutter of the line at `pos`: selects it (or extends with
+    /// Shift) and starts a drag, unless the line cannot be selected.
     pub(crate) fn press_line(&mut self, pos: Pos, shift: bool, cx: &mut Context<Self>) {
         self.select_line(pos, shift, cx);
         let selectable = self

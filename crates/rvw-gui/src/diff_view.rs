@@ -1,7 +1,10 @@
-//! The rows of the diff of the selected file. A press on a line selects it and
-//! a drag extends the selection, as does a Shift press. The file's comments sit under the diff line their range ends
-//! on, and the composer sits under the last selected line. `diff_list` owns
-//! the list; this file draws one row.
+//! The rows of the diff of the selected file. Lines are selected from the
+//! gutter: a press on a line's number or marker selects it, a drag over the
+//! gutter extends the selection, and a Shift press extends it. A press in the
+//! code area selects nothing (see `code_press`, where the caret goes). The
+//! file's comments sit under the diff line their range ends on, and the
+//! composer sits under the last selected line. `diff_list` owns the list; this
+//! file draws one row.
 
 use gpui::prelude::*;
 use gpui::{
@@ -190,7 +193,6 @@ fn line_view(
     } else {
         tint
     };
-    let (on_down, on_move) = line_handlers(pos, shell);
     div()
         .w_full()
         .flex()
@@ -200,9 +202,40 @@ fn line_view(
         .text_size(px(theme::CODE_FONT_SIZE))
         .text_color(theme::text())
         .when_some(background, gpui::Styled::bg)
-        .cursor(CursorStyle::IBeam)
-        .on_mouse_down(MouseButton::Left, on_down)
-        .on_mouse_move(on_move)
+        .on_mouse_move(drag_move(pos, shell))
+        .child(gutter(
+            line.gutter_no().map_or(String::new(), |n| n.to_string()),
+            marker,
+            pos,
+            shell,
+        ))
+        .child(code_area(
+            code_text(&line.text, spans),
+            scroll_x,
+            pos,
+            shell,
+        ))
+}
+
+type DownHandler = Box<dyn Fn(&MouseDownEvent, &mut Window, &mut App)>;
+type MoveHandler = Box<dyn Fn(&MouseMoveEvent, &mut Window, &mut App)>;
+
+/// The line-number column and change marker of a line. A press here selects
+/// the line (Shift extends) and starts a drag; the pointer is a hand, so the
+/// gutter reads as the thing to click.
+pub(crate) fn gutter(
+    number: String,
+    marker: Option<Rgba>,
+    pos: Pos,
+    shell: &WeakEntity<Shell>,
+) -> Div {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .h_full()
+        .cursor(CursorStyle::PointingHand)
+        .on_mouse_down(MouseButton::Left, gutter_press(pos, shell))
         .child(
             div()
                 .w(px(46.))
@@ -210,7 +243,7 @@ fn line_view(
                 .pr(px(14.))
                 .text_right()
                 .text_color(theme::faint())
-                .child(line.gutter_no().map_or(String::new(), |n| n.to_string())),
+                .child(number),
         )
         .child(
             div()
@@ -219,39 +252,56 @@ fn line_view(
                 .h_full()
                 .when_some(marker, gpui::Styled::bg),
         )
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.))
-                .pl(px(14.))
-                .whitespace_nowrap()
-                .overflow_hidden()
-                .child(code_scroll::shifted(code_text(&line.text, spans), scroll_x)),
-        )
 }
 
-type DownHandler = Box<dyn Fn(&MouseDownEvent, &mut Window, &mut App)>;
-type MoveHandler = Box<dyn Fn(&MouseMoveEvent, &mut Window, &mut App)>;
+/// The code area of a line: its text, moved by the code's sideways offset.
+/// It is text, not a handle for lines; a press goes to `code_press`.
+pub(crate) fn code_area(
+    text: AnyElement,
+    scroll_x: Pixels,
+    pos: Pos,
+    shell: &WeakEntity<Shell>,
+) -> Div {
+    div()
+        .flex_1()
+        .min_w(px(0.))
+        .pl(px(14.))
+        .whitespace_nowrap()
+        .overflow_hidden()
+        .cursor(CursorStyle::IBeam)
+        .on_mouse_down(MouseButton::Left, code_press(pos, shell))
+        .child(code_scroll::shifted(text, scroll_x))
+}
 
-/// The press and move handlers of the line at `pos`: a press selects and
-/// starts a drag, a move over the line extends the drag to it.
-pub(crate) fn line_handlers(pos: Pos, shell: &WeakEntity<Shell>) -> (DownHandler, MoveHandler) {
-    let down_shell = shell.clone();
-    let move_shell = shell.clone();
-    (
-        Box::new(move |event, _, cx| {
-            let shift = event.modifiers.shift;
-            down_shell
-                .update(cx, |this, cx| this.press_line(pos, shift, cx))
-                .ok();
-        }),
-        Box::new(move |event, _, cx| {
-            let held = event.pressed_button == Some(MouseButton::Left);
-            move_shell
-                .update(cx, |this, cx| this.drag_over(pos, held, cx))
-                .ok();
-        }),
-    )
+/// The press on a code area: the seam where slice 6 puts the caret and the
+/// start of a character selection. Until then it does nothing, so a press
+/// here neither selects a line nor clears the selection.
+pub(crate) fn code_press(_pos: Pos, _shell: &WeakEntity<Shell>) -> DownHandler {
+    Box::new(|_, _, _| {})
+}
+
+/// The press handler of a gutter: selects the line at `pos` (Shift extends)
+/// and starts a drag from it.
+pub(crate) fn gutter_press(pos: Pos, shell: &WeakEntity<Shell>) -> DownHandler {
+    let shell = shell.clone();
+    Box::new(move |event, _, cx| {
+        let shift = event.modifiers.shift;
+        shell
+            .update(cx, |this, cx| this.press_line(pos, shift, cx))
+            .ok();
+    })
+}
+
+/// The move handler of a line row: while a gutter drag is on, a move over the
+/// row extends it to `pos`. A drag started on a gutter may cross the code.
+pub(crate) fn drag_move(pos: Pos, shell: &WeakEntity<Shell>) -> MoveHandler {
+    let shell = shell.clone();
+    Box::new(move |event, _, cx| {
+        let held = event.pressed_button == Some(MouseButton::Left);
+        shell
+            .update(cx, |this, cx| this.drag_over(pos, held, cx))
+            .ok();
+    })
 }
 
 /// The text of a line with its syntax colours. A line with nothing to colour
