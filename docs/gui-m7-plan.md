@@ -63,7 +63,7 @@ Design, proposed in this plan:
   schema change. `test/rvw.bats` and `test/reference` do not change.
 - **Project files.** One file per project in `$XDG_CONFIG_HOME/rvw/projects/`,
   else `~/.config/rvw/projects/`, on every OS, as the database follows
-  `$XDG_DATA_HOME`. A `--config DIR` flag on `rvw gui` overrides the
+  `$XDG_DATA_HOME`. A `--config DIR` flag on the `rvw-gui` binary (no CLI help fixture changes) overrides the
   directory. No new environment variable. The AGENTS invariant becomes
   "configuration is flags and the project files".
 - **Strict format.** An unknown key, a lane whose `repo` is not listed, two
@@ -71,7 +71,7 @@ Design, proposed in this plan:
   lane or makes a cycle is one error line naming the file and the key; the
   project does not open. `after` and `[hooks]` are read and kept in M7 but do
   nothing until M8; the sidebar shows `after` as the `↳` indent.
-- **No project file, no change.** `rvw gui` in a repository with no project
+- **No project file, no change.** `rvw-gui` in a repository with no project
   opens an implicit project of that one repository, with its existing
   worktrees as lanes. Nothing is written until the user creates a lane.
 - **The main worktree is a lane.** Each repository's main checkout is listed
@@ -129,8 +129,9 @@ Design, proposed in this plan:
   today's one-repository flow inside it: the same review desk, changes, history
   and terminals, one lane.
 - **Keys.** `⌘1`..`⌘9` stay the centre tabs. `⌥⌘↑`/`⌥⌘↓` move to the
-  previous or next lane, `⌘L` finds a lane, `⌘N` creates one. The key strip
-  stays under the centre column.
+  previous or next lane, `⌘L` finds a lane, `⌘N` creates one. The key strip is
+  going away (user, 2026-10-13); slice 7 does not build it into the frame, the
+  menu drawer lists the keystrokes.
 
 Project file, as M7 reads it:
 
@@ -164,7 +165,7 @@ Each slice is one commit and ends green. "Orch." means the orchestrator.
 
 | # | Slice | Files owned | Proof |
 |---|---|---|---|
-| 0 | Contract (Orch.) | new crate `rvw-project` (types, stubs), AGENTS invariant, this file | build, lint |
+| 0 | Contract (Orch.) | new crate `rvw-project` (types, stubs), module stubs in `rvw-view`/`rvw-git` `lib.rs`, `gitx` poll backoff, AGENTS invariant, this file | build, lint |
 | 1 | Read a project | `rvw-project` | every refusal in the strict format; implicit project; `~` expansion |
 | 2 | Write a project | `rvw-project` (toml_edit) | add and remove a lane keep comments and order |
 | 3 | Lane worktrees | `rvw-git::worktree`, `rvw-git::lanes` | create at HEAD or at a branch; archive takes a checkpoint first; refuses a dirty lane without consent |
@@ -179,7 +180,8 @@ Each slice is one commit and ends green. "Orch." means the orchestrator.
 | 12 | Docs | README, gui-v1-design.md amendment, brief | `make check` |
 | 13 | Close-out | this file | `make check` |
 
-Slices 1, 3, 4 and 5 run in parallel after 0, on disjoint files. 2 follows 1;
+Parallel workers run only `cargo test -p <crate>` and `cargo clippy -p <crate>`
+(a sibling's half-written crate breaks `--workspace`). Slices 1, 3, 4 and 5 run in parallel after 0, on disjoint files. 2 follows 1;
 6 follows 5. 7 to 11 are GUI slices and run one at a time.
 
 ## Review against M5 and M6 (2026-10-15)
@@ -200,9 +202,9 @@ Changes to the plan:
    keyed by workspace path. Removing a lane's worktree leaves them in the
    database, but nothing opens them and the ledger run from the main
    worktree shows no reviews for that branch. Archive therefore keeps the
-   worktree's workspace readable: the History and audit views of an archived
-   branch read the queue of the worktree path recorded in the project's
-   GUI state. Slice 3 records the path at archive; slice 10 shows it.
+   worktree's workspace readable: slice 3 returns the archived path; slice 10
+   (GUI) finds archived workspaces from the distinct workspaces already in
+   the database, so the GUI state file (marks only) stays disposable.
 2. **The audit export gets its range from the lane.** M6 needs an explicit
    `--range` off the default branch. A lane knows its base (the `after`
    lane's branch, else the repository's default branch), so `Export audit…`
@@ -211,8 +213,9 @@ Changes to the plan:
    git call at 5 ms or more (`rvw-git/gitx.rs` `exec_stop` polls
    `try_wait`). Facts for N lanes multiply that, and M5 sessions already load
    synchronously on the UI thread. Slice 5 starts with the blocking wait in
-   `gitx.rs`, computes facts in a background task per lane, and shows the
-   last known facts until the new ones arrive.
+   `gitx.rs` (done in slice 0: the poll backs off from 100 µs), and `facts.rs`
+   stays pure; the GUI (slices 7 to 9) computes facts in a background task per
+   lane and shows the last known facts until the new ones arrive.
 4. **Pickers and cards carry a lane, not the window.** The session picker, the
    `Export audit…` card and the commit Review section take a workspace today.
    Slice 7 keeps them that way: each opens against the open lane's workspace

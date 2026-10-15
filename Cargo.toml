@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/rvw-core", "crates/rvw-git", "crates/rvw-store", "crates/rvw-render", "crates/rvw-cli", "crates/rvw-mcp", "crates/rvw-tui", "crates/rvw-view", "crates/rvw-gui", "crates/rvw-term"]
+members = ["crates/rvw-core", "crates/rvw-git", "crates/rvw-store", "crates/rvw-render", "crates/rvw-cli", "crates/rvw-mcp", "crates/rvw-tui", "crates/rvw-view", "crates/rvw-gui", "crates/rvw-term", "crates/rvw-project"]
 
 [workspace.package]
 version = "0.0.0"
@@ -24,6 +24,7 @@ rvw-mcp = { path = "crates/rvw-mcp" }
 rvw-tui = { path = "crates/rvw-tui" }
 rvw-view = { path = "crates/rvw-view" }
 rvw-term = { path = "crates/rvw-term" }
+rvw-project = { path = "crates/rvw-project" }
 alacritty_terminal = "0.26"
 libc = "0.2"
 

@@ -55,7 +55,8 @@ default database is the user's real queue.
   `update(Event) -> Vec<Effect>` and `screen()`; `shell.rs` is the only part
   that touches the terminal. No domain logic: every action is one `Service`
   call. Golden screens live in `testdata/` and are compared byte for byte.
-- `rvw-render` (text/markdown/JSON output), `rvw-git` (git blobs for code
+- `rvw-project` (the GUI's project files: strict TOML read, comment-keeping
+  write; no git, no database), `rvw-render` (text/markdown/JSON output), `rvw-git` (git blobs for code
   snapshots and diffs, shelling out to `git`; workspace resolution).
 - `test/reference/` — rvw's own `--help` output and MCP tool list, captured
   from rvw, kept as fixtures for the parity scripts. The Go baseline is retired.
@@ -72,8 +73,9 @@ default database is the user's real queue.
   decision. `test/mcp-compare.sh` diffs the tool list against the reference.
 - A field without `#[serde(default)]` is required; its doc comment is its
   description. Nullable fields serialize as `null`, never skipped.
-- Configuration is flags only (`--workspace`, `--lane`, `--author`, `--db`).
-  Do not add environment variables.
+- Configuration is flags only (`--workspace`, `--lane`, `--author`, `--db`),
+  plus the GUI's project files (`rvw-project`, `docs/gui-m7-plan.md`) and its
+  `--config DIR`. Do not add environment variables.
 - A pulled comment leaves the queue. Lane scoping is strict: a pinned pull
   never takes another lane's or an unlaned comment.
 - A verdict's actor is the surface it came through (MCP = agent, CLI/TUI/GUI =

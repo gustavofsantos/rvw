@@ -11,6 +11,7 @@ pub mod commits;
 pub mod gitx;
 pub mod history;
 pub mod index;
+pub mod lanes;
 pub mod merge;
 pub mod patch_id;
 pub mod refs;

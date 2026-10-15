@@ -232,8 +232,8 @@ pub(crate) fn exec_stop(
             .take()
             .map(|p| Box::new(p) as Box<dyn Read + Send>),
     );
-
     let mut killed = false;
+    let mut nap = Duration::from_micros(100); // backs off to 5 ms
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
@@ -244,7 +244,8 @@ pub(crate) fn exec_stop(
             let _ = child.kill();
             killed = true;
         }
-        std::thread::sleep(Duration::from_millis(5));
+        std::thread::sleep(nap);
+        nap = (nap * 2).min(Duration::from_millis(5));
     };
     let collect = |rx: mpsc::Receiver<Vec<u8>>| {
         if killed {
@@ -260,23 +261,21 @@ pub(crate) fn exec_stop(
         code: status.code(),
         stderr: String::from_utf8_lossy(&stderr).trim().to_owned(),
     };
-    {
-        let failed = ran.code != Some(0);
-        report(&GitLog {
-            program: "git".to_owned(),
-            dir: dir.to_path_buf(),
-            args: owned_args(args),
-            code: ran.code,
-            stdout_bytes: stdout.len(),
-            stdout: if failed {
-                ran.stdout.trim().to_owned()
-            } else {
-                String::new()
-            },
-            stderr: ran.stderr.clone(),
-            took: started.elapsed(),
-        });
-    }
+    let failed = ran.code != Some(0);
+    report(&GitLog {
+        program: "git".to_owned(),
+        dir: dir.to_path_buf(),
+        args: owned_args(args),
+        code: ran.code,
+        stdout_bytes: stdout.len(),
+        stdout: if failed {
+            ran.stdout.trim().to_owned()
+        } else {
+            String::new()
+        },
+        stderr: ran.stderr.clone(),
+        took: started.elapsed(),
+    });
     if killed {
         return Err(fail("context canceled".to_owned()));
     }

@@ -5617,6 +5617,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rvw-project"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "tempfile",
+ "toml 0.8.23",
+ "toml_edit 0.22.27",
+]
+
+[[package]]
 name = "rvw-render"
 version = "0.0.0"
 dependencies = [
@@ -5666,6 +5676,7 @@ version = "0.0.0"
 dependencies = [
  "rvw-core",
  "rvw-git",
+ "rvw-project",
  "syntect",
  "tempfile",
  "two-face",
