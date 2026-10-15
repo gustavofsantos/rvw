@@ -5591,6 +5591,7 @@ dependencies = [
  "gpui",
  "rvw-core",
  "rvw-git",
+ "rvw-project",
  "rvw-render",
  "rvw-store",
  "rvw-term",

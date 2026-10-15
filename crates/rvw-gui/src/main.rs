@@ -37,6 +37,7 @@ mod history_files;
 mod history_screen;
 mod history_state;
 mod icon;
+mod lane_host;
 mod last_workspace;
 mod live;
 mod outcome_flow;
@@ -203,6 +204,7 @@ fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identit
             workspace_picker::bind_keys(cx);
             code_caret::bind_keys(cx);
             editing::bind_keys(cx);
+            lane_host::bind_keys(cx);
             quit_with_the_window(cx);
             let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
             let options = WindowOptions {
@@ -223,7 +225,8 @@ fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identit
             let opened = cx.open_window(options, move |window, cx| {
                 theme::follow(window.appearance());
                 let service = std::sync::Arc::new(service);
-                cx.new(|cx| Shell::new(snapshot, service, identity, db, window, cx))
+                let shell = cx.new(|cx| Shell::new(snapshot, service, identity, db, window, cx));
+                cx.new(|cx| lane_host::LaneHost::new(shell, window, cx))
             });
             if let Err(error) = opened {
                 eprintln!("rvw-gui: {error}");
@@ -247,10 +250,13 @@ fn quit_with_the_window(cx: &mut App) {
     // Reached when no focused view took the action (the app menu): the
     // window asks first, as it does for its own chord.
     cx.on_action(|_: &Quit, cx| {
-        let shell = cx.windows().into_iter().find_map(|w| w.downcast::<Shell>());
+        let shell = cx
+            .windows()
+            .into_iter()
+            .find_map(|w| w.downcast::<lane_host::LaneHost>());
         match shell {
             Some(window) => {
-                let asked = window.update(cx, Shell::request_quit);
+                let asked = window.update(cx, lane_host::LaneHost::request_quit);
                 if asked.is_err() {
                     cx.quit();
                 }

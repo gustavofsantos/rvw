@@ -237,6 +237,30 @@ Changes to the plan:
 Not changed by M5/M6, still open: blame rows carry no session markers (does
 not block lanes); 5000-commit bound and paging in the ledger are untested.
 
+## Frame architecture (2026-10-15, built in slice 7)
+
+One `Shell` per lane, kept alive, hosted by a new root view `LaneHost`
+(`rvw-gui/src/lane_host.rs`) beside a sidebar. A lane's `Shell` is created the
+first time the lane opens, so its terminals and unsaved buffers survive a
+switch. Consequences, all built:
+
+- The workspace picker and the sidebar open or show lanes through the host;
+  `switch_workspace` no longer replaces the root, and no longer refuses while
+  a lane's terminals run.
+- Quit and the window's close button ask about every lane's terminals and
+  unsaved files, each prefixed by its lane.
+- `Shell::inset` takes the sidebar's width off the panels' extent.
+- `⌥⌘↑`/`⌥⌘↓` (Ctrl-Alt off macOS, outside a terminal) step lanes.
+- The sidebar lists the repository's worktrees as one implicit project; the
+  dot is orange when an opened lane has a decision waiting on the reviewer.
+  Project files, facts per lane and running terminals feed it in slices 9
+  and 11.
+
+Not yet the plan's "three columns": each lane's `Shell` still draws its own
+rail, panels and terminal dock. Moving the dock into centre tabs and
+replacing the rail is a separate, larger rebuild of `Shell`'s layout and is
+left for the user to confirm (see the report of 2026-10-15).
+
 ## Open
 
 1. Is `--config DIR` the right flag name, given that `config.toml` (fonts,

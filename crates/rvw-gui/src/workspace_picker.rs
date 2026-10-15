@@ -193,7 +193,19 @@ impl Shell {
             self.close_workspaces(cx);
             return;
         }
-        if let Some(reason) = self.switch_would_lose(cx) {
+        let host = self.host.as_ref().and_then(gpui::WeakEntity::upgrade);
+        if let Some(host) = host.clone() {
+            // A hosted lane stays alive, so nothing is lost by leaving it;
+            // an open lane is simply shown.
+            if host.read(cx).has(&workspace) {
+                self.close_workspaces(cx);
+                let target = workspace.clone();
+                window.defer(cx, move |window, cx| {
+                    host.update(cx, |host, cx| host.show(&target, window, cx));
+                });
+                return;
+            }
+        } else if let Some(reason) = self.switch_would_lose(cx) {
             return self.workspace_error(reason.to_owned(), cx);
         }
         if let Some(picker) = self.tools.workspaces.as_mut() {
@@ -218,11 +230,18 @@ impl Shell {
             this.update_in(cx, move |this, window, cx| match loaded {
                 Ok(snapshot) => {
                     last_workspace::save(&db, &identity.workspace).ok();
-                    // The new shell replaces this one once this update ends.
-                    window.defer(cx, move |window, cx| {
-                        window.replace_root(cx, move |window, cx| {
-                            Shell::new(snapshot, service, identity, db, window, cx)
-                        });
+                    let host = this.host.as_ref().and_then(gpui::WeakEntity::upgrade);
+                    // The new shell replaces this one once this update ends,
+                    // or, in a host, becomes another lane beside it.
+                    window.defer(cx, move |window, cx| match host {
+                        Some(host) => host.update(cx, |host, cx| {
+                            host.add_lane(snapshot, service, identity, db, window, cx);
+                        }),
+                        None => {
+                            window.replace_root(cx, move |window, cx| {
+                                Shell::new(snapshot, service, identity, db, window, cx)
+                            });
+                        }
                     });
                 }
                 Err(message) => this.workspace_error(message, cx),

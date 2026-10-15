@@ -122,12 +122,41 @@ impl Shell {
     /// Asks before the window closes with terminals running; closes at once
     /// otherwise. The processes are looked at now.
     pub(crate) fn request_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let running = self
-            .terminal
+        // Every lane of the host is asked: quitting ends all their terminals
+        // and discards all their unsaved edits.
+        let (mut running, mut unsaved) = self.quit_parts(cx);
+        let siblings = self
+            .host
             .as_ref()
-            .and_then(|terminal| terminal.update(cx, TerminalView::quit_guard));
+            .and_then(gpui::WeakEntity::upgrade)
+            .map(|host| host.read(cx).lanes())
+            .unwrap_or_default();
+        let me = cx.entity_id();
+        let hosted = !siblings.is_empty();
+        let label = self.snapshot.branch.clone();
+        if hosted {
+            running = running.map(|text| format!("{label}: {text}"));
+            unsaved = unsaved
+                .into_iter()
+                .map(|path| format!("{label}: {path}"))
+                .collect();
+        }
+        for (name, shell) in siblings {
+            if shell.entity_id() == me {
+                continue;
+            }
+            let (other_running, other_unsaved) = shell.update(cx, Shell::quit_parts);
+            if let Some(text) = other_running {
+                let text = format!("{name}: {text}");
+                running = Some(running.map_or(text.clone(), |own| format!("{own} {text}")));
+            }
+            unsaved.extend(
+                other_unsaved
+                    .into_iter()
+                    .map(|path| format!("{name}: {path}")),
+            );
+        }
         // Unsaved edits are named too; the question's Quit discards them.
-        let unsaved = self.unsaved_paths();
         match crate::editing::quit_question(running, &unsaved) {
             None => cx.quit(),
             Some(message) => {
@@ -137,6 +166,16 @@ impl Shell {
                 cx.notify();
             }
         }
+    }
+
+    /// What this lane would lose on quit: the sentence naming its running
+    /// terminals, and its files with unsaved edits.
+    pub(crate) fn quit_parts(&mut self, cx: &mut Context<Self>) -> (Option<String>, Vec<String>) {
+        let running = self
+            .terminal
+            .as_ref()
+            .and_then(|terminal| terminal.update(cx, TerminalView::quit_guard));
+        (running, self.unsaved_paths())
     }
 
     /// Whether the platform may close the window now.

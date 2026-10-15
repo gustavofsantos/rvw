@@ -146,6 +146,10 @@ pub struct Shell {
     pub(crate) quit_ask: Option<String>,
     /// Holds the keys (C) when no field has focus.
     focus: FocusHandle,
+    /// The lane host this shell is one lane of; `None` before it is hosted.
+    pub(crate) host: Option<gpui::WeakEntity<crate::lane_host::LaneHost>>,
+    /// Pixels of the window width the host takes beside this shell.
+    pub(crate) inset: f32,
     /// The database the queue lives in. The live poller fingerprints it
     /// beside the repository; see `live`.
     pub(crate) db_path: PathBuf,
@@ -259,13 +263,9 @@ impl Shell {
             launcher: None,
             quit_ask: None,
             focus: cx.focus_handle(),
+            host: None,
+            inset: 0.,
         };
-        // Closing the window with terminals running asks first.
-        let this = cx.entity().downgrade();
-        window.on_window_should_close(cx, move |window, cx| {
-            this.update(cx, |shell, cx| shell.close_allowed(window, cx))
-                .unwrap_or(true)
-        });
         // The staged list lights Commit on every screen, so it is read now,
         // not when the Changes screen first opens.
         shell.reload_changes();
@@ -752,7 +752,7 @@ impl Render for Shell {
         let dock = self.terminal_dock(cx);
         let rail_screen = self.rail_screen();
         let resize_layer = crate::window_chrome::resize_layer(window);
-        let extent = f32::from(window.viewport_size().width);
+        let extent = f32::from(window.viewport_size().width) - self.inset;
         let window = frame::window(
             frame::top_bar(
                 &self.snapshot,

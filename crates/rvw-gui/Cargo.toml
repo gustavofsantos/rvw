@@ -20,6 +20,7 @@ rvw-render.workspace = true
 rvw-store.workspace = true
 rvw-term.workspace = true
 rvw-view.workspace = true
+rvw-project.workspace = true
 
 # gpui compiles its Metal shaders at build time with `xcrun metal`, which only
 # a full Xcode has. Compiled at startup instead, the Command Line Tools suffice.
