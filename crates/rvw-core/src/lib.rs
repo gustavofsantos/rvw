@@ -2,6 +2,7 @@
 pub mod error;
 mod evidence;
 mod gate;
+mod ledger;
 pub mod ledger_match;
 pub mod operations;
 pub mod repository;

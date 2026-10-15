@@ -436,10 +436,10 @@ pub struct LedgerInput {
     /// to HEAD, which needs a default branch other than the current one
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub range: String,
-    /// only commits with a committer date at or after this, RFC 3339 or YYYY-MM-DD
+    /// only commits with an author date at or after this, RFC 3339 or YYYY-MM-DD
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub since: String,
-    /// only commits with a committer date at or before this, RFC 3339 or YYYY-MM-DD
+    /// only commits with an author date at or before this, RFC 3339 or YYYY-MM-DD
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub until: String,
     /// only this lane's comments; empty means every lane
