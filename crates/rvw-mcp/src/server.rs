@@ -1125,4 +1125,226 @@ mod tests {
             json!({"workspace": root, "session_id": "s1", "tool": "codex", "model": "gpt", "commits": ["abc1234"]}),
         );
     }
+
+    /// Checks that `value` satisfies the schema of `T`, the schema a tool with
+    /// that output serves. Used for operations that are not MCP tools.
+    fn satisfies<T: JsonSchema>(value: &Value) {
+        let schema = Value::Object(object_schema::<T>());
+        let validator = jsonschema::validator_for(&schema).expect("valid output schema");
+        let errors: Vec<String> = validator
+            .iter_errors(value)
+            .map(|e| format!("{}: {e}", e.instance_path))
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "does not match its output schema: {errors:?}\n{value:#}"
+        );
+    }
+
+    /// Runs git in `root` and returns its trimmed stdout.
+    fn git_in(root: &str, args: &[&str]) -> String {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .output()
+            .expect("git");
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8(out.stdout)
+            .expect("utf8")
+            .trim()
+            .to_owned()
+    }
+
+    /// Commits `app.py` in `root` and returns the new commit's full id.
+    fn commit_in(root: &str, message: &str) -> String {
+        git_in(root, &["add", "app.py"]);
+        git_in(
+            root,
+            &[
+                "-c",
+                "user.name=Rvw Test",
+                "-c",
+                "user.email=test@example.com",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-q",
+                "-m",
+                message,
+            ],
+        );
+        git_in(root, &["rev-parse", "HEAD"])
+    }
+
+    /// The queue behind the schema checks, built through the Service.
+    struct Scenario {
+        svc: Arc<Service>,
+        root: String,
+        /// the first commit, outside the ledger range
+        base: String,
+        /// a commit with session s1 and the linked comment r1
+        linked: String,
+        /// a commit with no reported session and the unlinked comment r2
+        unreported: String,
+    }
+
+    /// Two sessions (s1 without a summary, s2 with one), one linked comment,
+    /// one unlinked comment, a lane override in lane auth and a lane-less one,
+    /// and a commit with no session.
+    fn scenario(dir: &std::path::Path) -> Scenario {
+        use rvw_core::operations::ReportSessionInput;
+
+        let root = repo(dir);
+        let edit = |text: &str| {
+            fs::write(std::path::Path::new(&root).join("app.py"), text).expect("write");
+        };
+        let base = commit_in(&root, "base");
+        let svc = service(dir);
+        let alice = serve(&svc, "auth", "alice");
+        let bob = serve(&svc, "auth", "bob");
+
+        // r1 is linked: its resolution is the version the next commit records.
+        edit("one\nTWO\nthree\n");
+        invoke(
+            &alice.0,
+            "add",
+            args(
+                &json!({"workspace": root, "file": "app.py", "start_line": 2, "comment": "rename"}),
+            ),
+        )
+        .expect("add r1");
+        invoke(&bob.0, "pull", args(&json!({"workspace": root}))).expect("pull r1");
+        invoke(
+            &bob.0,
+            "resolve",
+            args(&json!({"workspace": root, "id": "r1", "outcome": "done", "note": "renamed"})),
+        )
+        .expect("resolve r1");
+        let linked = commit_in(&root, "rename two");
+
+        svc.report_session(ReportSessionInput {
+            workspace: root.clone(),
+            session_id: "s1".into(),
+            tool: "claude-code".into(),
+            model: "opus".into(),
+            commits: vec![linked.clone()],
+            ..Default::default()
+        })
+        .expect("report s1");
+        svc.report_session(ReportSessionInput {
+            workspace: root.clone(),
+            session_id: "s2".into(),
+            tool: "codex".into(),
+            model: "gpt".into(),
+            summary: "set up the file".into(),
+            commits: vec![base.clone()],
+        })
+        .expect("report s2");
+
+        // A lane override while r1 is unjudged in lane auth, then a lane-less one.
+        invoke(
+            &alice.0,
+            "override_gate",
+            args(&json!({"workspace": root, "action": "commit", "reason": "shipping the rename"})),
+        )
+        .expect("lane override");
+        let gustav = serve(&svc, "", "gustav");
+        invoke(
+            &gustav.0,
+            "override_gate",
+            args(&json!({"workspace": root, "action": "push", "reason": "urgent fix"})),
+        )
+        .expect("lane-less override");
+
+        // r2 is unlinked: it resolves to a version no commit of the range records.
+        edit("one\nTWO\nTHREE\n");
+        invoke(
+            &alice.0,
+            "add",
+            args(&json!({"workspace": root, "file": "app.py", "start_line": 3, "comment": "also three"})),
+        )
+        .expect("add r2");
+        invoke(&bob.0, "pull", args(&json!({"workspace": root}))).expect("pull r2");
+        invoke(
+            &bob.0,
+            "resolve",
+            args(&json!({"workspace": root, "id": "r2", "outcome": "done", "note": "kept"})),
+        )
+        .expect("resolve r2");
+        edit("one\nTWO\nTHREE!\n");
+        let unreported = commit_in(&root, "shout three");
+
+        Scenario {
+            svc,
+            root,
+            base,
+            linked,
+            unreported,
+        }
+    }
+
+    #[test]
+    fn sessions_values_satisfy_their_output_schema() {
+        use rvw_core::operations::{SessionsInput, SessionsOutput};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let s = scenario(dir.path());
+        let sessions = s
+            .svc
+            .sessions(SessionsInput { workspace: s.root })
+            .expect("sessions");
+        let value = serde_json::to_value(&sessions).expect("serialize sessions");
+
+        let by_id = |id: &str| {
+            value["sessions"]
+                .as_array()
+                .expect("sessions")
+                .iter()
+                .find(|x| x["session_id"] == id)
+                .unwrap_or_else(|| panic!("no session {id}"))
+                .clone()
+        };
+        assert_eq!(by_id("s1")["summary"], Value::Null);
+        assert_eq!(by_id("s2")["summary"], "set up the file");
+        satisfies::<SessionsOutput>(&value);
+    }
+
+    #[test]
+    fn ledger_values_satisfy_their_output_schema() {
+        use rvw_core::operations::{LedgerInput, LedgerOutput};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let s = scenario(dir.path());
+        let ledger = s
+            .svc
+            .ledger(LedgerInput {
+                workspace: s.root.clone(),
+                range: format!("{}..HEAD", s.base),
+                lane: "auth".into(),
+                ..Default::default()
+            })
+            .expect("ledger");
+        assert_eq!(ledger.commits.len(), 2);
+        assert_eq!(ledger.commits[0].id, s.linked);
+        assert_eq!(ledger.commits[0].session_id.as_deref(), Some("s1"));
+        assert_eq!(ledger.commits[0].comments.len(), 1);
+        assert_eq!(ledger.commits[1].id, s.unreported);
+        assert_eq!(ledger.commits[1].session_id, None);
+        assert_eq!(ledger.unlinked.len(), 1, "{:?}", ledger.unlinked);
+        assert_eq!(ledger.overrides.len(), 1);
+        assert_eq!(ledger.overrides[0].lane.as_deref(), Some("auth"));
+        assert_eq!(ledger.unscoped_overrides.len(), 1);
+        assert_eq!(ledger.unscoped_overrides[0].lane, None);
+        assert_eq!(ledger.sessions.len(), 1);
+
+        let value = serde_json::to_value(&ledger).expect("serialize ledger");
+        assert_eq!(value["commits"][1]["session_id"], Value::Null);
+        assert_eq!(value["unscoped_overrides"][0]["lane"], Value::Null);
+        satisfies::<LedgerOutput>(&value);
+    }
 }
