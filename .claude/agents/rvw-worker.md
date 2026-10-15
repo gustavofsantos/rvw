@@ -24,7 +24,9 @@ the checkout and `${TMPDIR:-/tmp}`.
   outside that list, stop and report; do not edit it.
 - Never run `git commit`, `git push`, `git checkout`, `git stash` or any
   command that changes history or the index. The orchestrator commits.
-- Do not build or test `rvw-gui` unless the task says so.
+- You may build and test `rvw-gui` only in your own `CARGO_TARGET_DIR`, and
+  only when the task touches it; there is no display, so never claim a
+  manual run.
 - Do not add environment variables, relax a lint, or add `#[allow]` without
   a one-line reason that the finding is wrong in context.
 

@@ -155,3 +155,6 @@ Open after the run:
 - Not built: manual links (D2), a "contained" link kind, an MCP `ledger`
   tool. P5 blames the file on disk, so in a compare against another revision
   the line numbers may differ.
+- Overrides are filtered by the current branch name even when `--range`
+  names another branch, so an audit of another branch shows the wrong
+  overrides. Fix with a `--lane` default taken from the range's tip branch.

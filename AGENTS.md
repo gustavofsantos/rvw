@@ -66,9 +66,10 @@ default database is the user's real queue.
 - Every failure is one `rvw: ...` line on stderr and exit status 1. Notices
   go to stderr; stdout carries only the result.
 - Every operation input and output is a JSON object that derives an MCP
-  schema (`schemars`). Add new operation types to the `rvw-mcp` tests, and a
-  tool for each new operation in `crates/rvw-mcp`; `test/mcp-compare.sh` diffs
-  the tool list against the reference.
+  schema (`schemars`). Add new operation types to the `rvw-mcp` tests. A write
+  operation an agent calls gets a tool in `crates/rvw-mcp` (`report_session`);
+  read operations for people (`sessions`, `ledger`) are CLI and GUI only, by
+  decision. `test/mcp-compare.sh` diffs the tool list against the reference.
 - A field without `#[serde(default)]` is required; its doc comment is its
   description. Nullable fields serialize as `null`, never skipped.
 - Configuration is flags only (`--workspace`, `--lane`, `--author`, `--db`).
@@ -95,7 +96,10 @@ Haiku).
 - Workers never commit. The orchestrator reads each diff, runs `make check`,
   and makes one conventional commit per slice. A slice that fails review goes
   back to a worker with the specific finding.
-- The orchestrator builds `rvw-gui`; workers do not.
+- Workers may build and test `rvw-gui` in their own `CARGO_TARGET_DIR`; with
+  no display, nothing is run by hand, so the orchestrator says so in the
+  report. Worker target dirs are large: delete `target/worker-*` once a
+  milestone is committed.
 - Consult the advisor before committing to a plan, when a worker's result
   conflicts with the plan or fails review twice, and before calling a
   milestone done.
