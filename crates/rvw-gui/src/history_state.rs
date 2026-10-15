@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use gpui::{AppContext, Context, Entity, Subscription, UniformListScrollHandle, Window};
+use rvw_core::types::Session;
 use rvw_git::history::{self, CommitDetail, FileChange, LogEntry, LogQuery};
 use rvw_git::search::{self, Field};
 use rvw_git::{GitError, blame};
@@ -18,6 +19,7 @@ use rvw_view::history::{History, PAGE};
 use rvw_view::selection::Pos;
 
 use crate::code_scroll;
+use crate::data;
 use crate::git_tools::last_line;
 use crate::shell::Shell;
 use crate::text_input::{TextInput, TextInputEvent};
@@ -99,6 +101,9 @@ pub struct HistoryState {
     pub field: Field,
     /// The search field, made the first time the screen is shown.
     pub search: Option<Entity<TextInput>>,
+    /// The sessions agents reported in the workspace, newest first; read
+    /// again whenever the list is. Empty when they cannot be read.
+    pub sessions: Vec<Session>,
     /// A page is being read.
     pub loading: bool,
     /// Why the last page could not be read.
@@ -147,6 +152,7 @@ impl Default for HistoryState {
             all: false,
             field: Field::Message,
             search: None,
+            sessions: Vec::new(),
             loading: false,
             error: None,
             detail: None,
@@ -427,6 +433,8 @@ impl Shell {
         self.history.error = None;
         self.history.detail = None;
         self.history.keep = keep;
+        self.history.sessions =
+            data::sessions(&self.service, &self.identity.workspace).unwrap_or_default();
         self.history.cancel_open();
         self.read_page(cx);
         cx.notify();

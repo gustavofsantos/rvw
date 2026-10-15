@@ -11,12 +11,14 @@ use gpui::{
     AnyElement, Bounds, ClickEvent, Context, Div, FontWeight, PathBuilder, Pixels, Point, Stateful,
     Window, canvas, div, point, px, uniform_list,
 };
+use rvw_core::types::Session;
 use rvw_git::blame::BlameLine;
 use rvw_git::history::{CommitDetail, FileChange};
 use rvw_git::search::Field;
 use rvw_view::diff::LineKind;
 use rvw_view::graph::{Row as GraphRow, Seg};
 use rvw_view::history::{HistoryRow, Label, LabelKind, MAX_LANES, ago, short};
+use rvw_view::provenance_label::{self, Badge, BadgeKind};
 use rvw_view::selection::Pos;
 
 use crate::code_scroll;
@@ -39,6 +41,8 @@ const SHA_WIDTH: Pixels = px(58.);
 /// The commit list's fixed columns. The subject takes what is left, so every
 /// other cell sits at the same x on every row and under its header.
 const AUTHOR_WIDTH: Pixels = px(120.);
+/// The authorship badge: as wide as its longest text, so it never widens.
+const BADGE_WIDTH: Pixels = px(80.);
 const AGO_WIDTH: Pixels = px(40.);
 const REVIEW_WIDTH: Pixels = px(56.);
 /// The gap between the list's cells and the padding of a row.
@@ -852,6 +856,7 @@ fn column_header(lanes: Option<usize>) -> Div {
         })
         .child(fixed_cell(SHA_WIDTH).child("Commit"))
         .child(div().flex_1().min_w(px(0.)).truncate().child("Subject"))
+        .child(fixed_cell(BADGE_WIDTH))
         .child(fixed_cell(AUTHOR_WIDTH).child("Author"))
         .child(fixed_cell(AGO_WIDTH).text_right().child("Date"))
         .child(
@@ -860,6 +865,22 @@ fn column_header(lanes: Option<usize>) -> Div {
                 .text_color(theme::faint())
                 .child("Review"),
         )
+}
+
+/// The authorship badge of a row: the agent's tool in the agent colour, or
+/// "marked" in faint ink. Always the same width, empty for a person's commit,
+/// so the columns after it stay aligned.
+fn badge_cell(badge: Option<Badge>) -> Div {
+    let cell = fixed_cell(BADGE_WIDTH).text_size(px(SMALL));
+    match badge {
+        None => cell,
+        Some(badge) => cell
+            .text_color(match badge.kind {
+                BadgeKind::Agent => theme::agent(),
+                BadgeKind::Marked => theme::faint(),
+            })
+            .child(badge.text),
+    }
 }
 
 /// The rows of the list in view. It first asks for the next page when the
@@ -878,7 +899,17 @@ fn history_rows(
     let rows = state.history.rows().get(range.clone()).unwrap_or_default();
     rows.iter()
         .zip(range)
-        .map(|(row, index)| history_row(row, index, selected == Some(index), lanes, now, cx))
+        .map(|(row, index)| {
+            history_row(
+                row,
+                index,
+                selected == Some(index),
+                lanes,
+                now,
+                &state.sessions,
+                cx,
+            )
+        })
         .collect()
 }
 
@@ -890,6 +921,7 @@ fn history_row(
     selected: bool,
     lanes: Option<usize>,
     now: i64,
+    sessions: &[Session],
     cx: &Context<Shell>,
 ) -> AnyElement {
     let mut line = div()
@@ -942,6 +974,11 @@ fn history_row(
             )
             .children(label_group(&row.labels)),
     )
+    .child(badge_cell(provenance_label::badge(
+        &row.entry.id,
+        &row.entry.session_markers,
+        sessions,
+    )))
     .child(
         fixed_cell(AUTHOR_WIDTH)
             .text_color(theme::muted())
@@ -1212,9 +1249,28 @@ fn detail_body(state: &HistoryState, detail: &CommitDetail, now: i64, cx: &Conte
                 .child(subject.to_owned()),
         )
         .child(meta_line(detail, now))
+        .children(facts_lines(
+            &detail.entry.id,
+            &detail.entry.session_markers,
+            &state.sessions,
+        ))
         .children(body_lines(&detail.message))
         .child(parents_row(&detail.entry.parents))
         .child(files_section(state, detail, cx))
+}
+
+/// The authorship facts under the meta line, one div per line.
+fn facts_lines(commit_id: &str, markers: &[String], sessions: &[Session]) -> Vec<Div> {
+    provenance_label::detail_facts(commit_id, markers, sessions)
+        .into_iter()
+        .map(|line| {
+            div()
+                .mt(px(4.))
+                .text_size(px(SMALL))
+                .text_color(theme::muted())
+                .child(line)
+        })
+        .collect()
 }
 
 /// A middle dot between the facts of a line.

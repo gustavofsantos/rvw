@@ -5,9 +5,10 @@ use std::path::Path;
 
 use rvw_core::Service;
 use rvw_core::operations::{
-    AddInput, EditInput, PullInput, QueryInput, RemoveInput, ReviewSheet, SheetsInput, SubmitInput,
+    AddInput, EditInput, PullInput, QueryInput, RemoveInput, ReviewSheet, SessionsInput,
+    SheetsInput, SubmitInput,
 };
-use rvw_core::types::{Comment, Location};
+use rvw_core::types::{Comment, Location, Session};
 use rvw_git::gitx;
 use rvw_view::changes::{self, ChangedFile, Compare};
 use rvw_view::diff::{self, FileDiff};
@@ -287,6 +288,20 @@ pub fn busiest_workspace(service: &Service) -> Option<String> {
         .map(|row| row.workspace)
 }
 
+/// The sessions agents reported in `workspace`, newest first.
+///
+/// # Errors
+///
+/// Fails with the service's message when the sessions cannot be read.
+pub fn sessions(service: &Service, workspace: &str) -> Result<Vec<Session>, String> {
+    service
+        .sessions(SessionsInput {
+            workspace: workspace.to_owned(),
+        })
+        .map(|read| read.sessions)
+        .map_err(|e| e.message)
+}
+
 #[cfg(test)]
 #[path = "data_draft_tests.rs"]
 mod draft_tests;
@@ -349,6 +364,33 @@ pub(crate) mod tests {
         assert_eq!(comment.comment, "name this better");
         assert_eq!(comment.author.as_deref(), Some("gus"));
         assert_eq!(comment.lane.as_deref(), Some("feat"));
+    }
+
+    #[test]
+    fn sessions_reads_back_a_reported_session() {
+        let (_dir, service, identity) = workspace_with_store();
+        assert!(
+            sessions(&service, &identity.workspace)
+                .expect("read")
+                .is_empty()
+        );
+        service
+            .report_session(rvw_core::operations::ReportSessionInput {
+                workspace: identity.workspace.clone(),
+                session_id: "s1".into(),
+                tool: "claude-code".into(),
+                model: "opus".into(),
+                summary: "fixed the parser".into(),
+                commits: vec!["abcdef1".into()],
+            })
+            .expect("report");
+
+        let read = sessions(&service, &identity.workspace).expect("read");
+        assert_eq!(read.len(), 1);
+        assert_eq!(read[0].session_id, "s1");
+        assert_eq!(read[0].tool, "claude-code");
+        assert_eq!(read[0].summary.as_deref(), Some("fixed the parser"));
+        assert_eq!(read[0].commits, ["abcdef1"]);
     }
 
     #[test]
