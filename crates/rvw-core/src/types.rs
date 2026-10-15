@@ -455,3 +455,23 @@ fn parse_line(s: &str) -> Option<i64> {
     }
     s.parse().ok()
 }
+
+/// A session an agent reported: who worked, and the commits it made. The
+/// first report fixes `tool`, `model` and `summary`; later reports only add
+/// commits.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Session {
+    /// the agent's own session id; unique per workspace
+    pub session_id: String,
+    /// the agent tool that ran the session, e.g. claude-code
+    pub tool: String,
+    /// the model the agent reported
+    pub model: String,
+    /// what the session did, null when the agent gave none
+    #[schemars(required)]
+    pub summary: Option<String>,
+    /// commit ids as reported, full or abbreviated, in report order
+    pub commits: Vec<String>,
+    /// when the first report arrived, RFC 3339
+    pub reported_at: String,
+}

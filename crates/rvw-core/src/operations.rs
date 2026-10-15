@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::types::{Comment, Handoff, Location, Review};
+use crate::types::{Comment, Handoff, Location, Review, Session};
 
 #[allow(clippy::trivially_copy_pass_by_ref)] // serde's skip_serializing_if takes a reference
 fn is_false(b: &bool) -> bool {
@@ -385,4 +385,44 @@ fn nullable_comment_schema(generator: &mut schemars::SchemaGenerator) -> schemar
 
 fn nullable_string_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
     schemars::json_schema!({ "type": ["string", "null"] })
+}
+
+/// An agent reports the session it ran and the commits it made.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ReportSessionInput {
+    /// absolute workspace path
+    pub workspace: String,
+    /// the agent's own session id
+    pub session_id: String,
+    /// the agent tool, e.g. claude-code
+    pub tool: String,
+    /// the model the agent ran
+    pub model: String,
+    /// what the session did; kept from the first report only
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub summary: String,
+    /// commit ids this report adds, full or abbreviated
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commits: Vec<String>,
+}
+
+/// The session as stored after the report.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ReportSessionOutput {
+    /// the stored session, with every commit reported so far
+    pub session: Session,
+}
+
+/// Lists the sessions agents reported in a workspace, newest first.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct SessionsInput {
+    /// absolute workspace path
+    pub workspace: String,
+}
+
+/// The reported sessions, newest first.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct SessionsOutput {
+    /// the sessions
+    pub sessions: Vec<Session>,
 }
