@@ -1,6 +1,7 @@
 # GUI M7 plan: lanes
 
-Status: planned on 2026-10-15, after M6. Not started.
+Status: planned on 2026-10-15, reviewed against M5 and M6 the same day (see
+"Review against M5 and M6"). Awaiting approval; not started.
 Scope: the first half of the lanes direction in "rvw: decisões e direção do
 produto" (Claude Docs, private). M8 takes the second half (below).
 Look: boards E and F of the lanes canvas
@@ -181,12 +182,59 @@ Each slice is one commit and ends green. "Orch." means the orchestrator.
 Slices 1, 3, 4 and 5 run in parallel after 0, on disjoint files. 2 follows 1;
 6 follows 5. 7 to 11 are GUI slices and run one at a time.
 
+## Review against M5 and M6 (2026-10-15)
+
+M5 (sessions, provenance) and M6 (ledger, audit export) are built. The plan
+holds; these are the changes it needs.
+
+Still true:
+
+- No core change, no schema change, no new MCP tool. `report_session` and the
+  ledger already take a workspace, so each lane (a workspace) reports and
+  audits on its own.
+- `test/rvw.bats` and `test/reference` stay as they are.
+
+Changes to the plan:
+
+1. **Archive must not orphan reviews.** Comments, decisions and sessions are
+   keyed by workspace path. Removing a lane's worktree leaves them in the
+   database, but nothing opens them and the ledger run from the main
+   worktree shows no reviews for that branch. Archive therefore keeps the
+   worktree's workspace readable: the History and audit views of an archived
+   branch read the queue of the worktree path recorded in the project's
+   GUI state. Slice 3 records the path at archive; slice 10 shows it.
+2. **The audit export gets its range from the lane.** M6 needs an explicit
+   `--range` off the default branch. A lane knows its base (the `after`
+   lane's branch, else the repository's default branch), so `Export audit…`
+   in a lane pre-fills `base..lane-branch`. Slice 9 owns it.
+3. **Facts must not poll git per lane on the UI thread.** M6 measured every
+   git call at 5 ms or more (`rvw-git/gitx.rs` `exec_stop` polls
+   `try_wait`). Facts for N lanes multiply that, and M5 sessions already load
+   synchronously on the UI thread. Slice 5 starts with the blocking wait in
+   `gitx.rs`, computes facts in a background task per lane, and shows the
+   last known facts until the new ones arrive.
+4. **Pickers and cards carry a lane, not the window.** The session picker, the
+   `Export audit…` card and the commit Review section take a workspace today.
+   Slice 7 keeps them that way: each opens against the open lane's workspace
+   and never reads window-wide state.
+5. **Cross-lane overrides in the ledger** are still filtered by the current
+   branch (an M6 gap). A lane view always names its own branch, so it is
+   correct; the gap only matters for an explicit foreign `--range`.
+6. **Open question 2 is answered:** read marks stay in the GUI state file.
+   The ledger does not use them in M7; it stays evidence from the queue and
+   git only.
+7. **Facts count only what exists.** "Decisions awaiting a verdict" and
+   "comments open" use the queue operations M4 and M6 already have; slice 5
+   confirms each is one call per workspace before the table tests are written.
+
+Not changed by M5/M6, still open: blame rows carry no session markers (does
+not block lanes); 5000-commit bound and paging in the ledger are untested.
+
 ## Open
 
 1. Is `--config DIR` the right flag name, given that `config.toml` (fonts,
    sizes) will live in the same directory?
-2. Should read marks move into the core later? M6's audit export could want
-   "a human read this file" as evidence; a GUI state file cannot give that.
+2. Settled in the review above: read marks stay in the GUI state file.
 3. A repository listed in two projects: M7 opens both and warns. M8's
    reconcile needs "one active project per repository" enforced.
 4. What a lane shows when its worktree directory is gone (deleted by hand):
