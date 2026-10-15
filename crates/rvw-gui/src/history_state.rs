@@ -5,11 +5,13 @@
 //! list read is also stopped, so a search the next keystroke replaces does not
 //! keep git running.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use gpui::{AppContext, Context, Entity, Subscription, UniformListScrollHandle, Window};
+use rvw_core::Service;
 use rvw_core::types::Session;
 use rvw_git::history::{self, CommitDetail, FileChange, LogEntry, LogQuery};
 use rvw_git::search::{self, Field};
@@ -116,6 +118,10 @@ pub struct HistoryState {
     /// The reviews that led to the selected commit, read with its details.
     /// Empty when there are none or they cannot be read.
     pub review: Option<Result<data::CommitReview, String>>,
+    /// The reviews of the commits the session source lists, keyed by full id,
+    /// read with the first page. Only the first `REVIEW_LIMIT` commits have
+    /// one; a commit with no linked comment has none.
+    pub session_reviews: HashMap<String, data::CommitReview>,
     /// The file of the selected commit open in the centre, if any.
     pub open: Option<Result<OpenCommitFile, String>>,
     /// What the last action did, or why it failed.
@@ -163,6 +169,7 @@ impl Default for HistoryState {
             error: None,
             detail: None,
             review: None,
+            session_reviews: HashMap::new(),
             open: None,
             notice: None,
             list_scroll: UniformListScrollHandle::new(),
@@ -453,6 +460,7 @@ impl Shell {
         self.history.error = None;
         self.history.detail = None;
         self.history.review = None;
+        self.history.session_reviews.clear();
         self.history.keep = keep;
         self.history.sessions =
             data::sessions(&self.service, &self.identity.workspace).unwrap_or_default();
@@ -470,12 +478,26 @@ impl Shell {
         let source = self.history.source.clone();
         let commits = self.session_commits(&source);
         let skip = self.history.history.next_skip();
+        // The reviews of a session come with its first page, read off the UI
+        // thread in the same spawn and dropped with it when overtaken.
+        let reviews_of_session = matches!(source, Source::Session { .. }) && skip == 0;
+        let service = Arc::clone(&self.service);
+        let workspace = self.identity.workspace.clone();
         cx.spawn(async move |this, cx| {
-            let page = cx
+            let (page, reviews) = cx
                 .background_executor()
-                .spawn(async move { read_page(&dir, &source, &commits, skip, &stop) })
+                .spawn(async move {
+                    let page = read_page(&dir, &source, &commits, skip, &stop);
+                    let reviews = match &page {
+                        Ok(entries) if reviews_of_session => {
+                            read_reviews(&service, &workspace, entries, &stop)
+                        }
+                        _ => HashMap::new(),
+                    };
+                    (page, reviews)
+                })
                 .await;
-            this.update(cx, |this, cx| this.apply_page(request, page, cx))
+            this.update(cx, |this, cx| this.apply_page(request, page, reviews, cx))
                 .ok();
         })
         .detach();
@@ -500,6 +522,7 @@ impl Shell {
         &mut self,
         request: u64,
         page: Result<Vec<LogEntry>, String>,
+        reviews: HashMap<String, data::CommitReview>,
         cx: &mut Context<Self>,
     ) {
         if request != self.history.list_request {
@@ -512,6 +535,7 @@ impl Shell {
             Err(message) => self.history.error = Some(message),
         }
         if first_page {
+            self.history.session_reviews = reviews;
             // The commit selected before the reload, when this page has it;
             // else the first row, which `append` selected.
             if let Some(keep) = self.history.keep.take() {
@@ -638,6 +662,26 @@ fn read_session(dir: &Path, commits: &[String], skip: usize, stop: &AtomicBool) 
     }
     provenance_sessions::sort_newest_first(&mut entries);
     entries
+}
+
+/// The reviews of the first `REVIEW_LIMIT` of `entries`, by full id. A commit
+/// whose ledger cannot be read has none, so one bad commit never fails the list.
+fn read_reviews(
+    service: &Service,
+    workspace: &str,
+    entries: &[LogEntry],
+    stop: &AtomicBool,
+) -> HashMap<String, data::CommitReview> {
+    let mut reviews = HashMap::new();
+    for entry in entries.iter().take(provenance_sessions::REVIEW_LIMIT) {
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        if let Ok(Some(review)) = data::ledger_for_commit(service, workspace, &entry.id) {
+            reviews.insert(entry.id.clone(), review);
+        }
+    }
+    reviews
 }
 
 /// The diff of `path` in `commit`, parsed into rows.

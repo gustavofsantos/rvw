@@ -145,6 +145,15 @@ fn session_section(state: &HistoryState, session_id: &str, cx: &Context<Shell>) 
                     .child(note),
             );
         }
+        if let Some(note) = provenance_sessions::reviews_note(state.history.len()) {
+            section = section.child(
+                div()
+                    .px(px(8.))
+                    .text_size(px(SMALL))
+                    .text_color(theme::faint())
+                    .child(note),
+            );
+        }
     }
     section.child(show_all_link(cx))
 }
@@ -972,30 +981,55 @@ fn history_rows(
     rows.iter()
         .zip(range)
         .map(|(row, index)| {
+            let review = match state.source {
+                Source::Session { .. } => state
+                    .session_reviews
+                    .get(&row.entry.id)
+                    .and_then(|review| ledger_review::count_line(&review.linked)),
+                _ => None,
+            };
             history_row(
                 row,
                 index,
                 selected == Some(index),
-                lanes,
-                now,
-                &state.sessions,
+                &RowShared {
+                    lanes,
+                    now,
+                    sessions: &state.sessions,
+                },
+                review,
                 cx,
             )
         })
         .collect()
 }
 
+/// What every row of the list is drawn with, the same for all of them.
+#[derive(Clone, Copy)]
+struct RowShared<'a> {
+    /// The lanes of the graph; None when the source draws no graph.
+    lanes: Option<usize>,
+    /// The time the ages are counted from.
+    now: i64,
+    sessions: &'a [Session],
+}
+
 /// One commit row: its graph cell, short id, ref labels, subject, author, age
-/// and review placeholder. A click selects it.
+/// and review placeholder. A click selects it. `review` is the count line a
+/// session's list shows under the subject.
 fn history_row(
     row: &HistoryRow,
     index: usize,
     selected: bool,
-    lanes: Option<usize>,
-    now: i64,
-    sessions: &[Session],
+    shared: &RowShared,
+    review: Option<String>,
     cx: &Context<Shell>,
 ) -> AnyElement {
+    let RowShared {
+        lanes,
+        now,
+        sessions,
+    } = *shared;
     let mut line = div()
         .id(("history-row", index))
         .flex()
@@ -1027,25 +1061,7 @@ fn history_row(
             .text_color(theme::faint())
             .child(short(&row.entry.id).to_owned()),
     )
-    // The subject starts at the same x on every row; the ref labels follow it
-    // and the subject gives way to them.
-    .child(
-        div()
-            .flex()
-            .flex_1()
-            .min_w(px(0.))
-            .items_center()
-            .gap(px(8.))
-            .overflow_hidden()
-            .child(
-                div()
-                    .min_w(px(0.))
-                    .truncate()
-                    .text_color(theme::text())
-                    .child(row.entry.subject.clone()),
-            )
-            .children(label_group(&row.labels)),
-    )
+    .child(subject_cell(row, review))
     .child(badge_cell(provenance_label::badge(
         &row.entry.id,
         &row.entry.session_markers,
@@ -1069,6 +1085,45 @@ fn history_row(
             .child("\u{2013}"),
     )
     .into_any_element()
+}
+
+/// The subject of a row, with its ref labels after it. The subject starts at
+/// the same x on every row and gives way to the labels. A session's count
+/// line, when there is one, sits under it, inside the same row height.
+fn subject_cell(row: &HistoryRow, review: Option<String>) -> Div {
+    let line = div()
+        .flex()
+        .flex_1()
+        .min_w(px(0.))
+        .items_center()
+        .gap(px(8.))
+        .overflow_hidden()
+        .child(
+            div()
+                .min_w(px(0.))
+                .truncate()
+                .text_color(theme::text())
+                .child(row.entry.subject.clone()),
+        )
+        .children(label_group(&row.labels));
+    match review {
+        None => line,
+        Some(count) => div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_w(px(0.))
+            .overflow_hidden()
+            .child(line)
+            .child(
+                div()
+                    .min_w(px(0.))
+                    .truncate()
+                    .text_size(px(SMALL))
+                    .text_color(theme::faint())
+                    .child(count),
+            ),
+    }
 }
 
 /// The x of lane `lane`'s centre line, from the left edge of the graph cell.

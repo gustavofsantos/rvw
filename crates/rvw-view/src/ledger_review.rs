@@ -78,6 +78,34 @@ pub fn review_lines(linked: &[LinkedComment], unlinked: &[UnlinkedComment]) -> V
     lines
 }
 
+/// The compact count under a commit row in the session list: "N comments ·
+/// K reopened", where K counts the linked comments whose verdict reopened
+/// them. None when no comment is linked, so the row shows nothing.
+#[must_use]
+pub fn count_line(linked: &[LinkedComment]) -> Option<String> {
+    if linked.is_empty() {
+        return None;
+    }
+    let reopened = linked
+        .iter()
+        .filter(|item| {
+            item.comment
+                .verdict
+                .as_ref()
+                .is_some_and(|v| v.kind == VerdictKind::Reopened)
+        })
+        .count();
+    let noun = if linked.len() == 1 {
+        "comment"
+    } else {
+        "comments"
+    };
+    Some(format!(
+        "{} {noun} \u{00b7} {reopened} reopened",
+        linked.len()
+    ))
+}
+
 fn line(kind: ReviewKind, text: String) -> ReviewLine {
     ReviewLine { kind, text }
 }
@@ -247,6 +275,31 @@ mod tests {
             ["r13 \u{00b7} src/a.rs \u{00b7} unlinked: no content match"]
         );
         assert_eq!(lines[0].kind, ReviewKind::Unlinked);
+    }
+
+    #[test]
+    fn count_line_counts_linked_comments_and_reopened_verdicts() {
+        assert_eq!(count_line(&[]), None);
+
+        let one = [linked(comment("r12"), LinkKind::Exact)];
+        assert_eq!(
+            count_line(&one).as_deref(),
+            Some("1 comment \u{00b7} 0 reopened")
+        );
+
+        let mut reopened = comment("r17");
+        reopened.verdict = Some(verdict(VerdictKind::Reopened, Actor::Agent));
+        let mut accepted = comment("r16");
+        accepted.verdict = Some(verdict(VerdictKind::Accepted, Actor::Human));
+        let two = [
+            linked(reopened, LinkKind::SameChange),
+            linked(accepted, LinkKind::Exact),
+            linked(comment("r18"), LinkKind::Exact),
+        ];
+        assert_eq!(
+            count_line(&two).as_deref(),
+            Some("3 comments \u{00b7} 1 reopened")
+        );
     }
 
     #[test]

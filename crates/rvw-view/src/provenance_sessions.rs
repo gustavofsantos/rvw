@@ -14,6 +14,16 @@ use crate::provenance_label::{first_line, who};
 pub const EMPTY: &str =
     "No sessions reported yet. Agents report them with the report_session tool.";
 
+/// The most commits of a session whose reviews the History list reads.
+pub const REVIEW_LIMIT: usize = 50;
+
+/// The line that says the session's reviews stop at `REVIEW_LIMIT`, or None
+/// when the session has no more commits than that.
+#[must_use]
+pub fn reviews_note(commits: usize) -> Option<String> {
+    (commits > REVIEW_LIMIT).then(|| format!("Reviews shown for the first {REVIEW_LIMIT} commits."))
+}
+
 /// One row of the Sessions timeline.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
@@ -338,6 +348,15 @@ mod tests {
         assert_eq!(
             missing_note(3).as_deref(),
             Some("3 commits of this session are not in this repository.")
+        );
+    }
+
+    #[test]
+    fn reviews_note_only_past_the_limit() {
+        assert_eq!(reviews_note(REVIEW_LIMIT), None);
+        assert_eq!(
+            reviews_note(REVIEW_LIMIT + 1).as_deref(),
+            Some("Reviews shown for the first 50 commits.")
         );
     }
 
