@@ -2062,6 +2062,123 @@ SH
   [ "$output" = "rvw: tui needs an interactive terminal on stdin and stdout" ]
 }
 
+# ── the audit ledger ──────────────────────────────────────────────────────────
+
+# A repo whose feature branch fixes a queued comment: the comment is decided on
+# the fixed file, and the fix is committed. Leaves HEAD on feature.
+ledger_branch() {
+  git -C "$WORKSPACE" -c user.email=t@t -c user.name=t add -A
+  git -C "$WORKSPACE" -c user.email=t@t -c user.name=t commit -qm init
+  git -C "$WORKSPACE" branch -M main
+  git -C "$WORKSPACE" checkout -qb feature
+  queue app.py 2 "use TWO"
+  "$RVW" pull --id r1 >/dev/null
+  printf 'one\nTWO\nthree\nfour\n' >"$WORKSPACE/app.py"
+  "$RVW" resolve r1 --note "fixed" >/dev/null
+  git -C "$WORKSPACE" -c user.email=t@t -c user.name=t add -A
+  git -C "$WORKSPACE" -c user.email=t@t -c user.name=t commit -qm "fix two"
+}
+
+@test "ledger: a resolved comment committed on the branch is linked exactly in markdown" {
+  ledger_branch
+
+  run "$RVW" ledger
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"use TWO"* ]]
+  [[ "$output" == *"**Link:** exact"* ]]
+}
+
+@test "ledger: --format json links the comment to its commit as exact" {
+  ledger_branch
+
+  run "$RVW" ledger --format json
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.commits[0].comments[0].link' <<<"$output")" = "exact" ]
+  [ "$(jq -r '.commits[0].subject' <<<"$output")" = "fix two" ]
+}
+
+@test "ledger: the default branch needs --range or --since" {
+  git -C "$WORKSPACE" -c user.email=t@t -c user.name=t add -A
+  git -C "$WORKSPACE" -c user.email=t@t -c user.name=t commit -qm init
+  git -C "$WORKSPACE" branch -M main
+
+  run "$RVW" ledger
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: the ledger of the default branch needs --range or --since" ]
+  [ -z "$("$RVW" ledger 2>/dev/null)" ]
+}
+
+@test "ledger: refuses an unknown format" {
+  run "$RVW" ledger --format ids
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: --format 'ids' is not one of markdown, json, html" ]
+}
+
+@test "ledger: --force without --output is refused" {
+  run "$RVW" ledger --range HEAD..HEAD --force
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: --force needs --output" ]
+}
+
+@test "ledger: html is one self-contained page with no script" {
+  ledger_branch
+
+  run "$RVW" ledger --format html
+  [ "$status" -eq 0 ]
+  [ "$(head -n 1 <<<"$output")" = "<!doctype html>" ]
+  [[ "$output" != *"<script"* ]]
+}
+
+@test "ledger: --output writes the file, stdout stays empty and stderr names it" {
+  ledger_branch
+
+  stdout=$("$RVW" ledger --output report.md 2>"$TEST_ROOT/err")
+  [ -z "$stdout" ]
+  [ "$(cat "$TEST_ROOT/err")" = "rvw: wrote report.md" ]
+  grep -q "^# Audit ledger" report.md
+}
+
+@test "ledger: --output refuses to overwrite without --force and leaves the file alone" {
+  ledger_branch
+  printf 'keep me\n' >report.md
+
+  run "$RVW" ledger --output report.md
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: --output 'report.md' exists; pass --force to overwrite it" ]
+  [ "$(cat report.md)" = "keep me" ]
+}
+
+@test "ledger: --output --force overwrites the file and leaves no temporary file" {
+  ledger_branch
+  printf 'old\n' >report.md
+
+  run "$RVW" ledger --output report.md --force --format json
+  [ "$status" -eq 0 ]
+  [ "$(jq -r '.commits[0].comments[0].link' report.md)" = "exact" ]
+  [ "$(ls -A | grep -v '^\.git$' | sort | tr '\n' ' ')" = "app.py other.rb report.md " ]
+}
+
+@test "ledger: --output refuses a parent directory that does not exist" {
+  ledger_branch
+
+  run "$RVW" ledger --output missing/report.md
+  [ "$status" -eq 1 ]
+  [ "$output" = "rvw: --output 'missing/report.md': directory 'missing' does not exist" ]
+  [ ! -e missing ]
+}
+
+@test "help: ledger sits in the command list, alphabetically, with its own help" {
+  run "$RVW" --help
+  [ "$status" -eq 0 ]
+  names=$(awk '/^Available Commands:/{f=1; next} /^$/{f=0} f{print $1}' <<<"$output")
+  [ "$names" = "$(sort <<<"$names")" ]
+  grep -qx ledger <<<"$names"
+
+  run "$RVW" ledger --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage:"*"rvw ledger"* ]]
+}
+
 # ── shape of the tool itself ──────────────────────────────────────────────────
 
 @test "count: prints 0 for an untouched workspace instead of failing" {
@@ -2105,7 +2222,7 @@ SH
   [ "$status" -eq 0 ]
   [[ "$output" == *"per-workspace queue of code review feedback"* ]]
 
-  for sub in add submit list pull show edit resolve reject count workspaces path sessions mcp tui; do
+  for sub in add submit list pull show edit resolve reject count workspaces path sessions ledger mcp tui; do
     run "$RVW" "$sub" --help
     [ "$status" -eq 0 ]
     [[ "$output" == *"Usage:"*"rvw $sub"* ]]

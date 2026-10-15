@@ -53,6 +53,7 @@ Examples:
   rvw show rv1                          # a whole review sheet
   rvw count                             # pending handoff count, for a statusline
   rvw sessions                          # what agents reported here, newest first
+  rvw ledger                            # audit ledger of this branch, for a reviewer
   rvw workspaces                        # every workspace holding comments
   rvw mcp config                        # connect Claude Code to the MCP server
   rvw tui                               # read code and comment in a terminal UI
@@ -64,6 +65,7 @@ Available Commands:
   edit        replace the text of a queued review comment
   gate        report what is open or unjudged before a commit or push
   help        Help about any command
+  ledger      write the audit ledger of a range of commits
   list        show queued review comments or submitted reviews without dequeuing them
   mcp         serve the queue as MCP tools, and print how to connect Claude Code
   path        print where the queue lives

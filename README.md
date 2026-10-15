@@ -178,6 +178,26 @@ with the commits each one made. It only reads; a person cannot report a session.
 rvw sessions --format json     # the same records, as one JSON object
 ```
 
+`rvw ledger` writes the audit ledger of a range of commits: each commit with
+the decided comments that landed in it, the comments no commit matched, the
+gate overrides of the lane and the sessions behind the commits. A comment
+links to a commit only by content: `exact` when the file at the commit is the
+version the comment resolved to, `same-change` when the commit's change to the
+file is the same change. Anything else is listed as unlinked, with the reason.
+It only reads; nothing is written to git or the queue.
+
+```sh
+rvw ledger                                   # this branch against the default branch
+rvw ledger --range main..HEAD --format json  # the same ledger, as one JSON object
+rvw ledger --since 2026-10-01 --format html --output audit.html
+```
+
+The default branch itself needs `--range` or `--since`. `--format` is
+`markdown` (the default), `json`, or `html`, one self-contained page with a
+print stylesheet. `--output FILE` writes the report to a file instead of
+stdout; the file is never overwritten unless `--force` is given, and the
+parent directory must already exist.
+
 `rvw gate` only reports; it does not stop a commit. When you go ahead anyway,
 record it, with the reason:
 

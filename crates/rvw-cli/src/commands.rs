@@ -5,9 +5,9 @@ use std::io::{IsTerminal, Read, Write};
 
 use clap::{Arg, ArgAction, ArgMatches, Command, value_parser};
 use rvw_core::operations::{
-    AddInput, EditInput, GateInput, GetInput, OverrideInput, PullInput, QueryInput, RemoveInput,
-    ResolveInput, SHEET_FILTERS, SessionsInput, SheetsInput, SubmitInput, VerdictInput,
-    WorkspacesInput,
+    AddInput, EditInput, GateInput, GetInput, LedgerInput, OverrideInput, PullInput, QueryInput,
+    RemoveInput, ResolveInput, SHEET_FILTERS, SessionsInput, SheetsInput, SubmitInput,
+    VerdictInput, WorkspacesInput,
 };
 use rvw_core::service::MAX_SOURCE;
 use rvw_core::types::{Actor, Comment, GATE_ACTIONS, Handoff, LineRange, Location, VerdictKind};
@@ -320,6 +320,35 @@ pub fn root() -> Command {
     .after_help(help::SESSIONS_EXAMPLE)
     .arg(format_flag("text", &["text", "json", "markdown"]));
 
+    let ledger_cmd = sub(
+        "ledger",
+        "write the audit ledger of a range of commits",
+        help::LEDGER_LONG,
+    )
+    .after_help(help::LEDGER_EXAMPLE)
+    .arg(flag(
+        "range",
+        "git revision range, e.g. main..HEAD (default: the default branch to HEAD)",
+    ))
+    .arg(flag(
+        "since",
+        "only commits dated at or after this, RFC 3339 or YYYY-MM-DD",
+    ))
+    .arg(flag(
+        "until",
+        "only commits dated at or before this, RFC 3339 or YYYY-MM-DD",
+    ))
+    .arg(flag(
+        "lane",
+        "only this lane's comments and overrides (default: every lane)",
+    ))
+    .arg(format_flag("markdown", &["markdown", "json", "html"]))
+    .arg(flag("output", "write the report to FILE instead of stdout"))
+    .arg(bool_flag(
+        "force",
+        "overwrite the --output FILE if it exists",
+    ));
+
     let path = sub("path", "print where the queue lives", help::PATH_LONG).arg(bool_flag(
         "workspace-only",
         "print the resolved workspace directory",
@@ -422,7 +451,7 @@ pub fn root() -> Command {
         )
         .subcommands([
             add, submit, list, pull, show, edit, remove, resolve, reject, accept, reopen, gate,
-            count, workspaces, path, sessions_cmd, mcp, tui, help_cmd,
+            count, workspaces, path, sessions_cmd, ledger_cmd, mcp, tui, help_cmd,
         ])
 }
 
@@ -447,6 +476,7 @@ pub fn run(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
         Some(("gate", s)) => gate_cmd(app, s, out),
         Some(("workspaces", s)) => workspaces(app, s, out),
         Some(("sessions", s)) => sessions(app, s, out),
+        Some(("ledger", s)) => ledger(app, s, out),
         Some(("path", s)) => path(app, s, out),
         Some(("mcp", s)) => mcp_cmd(app, s, out),
         Some(("tui", s)) => tui(app, s),
@@ -902,6 +932,102 @@ fn sessions(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
             }
             Ok(())
         }
+    }
+}
+
+fn ledger(app: &App, m: &ArgMatches, out: &mut Out) -> CliResult<()> {
+    let format = s(m, "format");
+    one_of("--format", &format, &["markdown", "json", "html"])?;
+    let output = expand_home(&s(m, "output"));
+    let force = m.get_flag("force");
+    if force && output.is_empty() {
+        return Err("--force needs --output".to_owned());
+    }
+    // Refused before the ledger is read: a report that cannot be written is
+    // not worth the walk through history.
+    if !output.is_empty() {
+        check_output(&output, force)?;
+    }
+    let ws = app.workspace()?;
+    let svc = app.svc()?;
+    let ledger = svc
+        .ledger(LedgerInput {
+            workspace: ws,
+            range: s(m, "range"),
+            since: s(m, "since"),
+            until: s(m, "until"),
+            lane: lane_of(&s(m, "lane")),
+        })
+        .map_err(core_err)?;
+    let text = match format.as_str() {
+        "json" => render::ledger_json(&ledger),
+        "html" => render::ledger_html(&ledger),
+        _ => render::ledger_markdown(&ledger),
+    };
+    if output.is_empty() {
+        return w(write!(out, "{text}"));
+    }
+    write_output(&output, &text)?;
+    App::notice(&format!("wrote {output}"));
+    Ok(())
+}
+
+/// Refuses an `--output` that would overwrite a file without `--force`, or
+/// that sits in a directory which does not exist. Nothing is created.
+fn check_output(path: &str, force: bool) -> CliResult<()> {
+    let target = std::path::Path::new(path);
+    if target.exists() && !force {
+        return Err(format!(
+            "--output '{path}' exists; pass --force to overwrite it"
+        ));
+    }
+    let dir = parent_dir(target);
+    if !dir.is_dir() {
+        return Err(format!(
+            "--output '{path}': directory '{}' does not exist",
+            dir.display()
+        ));
+    }
+    Ok(())
+}
+
+/// Writes `text` to `path` through a temporary file in the same directory,
+/// renamed over the target, so a reader never sees half a report.
+fn write_output(path: &str, text: &str) -> CliResult<()> {
+    let target = std::path::Path::new(path);
+    let name = target
+        .file_name()
+        .ok_or_else(|| format!("--output '{path}' names no file"))?;
+    let tmp = parent_dir(target).join(format!(
+        ".{}.{}.tmp",
+        name.to_string_lossy(),
+        std::process::id()
+    ));
+    replace_file(&tmp, target, text).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("--output '{path}': {e}")
+    })
+}
+
+fn replace_file(
+    tmp: &std::path::Path,
+    target: &std::path::Path,
+    text: &str,
+) -> std::io::Result<()> {
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(tmp)?;
+    file.write_all(text.as_bytes())?;
+    file.sync_all()?;
+    std::fs::rename(tmp, target)
+}
+
+/// The directory a path sits in; a bare file name sits in the current one.
+fn parent_dir(path: &std::path::Path) -> &std::path::Path {
+    match path.parent() {
+        Some(d) if !d.as_os_str().is_empty() => d,
+        _ => std::path::Path::new("."),
     }
 }
 

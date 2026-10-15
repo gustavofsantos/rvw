@@ -1,0 +1,28 @@
+Write the audit ledger of a range of commits: each commit with the decided
+comments that landed in it, the comments that matched no commit, the gate
+overrides of the lane and the sessions behind the commits. Links are computed
+from git and the queue when you read; nothing is written to either. The default
+range is the default branch to HEAD, which needs --range or --since on the
+default branch itself.
+
+Usage:
+  rvw ledger [flags]
+
+Examples:
+  rvw ledger
+  rvw ledger --range main..HEAD --format json
+  rvw ledger --since 2026-10-01 --format html --output audit.html
+
+Flags:
+      --force           overwrite the --output FILE if it exists
+      --format string   output shape: markdown, json, html (default: markdown) (default "markdown")
+  -h, --help            help for ledger
+      --lane string     only this lane's comments and overrides (default: every lane)
+      --output string   write the report to FILE instead of stdout
+      --range string    git revision range, e.g. main..HEAD (default: the default branch to HEAD)
+      --since string    only commits dated at or after this, RFC 3339 or YYYY-MM-DD
+      --until string    only commits dated at or before this, RFC 3339 or YYYY-MM-DD
+
+Global Flags:
+      --db string          database file (default: $XDG_DATA_HOME/rvw/rvw.db, else ~/.local/share/rvw/rvw.db)
+      --workspace string   queue to act on: the git toplevel of this directory (default: $PWD)

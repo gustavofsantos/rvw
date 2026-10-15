@@ -60,6 +60,7 @@ pub const EXAMPLES: &str =
   rvw show rv1                          # a whole review sheet
   rvw count                             # pending handoff count, for a statusline
   rvw sessions                          # what agents reported here, newest first
+  rvw ledger                            # audit ledger of this branch, for a reviewer
   rvw workspaces                        # every workspace holding comments
   rvw mcp config                        # connect Claude Code to the MCP server
   rvw tui                               # read code and comment in a terminal UI";
@@ -179,6 +180,18 @@ over MCP, and a person reads the record here.";
 
 pub const SESSIONS_EXAMPLE: &str = "  rvw sessions
   rvw sessions --format markdown";
+
+pub const LEDGER_LONG: &str =
+    "Write the audit ledger of a range of commits: each commit with the decided
+comments that landed in it, the comments that matched no commit, the gate
+overrides of the lane and the sessions behind the commits. Links are computed
+from git and the queue when you read; nothing is written to either. The default
+range is the default branch to HEAD, which needs --range or --since on the
+default branch itself.";
+
+pub const LEDGER_EXAMPLE: &str = "  rvw ledger
+  rvw ledger --range main..HEAD --format json
+  rvw ledger --since 2026-10-01 --format html --output audit.html";
 
 pub const GATE_LONG: &str =
     "Report what stands between the workspace and a commit or push. Open comments
