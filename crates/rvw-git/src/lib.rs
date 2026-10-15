@@ -12,6 +12,7 @@ pub mod gitx;
 pub mod history;
 pub mod index;
 pub mod merge;
+pub mod patch_id;
 pub mod refs;
 pub mod remote;
 pub mod rewrite;
