@@ -426,3 +426,91 @@ pub struct SessionsOutput {
     /// the sessions
     pub sessions: Vec<Session>,
 }
+
+/// Asks for the audit ledger of a range of commits.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct LedgerInput {
+    /// absolute workspace path
+    pub workspace: String,
+    /// git revision range, e.g. main..HEAD; empty means the default branch
+    /// to HEAD, which needs a default branch other than the current one
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub range: String,
+    /// only commits at or after this date, RFC 3339 or YYYY-MM-DD
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub since: String,
+    /// only commits at or before this date, RFC 3339 or YYYY-MM-DD
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub until: String,
+    /// only this lane's comments; empty means every lane
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub lane: String,
+}
+
+/// How a comment was matched to a commit. Never inferred from time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum LinkKind {
+    /// the file at the commit is the blob the comment resolved to
+    Exact,
+    /// the commit's change to the file has the patch-id of the resolution diff
+    SameChange,
+}
+
+/// A comment linked to a commit, with what decided it.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct LinkedComment {
+    /// the comment, with its decision, note and verdict
+    pub comment: Comment,
+    /// how it was matched to the commit
+    pub link: LinkKind,
+    /// unified diff lines of the resolution; empty when no snapshot exists
+    pub diff: Vec<String>,
+}
+
+/// One commit of the range and the reviews that led to it.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct LedgerCommit {
+    /// full commit id
+    pub id: String,
+    /// first line of the message
+    pub subject: String,
+    /// commit author name
+    pub author: String,
+    /// author time, RFC 3339
+    pub time: String,
+    /// the reported session behind the commit, null when none was reported
+    #[schemars(required, schema_with = "nullable_string_schema")]
+    pub session_id: Option<String>,
+    /// a Claude-Session marker names a session that was never reported
+    pub marked: bool,
+    /// comments linked to this commit by content
+    pub comments: Vec<LinkedComment>,
+}
+
+/// A comment in scope that matched no commit of the range.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct UnlinkedComment {
+    /// the comment
+    pub comment: Comment,
+    /// why no commit matched
+    pub reason: String,
+}
+
+/// The ledger: commits in range with their reviews, what matched nothing,
+/// gate overrides and the sessions behind the commits.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct LedgerOutput {
+    /// absolute workspace path
+    pub workspace: String,
+    /// the range as resolved, e.g. main..HEAD
+    pub range: String,
+    /// commits, oldest first
+    pub commits: Vec<LedgerCommit>,
+    /// decided comments that matched no commit in the range
+    pub unlinked: Vec<UnlinkedComment>,
+    /// gate overrides recorded within the commits' time span
+    pub overrides: Vec<crate::types::GateOverride>,
+    /// reported sessions that own a commit in the range
+    pub sessions: Vec<Session>,
+}

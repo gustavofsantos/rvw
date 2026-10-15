@@ -1,6 +1,6 @@
 # GUI M6 plan: ledger
 
-Status: proposed on 2026-10-15. Not approved, not started.
+Status: approved on 2026-10-15 with the defaults of the open questions. Started.
 Scope: [gui-v1-product-brief.md](gui-v1-product-brief.md) milestone M6: C1, C3,
 C4, P4, P5, with the content matching of D2. Like M4 and M5 it touches the
 core, CLI and GUI. [gui-m5-plan.md](gui-m5-plan.md) built the sessions this
@@ -71,7 +71,7 @@ Each slice is one commit and ends green. "Orch." is the orchestrator.
 |---|---|---|---|
 | 0 | Contract (Orch.) | `rvw-core/operations.rs` (`LedgerInput`, `LedgerOutput`, entry types), this file | build, lint |
 | 1 | Patch ids | `rvw-git` (`patch_id` of a commit's change to one file, of two blobs) | same change in two commits gives one id; whitespace and a different change do not |
-| 2 | Matching | `rvw-view/src/ledger.rs` pure rules: exact blob, same patch-id, unlinked reason | table tests for each rule and for a rebased and a squashed commit |
+| 2 | Matching | `rvw-core/src/ledger_match.rs` (core cannot depend on `rvw-view`) pure rules, incl. commit-id prefix match: exact blob, same patch-id, unlinked reason | table tests for each rule and for a rebased and a squashed commit |
 | 3 | Ledger op | `rvw-core/ledger.rs`; overrides read path | range default, `since`/`until`, lane scope, empty range |
 | 4 | Renderers | `rvw-render` markdown, html (escaped, print CSS), json | golden outputs; html escapes comment text |
 | 5 | CLI (bats first) | `rvw-cli`, `test/rvw.bats`, help fixtures, README | bats, `test/help-compare.sh`; `--force`, no overwrite |
@@ -85,7 +85,13 @@ Each slice is one commit and ends green. "Orch." is the orchestrator.
 Slices 1 and 2 run in parallel after 0 on disjoint files; 3 follows both; 4
 follows 0; 5 follows 3 and 4; 6 to 9 are GUI slices, run one at a time.
 
-## Open
+## Settled in review (2026-10-15)
+
+The defaults: no manual links in M6; the default branch needs an explicit
+`--range` or `--since`; a squashed commit shows "unlinked"; HTML is the
+printable; the export includes each comment's snapshot and diff.
+
+## Open (resolved above)
 
 1. Manual links: build them in M6 (a v4 table, `link` operation, GUI row
    action) or leave them for a later milestone? The exit needs none.
