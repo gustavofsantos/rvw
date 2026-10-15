@@ -238,6 +238,7 @@ impl Shell {
             Action::AcceptDecision => self.judge_outcome(VerdictKind::Accepted, cx),
             Action::ReopenDecision => self.open_reopen(window, cx),
             Action::Sessions => self.open_sessions(cx),
+            Action::ExportAudit => self.open_export(window, cx),
             Action::OpenDiffTool => {
                 if let Some(path) = self.open_file_path() {
                     self.open_diff_tool(&path, cx);

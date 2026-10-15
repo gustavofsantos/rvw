@@ -44,6 +44,21 @@ pub struct ComposerSlot {
     /// The id of the comment the composer edits, if it edits one.
     pub editing: Option<String>,
     pub points: Option<Entity<TextInput>>,
+    /// What the reporting agent said about the lines, when one reported.
+    pub why: Option<rvw_view::why_line::WhyLine>,
+}
+
+impl ComposerSlot {
+    /// What the rows draw of an open composer.
+    fn of(composer: &crate::composer::Composer) -> Self {
+        ComposerSlot {
+            input: composer.input.clone(),
+            error: composer.error.clone(),
+            editing: composer.editing.clone(),
+            points: composer.points.as_ref().map(|points| points.input.clone()),
+            why: composer.why.clone(),
+        }
+    }
 }
 
 /// What the rows are drawn from; replaced whole when the list is rebuilt.
@@ -76,6 +91,8 @@ struct Key {
     /// The composer's field; another field is another composer.
     composer_input: Option<EntityId>,
     error: bool,
+    /// The why-line arrives after the composer opens; its arrival rebuilds.
+    why: bool,
     split: bool,
 }
 
@@ -277,6 +294,7 @@ impl Shell {
                 .composer
                 .as_ref()
                 .is_some_and(|composer| composer.error.is_some()),
+            why: self.composer.as_ref().is_some_and(|c| c.why.is_some()),
             split,
         };
         if let Some(current) = self.diff_list.as_ref()
@@ -308,12 +326,7 @@ impl Shell {
             rows,
             split,
             outside_change: selected.outside,
-            composer: self.composer.as_ref().map(|composer| ComposerSlot {
-                input: composer.input.clone(),
-                error: composer.error.clone(),
-                editing: composer.editing.clone(),
-                points: composer.points.as_ref().map(|points| points.input.clone()),
-            }),
+            composer: self.composer.as_ref().map(ComposerSlot::of),
             spans: Rc::clone(&self.highlights.shared),
         });
 

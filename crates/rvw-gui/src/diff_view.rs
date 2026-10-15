@@ -124,9 +124,11 @@ pub fn row(
                 field,
                 problem: composer::points_spec(field.read(cx).text()).err(),
             });
+            let why = slot.why.as_ref().map(crate::why_line::row);
             div()
                 .w_full()
                 .py(px(6.))
+                .children(why)
                 .child(composer::view(
                     &slot.input,
                     slot.error.as_deref(),

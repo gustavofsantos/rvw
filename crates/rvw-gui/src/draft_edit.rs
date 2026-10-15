@@ -83,6 +83,7 @@ impl Shell {
         );
         input.update(cx, |area, cx| area.focus(window, cx));
         self.composer = Some(Composer::new(input, events, editing, points));
+        self.load_why_line(cx);
         cx.notify();
     }
 

@@ -6,6 +6,7 @@ use gpui::prelude::*;
 use gpui::{Context, Div, Entity, Subscription, div, px};
 use rvw_core::types::Location;
 use rvw_view::points_at::parse_points_at;
+use rvw_view::why_line::WhyLine;
 
 use crate::shell::Shell;
 use crate::text_area::TextArea;
@@ -29,6 +30,9 @@ pub struct Composer {
     /// The "Points at" field. `None` when editing: an edit keeps the
     /// comment's reference, which core does not change.
     pub points: Option<PointsField>,
+    /// The reported session behind the lines, read off the UI thread; None
+    /// until it is read, and when no agent reported those lines.
+    pub why: Option<WhyLine>,
     _events: Subscription,
 }
 
@@ -53,6 +57,7 @@ impl Composer {
             error: None,
             editing,
             points,
+            why: None,
             _events: events,
         }
     }

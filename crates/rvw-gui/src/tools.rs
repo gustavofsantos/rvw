@@ -13,6 +13,7 @@ use rvw_view::viewmode::ViewMode;
 
 use crate::branch_picker::BranchPicker;
 use crate::compare_picker::CompareMenu;
+use crate::export_card::ExportCard;
 use crate::palette_overlay::Palette;
 use crate::sessions_picker::SessionsPicker;
 use crate::shell::Shell;
@@ -27,6 +28,7 @@ pub struct Tools {
     pub branches: Option<BranchPicker>,
     pub palette: Option<Palette>,
     pub sessions: Option<SessionsPicker>,
+    pub export: Option<ExportCard>,
     pub workspaces: Option<WorkspacePicker>,
     /// The diff view shows two columns instead of one.
     pub split: bool,
@@ -35,7 +37,10 @@ pub struct Tools {
 impl Tools {
     /// A picker with a text field is open, so the field holds the focus.
     pub fn field_open(&self) -> bool {
-        self.branches.is_some() || self.palette.is_some() || self.workspaces.is_some()
+        self.branches.is_some()
+            || self.palette.is_some()
+            || self.export.is_some()
+            || self.workspaces.is_some()
     }
 
     pub fn close_all(&mut self) {
@@ -43,6 +48,7 @@ impl Tools {
         self.branches = None;
         self.palette = None;
         self.sessions = None;
+        self.export = None;
         self.workspaces = None;
     }
 }
@@ -160,6 +166,9 @@ impl Shell {
         }
         if let Some(picker) = self.tools.sessions.as_ref() {
             out.push(crate::sessions_picker::overlay(picker, cx).into_any_element());
+        }
+        if let Some(card) = self.tools.export.as_ref() {
+            out.push(crate::export_card::overlay(card, cx).into_any_element());
         }
         if let Some(picker) = self.tools.workspaces.as_ref() {
             out.push(crate::workspace_picker::overlay(picker, cx).into_any_element());

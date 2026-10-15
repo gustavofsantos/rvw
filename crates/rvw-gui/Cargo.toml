@@ -16,6 +16,7 @@ path = "src/main.rs"
 gpui = "0.2"
 rvw-core.workspace = true
 rvw-git.workspace = true
+rvw-render.workspace = true
 rvw-store.workspace = true
 rvw-term.workspace = true
 rvw-view.workspace = true
