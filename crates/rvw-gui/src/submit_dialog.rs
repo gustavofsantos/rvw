@@ -5,8 +5,8 @@
 
 use gpui::prelude::*;
 use gpui::{
-    actions, div, px, App, BoxShadow, ClickEvent, Context, Div, Entity, FontWeight, KeyBinding,
-    SharedString, Stateful, Subscription, Window,
+    App, BoxShadow, ClickEvent, Context, Div, Entity, FontWeight, KeyBinding, SharedString,
+    Stateful, Subscription, Window, actions, div, px,
 };
 use rvw_view::queue::{Filter, Row, State};
 

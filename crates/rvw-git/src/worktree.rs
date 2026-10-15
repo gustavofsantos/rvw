@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::gitx::{self, os_error_text, owned_args, run, GitError};
+use crate::gitx::{self, GitError, os_error_text, owned_args, run};
 
 /// The common root of a linked worktree's checkpoint refs; see the checkpoint module.
 const LINKED: &str = "refs/rvw/checkpoints/linked/";

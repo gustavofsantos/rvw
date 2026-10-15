@@ -14,13 +14,13 @@ use std::time::{Duration, Instant};
 
 use gpui::prelude::*;
 use gpui::{
-    actions, div, fill, font, outline, point, px, relative, rgb, size, App, BorderStyle, Bounds,
-    ClipboardItem, Context, CursorStyle, DispatchPhase, ElementId, ElementInputHandler, Entity,
-    EntityInputHandler, FocusHandle, Focusable, GlobalElementId, Hitbox, HitboxBehavior,
-    KeyBinding, KeyDownEvent, LayoutId, ModifiersChangedEvent, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, Rgba, ScrollHandle, ScrollWheelEvent,
-    ShapedLine, StrikethroughStyle, Style, Subscription, Task, TextRun, UTF16Selection,
-    UnderlineStyle, Window,
+    App, BorderStyle, Bounds, ClipboardItem, Context, CursorStyle, DispatchPhase, ElementId,
+    ElementInputHandler, Entity, EntityInputHandler, FocusHandle, Focusable, GlobalElementId,
+    Hitbox, HitboxBehavior, KeyBinding, KeyDownEvent, LayoutId, ModifiersChangedEvent, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, Rgba, ScrollHandle,
+    ScrollWheelEvent, ShapedLine, StrikethroughStyle, Style, Subscription, Task, TextRun,
+    UTF16Selection, UnderlineStyle, Window, actions, div, fill, font, outline, point, px, relative,
+    rgb, size,
 };
 use rvw_term::{
     Color, CursorKind, Event, Mode, Scroll, Snapshot, SpawnOptions, Terminal, UrlMatch,
@@ -32,7 +32,7 @@ use crate::git_log;
 use crate::icon::{self, Icon};
 use crate::resize_handle::{self, Edge};
 use crate::terminal_grid::{self, Layout, Run, Width};
-use crate::terminal_input::{translate, Translated};
+use crate::terminal_input::{Translated, translate};
 use crate::terminal_mouse::PointerState;
 use crate::terminal_pointer::{self, SearchBar};
 use crate::theme;
@@ -421,16 +421,18 @@ impl TerminalView {
     }
 
     fn start_poll(&mut self, cx: &mut Context<Self>) {
-        self.poll = Some(cx.spawn(async move |this, cx| loop {
-            let wait = match this.read_with(cx, |view, _| view.model.dock_shown()) {
-                Ok(true) => FRAME,
-                Ok(false) => HIDDEN_FRAME,
-                Err(_) => break,
-            };
-            cx.background_executor().timer(wait).await;
-            match this.update(cx, Self::pump) {
-                Ok(true) => {}
-                _ => break,
+        self.poll = Some(cx.spawn(async move |this, cx| {
+            loop {
+                let wait = match this.read_with(cx, |view, _| view.model.dock_shown()) {
+                    Ok(true) => FRAME,
+                    Ok(false) => HIDDEN_FRAME,
+                    Err(_) => break,
+                };
+                cx.background_executor().timer(wait).await;
+                match this.update(cx, Self::pump) {
+                    Ok(true) => {}
+                    _ => break,
+                }
             }
         }));
     }
@@ -468,26 +470,24 @@ impl TerminalView {
             if self.model.watching(live.id) && self.model.clear_attention(live.id) {
                 changed = true;
             }
-            if let Some(exit) = live.term.exit_status() {
-                if self
+            if let Some(exit) = live.term.exit_status()
+                && self
                     .model
                     .get(live.id)
                     .is_some_and(rvw_view::terminals::Terminal::running)
-                {
-                    self.model.exited(live.id, exit.code);
-                    live.dirty = true;
-                    changed = true;
-                }
+            {
+                self.model.exited(live.id, exit.code);
+                live.dirty = true;
+                changed = true;
             }
         }
-        if self.model.dock_shown() {
-            if let Some(live) = self.active_live_mut() {
-                if live.dirty {
-                    live.snapshot = live.term.snapshot();
-                    live.dirty = false;
-                    changed = true;
-                }
-            }
+        if self.model.dock_shown()
+            && let Some(live) = self.active_live_mut()
+            && live.dirty
+        {
+            live.snapshot = live.term.snapshot();
+            live.dirty = false;
+            changed = true;
         }
         if self.git_active() && self.model.dock_shown() && git_log::recorded() != self.git_seen {
             self.git_seen = git_log::recorded();
@@ -713,10 +713,11 @@ impl TerminalView {
         ) else {
             return;
         };
-        if let Some(live) = self.active_live_mut() {
-            if (cols, rows) != live.grid && live.term.resize(cols, rows).is_ok() {
-                live.grid = (cols, rows);
-            }
+        if let Some(live) = self.active_live_mut()
+            && (cols, rows) != live.grid
+            && live.term.resize(cols, rows).is_ok()
+        {
+            live.grid = (cols, rows);
         }
     }
 
@@ -990,7 +991,7 @@ impl TerminalView {
 /// Wires `Terminal1`..`Terminal9` to the tab of that number.
 fn numbered_tabs(dock: gpui::Div, cx: &mut Context<TerminalView>) -> gpui::Div {
     macro_rules! number {
-        ($dock:ident, $($action:ident => $n:expr),+) => {
+        ($dock:ident, $($action:ident => $n:expr_2021),+) => {
             $($dock = $dock.on_action(cx.listener(
                 |this: &mut TerminalView, _: &$action, window, cx| {
                     this.switch_number($n, window, cx);

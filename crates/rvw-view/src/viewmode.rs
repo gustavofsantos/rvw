@@ -41,11 +41,7 @@ pub fn default_for(screen: Screen) -> ViewMode {
 /// The mode a file can show: a file the change does not touch has no diff.
 #[must_use]
 pub fn effective(wanted: ViewMode, has_changes: bool) -> ViewMode {
-    if has_changes {
-        wanted
-    } else {
-        ViewMode::File
-    }
+    if has_changes { wanted } else { ViewMode::File }
 }
 
 /// The 1-indexed lines a change added or modified; deletions leave no line.

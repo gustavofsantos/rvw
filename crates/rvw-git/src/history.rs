@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
-use crate::gitx::{exec_stop, owned_args, run, run_stop, GitError};
+use crate::gitx::{GitError, exec_stop, owned_args, run, run_stop};
 
 /// One commit as a log line shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -172,8 +172,19 @@ pub fn show(dir: &Path, rev: &str) -> Result<CommitDetail, GitError> {
     ];
     let out = run(dir, &[], &args)?;
     let fields: Vec<&str> = out.splitn(11, '\x1f').collect();
-    let [id, parents, author, email, time, refs, subject, committer, committer_email, committer_time, message]: [&str; 11] =
-        fields.try_into().map_err(|_| malformed(&args))?;
+    let [
+        id,
+        parents,
+        author,
+        email,
+        time,
+        refs,
+        subject,
+        committer,
+        committer_email,
+        committer_time,
+        message,
+    ]: [&str; 11] = fields.try_into().map_err(|_| malformed(&args))?;
     let committer_time: i64 = committer_time.parse().map_err(|_| malformed(&args))?;
     let entry = log_entry([id, parents, author, email, time, refs, subject]);
     let base = base_of(dir, &entry.parents)?;
@@ -523,10 +534,12 @@ mod tests {
         git(dir.path(), &["tag", "v1"]);
         let stop = AtomicBool::new(false);
         let entries = log(dir.path(), &page(1), &stop).unwrap();
-        assert!(entries[0]
-            .refs
-            .iter()
-            .any(|r| r == "HEAD -> refs/heads/main"));
+        assert!(
+            entries[0]
+                .refs
+                .iter()
+                .any(|r| r == "HEAD -> refs/heads/main")
+        );
         assert!(entries[0].refs.iter().any(|r| r == "tag: refs/tags/v1"));
     }
 

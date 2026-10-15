@@ -8,7 +8,7 @@ use std::process::Command;
 use gpui::{Context, Window};
 use rvw_git::checkpoint::Kept;
 use rvw_git::stash::{self, StashEntry};
-use rvw_git::{gitx, refs, remote, GitError};
+use rvw_git::{GitError, gitx, refs, remote};
 use rvw_view::palette::Action;
 
 use crate::gate_card::Gated;

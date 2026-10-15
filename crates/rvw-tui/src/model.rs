@@ -18,13 +18,13 @@ use rvw_core::operations::{Evidence, GetInput, QueryInput, ReviewSheet, SheetsIn
 use rvw_core::types::{Comment, Status};
 use rvw_git::gitx;
 
-use crate::changes::{change_tree, file_changes, Compare};
-use crate::fuzzy::{Candidate, Ranked};
-use crate::highlight::{highlight, is_binary, source_lines, Segment};
-use crate::pages::{evidence_page, sheet_page, short_location, state_mark, status_mark};
-use crate::style::{self, piece, Piece, Sign};
-use crate::tree::{build_tree, list_files, NodeId, Row, Tree, ROOT};
 use crate::Options;
+use crate::changes::{Compare, change_tree, file_changes};
+use crate::fuzzy::{Candidate, Ranked};
+use crate::highlight::{Segment, highlight, is_binary, source_lines};
+use crate::pages::{evidence_page, sheet_page, short_location, state_mark, status_mark};
+use crate::style::{self, Piece, Sign, piece};
+use crate::tree::{NodeId, ROOT, Row, Tree, build_tree, list_files};
 
 /// Path of the reviews side's node that groups comments no review links.
 pub const STANDALONE: &str = "(standalone)";
@@ -97,11 +97,7 @@ impl FileView {
     /// Number of lines (0 for a binary file).
     #[must_use]
     pub fn len(&self) -> usize {
-        if self.binary {
-            0
-        } else {
-            self.lines.len()
-        }
+        if self.binary { 0 } else { self.lines.len() }
     }
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -358,11 +354,7 @@ pub struct Model {
 
 /// `v` clamped into `0..n`: 0 when there is nothing to point at.
 fn clamp_index(v: usize, n: usize) -> usize {
-    if n == 0 {
-        0
-    } else {
-        v.min(n - 1)
-    }
+    if n == 0 { 0 } else { v.min(n - 1) }
 }
 
 /// The lines of a text file, for the status line; a binary or unreadable file
@@ -729,10 +721,10 @@ impl Model {
         if self.rev_tree.is_some() {
             self.load_reviews()?;
         }
-        if let Some(id) = self.detail.as_ref().map(|d| d.id.clone()) {
-            if self.show_detail(&id).is_err() {
-                self.detail = None;
-            }
+        if let Some(id) = self.detail.as_ref().map(|d| d.id.clone())
+            && self.show_detail(&id).is_err()
+        {
+            self.detail = None;
         }
         self.load_comments()
     }
@@ -841,10 +833,10 @@ impl Model {
                 .map_err(|e| e.to_string())?;
             d.ev = Some(ev);
         }
-        if let Some(old) = &self.detail {
-            if old.id == id {
-                d.offset = old.offset;
-            }
+        if let Some(old) = &self.detail
+            && old.id == id
+        {
+            d.offset = old.offset;
         }
         self.detail = Some(d);
         self.visual = false;
@@ -1051,11 +1043,7 @@ pub fn follow(cur: usize, off: usize, height: usize, n: usize, margin: usize) ->
 /// Go's `clamp`: `lo` wins when `hi < lo`.
 #[must_use]
 pub fn clamp(v: i64, lo: i64, hi: i64) -> i64 {
-    if hi < lo {
-        lo
-    } else {
-        v.clamp(lo, hi)
-    }
+    if hi < lo { lo } else { v.clamp(lo, hi) }
 }
 
 #[cfg(test)]
@@ -1066,7 +1054,7 @@ mod tests {
     use rvw_core::operations::{ResolveInput, SubmitInput};
 
     use super::*;
-    use crate::testing::{setup, Fixture, PARSE_PY};
+    use crate::testing::{Fixture, PARSE_PY, setup};
 
     /// The model the Go tests build (author `tester`, 100x30), made directly
     /// so no test depends on the update loop.
@@ -1281,7 +1269,9 @@ mod tests {
         );
         assert_eq!(
             file(&m).signs,
-            [top, none, none, none, chg, none, add, del, none, none, none, none]
+            [
+                top, none, none, none, chg, none, add, del, none, none, none, none
+            ]
         );
         assert_eq!(file(&m).hunks, [1, 5, 7, 8]);
 

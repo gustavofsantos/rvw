@@ -71,7 +71,7 @@ pub fn statuses_of(filter: &str) -> Result<Vec<Status>> {
             return Err(Error::invalid(format!(
                 "status \"{other}\" is not one of {}",
                 STATUS_FILTERS.join(", ")
-            )))
+            )));
         }
     })
 }

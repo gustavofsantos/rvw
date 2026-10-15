@@ -8,8 +8,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{
-    div, prelude::*, px, Action, App, Bounds, Context, CursorStyle, Div, EventEmitter, FocusHandle,
-    Focusable, MouseButton, Pixels, Point, SharedString, Window,
+    Action, App, Bounds, Context, CursorStyle, Div, EventEmitter, FocusHandle, Focusable,
+    MouseButton, Pixels, Point, SharedString, Window, div, prelude::*, px,
 };
 use rvw_view::editor::Editor;
 

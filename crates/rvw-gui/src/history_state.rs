@@ -6,14 +6,14 @@
 //! keep git running.
 
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use gpui::{AppContext, Context, Entity, Subscription, UniformListScrollHandle, Window};
 use rvw_git::history::{self, CommitDetail, FileChange, LogEntry, LogQuery};
 use rvw_git::search::{self, Field};
-use rvw_git::{blame, GitError};
-use rvw_view::diff::{parse, FileDiff};
+use rvw_git::{GitError, blame};
+use rvw_view::diff::{FileDiff, parse};
 use rvw_view::history::{History, PAGE};
 use rvw_view::selection::Pos;
 

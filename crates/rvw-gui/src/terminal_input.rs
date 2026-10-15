@@ -76,10 +76,8 @@ fn single(text: &str) -> Option<char> {
 /// the key.
 pub fn translate(keystroke: &Keystroke, term: &Mode, is_mac: bool) -> Translated {
     let held = keystroke.modifiers;
-    if is_mac {
-        if let Some(bytes) = mac_text_editing(keystroke) {
-            return Translated::Send(bytes.to_vec());
-        }
+    if is_mac && let Some(bytes) = mac_text_editing(keystroke) {
+        return Translated::Send(bytes.to_vec());
     }
     // The command key never reaches a program, and the super key on Linux is
     // the window manager's.

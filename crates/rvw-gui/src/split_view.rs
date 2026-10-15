@@ -5,8 +5,8 @@
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, AnyElement, ClickEvent, Context, CursorStyle, Div, FontWeight, MouseButton, Stateful,
-    WeakEntity, Window,
+    AnyElement, ClickEvent, Context, CursorStyle, Div, FontWeight, MouseButton, Stateful,
+    WeakEntity, Window, div, px,
 };
 use rvw_view::diff::LineKind;
 use rvw_view::selection::{Pos, Selection};

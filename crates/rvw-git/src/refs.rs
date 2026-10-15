@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use crate::gitx::{self, owned_args, run, GitError};
+use crate::gitx::{self, GitError, owned_args, run};
 
 /// Creates local branch `name` at `start` (HEAD when None); returns the commit it points at.
 pub fn create_branch(dir: &Path, name: &str, start: Option<&str>) -> Result<String, GitError> {

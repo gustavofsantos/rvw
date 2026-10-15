@@ -8,9 +8,9 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use gpui::{
-    canvas, div, px, uniform_list, AnyElement, App, ClickEvent, Context, Div, FontWeight,
-    MouseButton, MouseMoveEvent, MouseUpEvent, Pixels, SharedString, Stateful,
-    UniformListScrollHandle, WeakEntity, Window,
+    AnyElement, App, ClickEvent, Context, Div, FontWeight, MouseButton, MouseMoveEvent,
+    MouseUpEvent, Pixels, SharedString, Stateful, UniformListScrollHandle, WeakEntity, Window,
+    canvas, div, px, uniform_list,
 };
 use rvw_view::changes::ChangedFile;
 use rvw_view::diff::FileDiff;

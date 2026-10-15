@@ -13,13 +13,13 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::changes::Compare;
 use crate::editor::{quote_code, strip_template, template, write_temp};
-use crate::fuzzy::{rank, Candidate};
+use crate::fuzzy::{Candidate, rank};
 use crate::model::{
-    clamp, CompareMenu, EditKind, EditRequest, Effect, Event, Model, MouseButton, MouseEvent,
-    MouseKind, Pane, Picker, PickerKind, Sidebar, SubmitMenu, Target, Theme, STANDALONE,
+    CompareMenu, EditKind, EditRequest, Effect, Event, Model, MouseButton, MouseEvent, MouseKind,
+    Pane, Picker, PickerKind, STANDALONE, Sidebar, SubmitMenu, Target, Theme, clamp,
 };
 use crate::pages::location;
-use crate::rail::{covering, nearest, next_comment, Direction};
+use crate::rail::{Direction, covering, nearest, next_comment};
 use crate::style::expand_tabs;
 use crate::tree::{NodeId, ROOT};
 
@@ -456,10 +456,10 @@ impl Model {
             "esc" => self.go_line = None,
             "enter" => {
                 let text = self.go_line.take().unwrap_or_default();
-                if let Ok(n) = text.parse::<i64>() {
-                    if self.file.is_some() {
-                        self.goto_line(n);
-                    }
+                if let Ok(n) = text.parse::<i64>()
+                    && self.file.is_some()
+                {
+                    self.goto_line(n);
                 }
             }
             "backspace" => {
@@ -471,10 +471,10 @@ impl Model {
                 }
             }
             _ => {
-                if is_digit(s) {
-                    if let Some(text) = self.go_line.as_mut() {
-                        text.push_str(s);
-                    }
+                if is_digit(s)
+                    && let Some(text) = self.go_line.as_mut()
+                {
+                    text.push_str(s);
                 }
             }
         }
@@ -1117,8 +1117,8 @@ mod tests {
     use rvw_core::operations::{GetInput, QueryInput};
 
     use super::*;
-    use crate::testing::{keys, screen_text, setup, Fixture};
     use crate::Options;
+    use crate::testing::{Fixture, keys, screen_text, setup};
 
     /// The column inside the viewer at 100 columns wide.
     const VIEWER_X: usize = 40;
@@ -1281,9 +1281,10 @@ mod tests {
         };
         finish(&mut m, bad, &kept, "nope");
         assert!(m.flash_err && m.flash.starts_with("rvw: "), "{}", m.flash);
-        assert!(m
-            .flash
-            .ends_with(&format!("note kept at {}", kept.display())));
+        assert!(
+            m.flash
+                .ends_with(&format!("note kept at {}", kept.display()))
+        );
         assert!(kept.exists());
 
         let summary = m.summary_request("request-changes");

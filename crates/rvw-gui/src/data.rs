@@ -3,11 +3,11 @@
 
 use std::path::Path;
 
+use rvw_core::Service;
 use rvw_core::operations::{
     AddInput, EditInput, PullInput, QueryInput, RemoveInput, ReviewSheet, SheetsInput, SubmitInput,
 };
 use rvw_core::types::{Comment, Location};
-use rvw_core::Service;
 use rvw_git::gitx;
 use rvw_view::changes::{self, ChangedFile, Compare};
 use rvw_view::diff::{self, FileDiff};
@@ -130,7 +130,7 @@ fn read_changes(dir: &Path, comments: &[Comment], wanted: Option<Compare>) -> Re
                 base_name: String::new(),
                 compare: None,
                 note: Some(message),
-            }
+            };
         }
     };
     let (changes, note) = match gitx::changed_files(dir, &base.id) {
@@ -304,13 +304,15 @@ pub(crate) mod tests {
         let root = dir.path().join("proj");
         fs::create_dir(&root).expect("mkdir");
         fs::write(root.join("app.py"), "one\ntwo\nthree\n").expect("write");
-        assert!(Command::new("git")
-            .arg("-C")
-            .arg(&root)
-            .args(["init", "-q"])
-            .status()
-            .expect("git init")
-            .success());
+        assert!(
+            Command::new("git")
+                .arg("-C")
+                .arg(&root)
+                .args(["init", "-q"])
+                .status()
+                .expect("git init")
+                .success()
+        );
         let workspace = fs::canonicalize(&root)
             .expect("canonicalize")
             .to_string_lossy()
@@ -370,13 +372,15 @@ pub(crate) mod tests {
         let root = dir.path().join("proj");
         fs::create_dir(&root).expect("mkdir");
         fs::write(root.join("app.py"), "one\ntwo\nthree\n").expect("write");
-        assert!(Command::new("git")
-            .arg("-C")
-            .arg(&root)
-            .args(["init", "-q"])
-            .status()
-            .expect("git init")
-            .success());
+        assert!(
+            Command::new("git")
+                .arg("-C")
+                .arg(&root)
+                .args(["init", "-q"])
+                .status()
+                .expect("git init")
+                .success()
+        );
         let workspace = fs::canonicalize(&root)
             .expect("canonicalize")
             .to_string_lossy()

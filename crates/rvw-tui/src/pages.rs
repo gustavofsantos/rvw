@@ -5,7 +5,7 @@ use rvw_core::operations::{Evidence, ReviewSheet, SheetState};
 use rvw_core::types::{Comment, Status};
 use unicode_width::UnicodeWidthStr;
 
-use crate::style::{self, expand_tabs, piece, Piece};
+use crate::style::{self, Piece, expand_tabs, piece};
 
 /// The narrowest a wrapped paragraph is laid out, whatever the width.
 const MIN_WRAP: usize = 10;

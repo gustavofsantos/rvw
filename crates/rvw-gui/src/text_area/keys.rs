@@ -1,6 +1,6 @@
 //! The area's actions and their key bindings.
 
-use gpui::{actions, App, KeyBinding};
+use gpui::{App, KeyBinding, actions};
 
 use super::KEY_CONTEXT;
 

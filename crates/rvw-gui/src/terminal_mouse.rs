@@ -317,11 +317,11 @@ impl TerminalView {
             }
             return;
         }
-        if !self.exited() {
-            if let Some(bytes) = rvw_term::encode_alternate_scroll(wheel, count, &mode) {
-                let _ = live.term.write_report(&bytes);
-                return;
-            }
+        if !self.exited()
+            && let Some(bytes) = rvw_term::encode_alternate_scroll(wheel, count, &mode)
+        {
+            let _ = live.term.write_report(&bytes);
+            return;
         }
         live.term.scroll(match wheel {
             Wheel::Up => Scroll::Up(count),

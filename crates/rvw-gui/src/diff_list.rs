@@ -14,8 +14,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    list, px, Bounds, Entity, EntityId, List, ListAlignment, ListState, Pixels, Point, WeakEntity,
-    Window,
+    Bounds, Entity, EntityId, List, ListAlignment, ListState, Pixels, Point, WeakEntity, Window,
+    list, px,
 };
 use rvw_core::types::Comment;
 use rvw_view::diff::FileDiff;
@@ -279,11 +279,12 @@ impl Shell {
                 .is_some_and(|composer| composer.error.is_some()),
             split,
         };
-        if let Some(current) = self.diff_list.as_ref() {
-            if current.key == key && current.path == selected.path {
-                current.selection.set(selected.selection);
-                return;
-            }
+        if let Some(current) = self.diff_list.as_ref()
+            && current.key == key
+            && current.path == selected.path
+        {
+            current.selection.set(selected.selection);
+            return;
         }
 
         let outside_edit = editing.filter(|_| edits_outside).map(|c| c.id.as_str());

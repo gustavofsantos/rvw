@@ -12,13 +12,13 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use gpui::Context;
-use rvw_core::types::Comment;
 use rvw_core::Service;
+use rvw_core::types::Comment;
 use rvw_view::changes::Compare;
 use rvw_view::commit_screen::Side;
 use rvw_view::viewmode::ViewMode;
 
-use crate::changes_state::{read_changes, ChangesRead};
+use crate::changes_state::{ChangesRead, read_changes};
 use crate::data::{self, Snapshot};
 use crate::file_view::load_selected;
 use crate::git_tools::RepoFacts;
@@ -69,35 +69,37 @@ impl Fingerprint {
 /// fingerprint and, when it changed, for what the window shows; the UI thread
 /// only compares and applies. See `LiveJob`.
 pub fn start(cx: &mut Context<Shell>) {
-    cx.spawn(async move |this, cx| loop {
-        cx.background_executor().timer(INTERVAL).await;
-        let Ok((dir, db)) = this.read_with(cx, |shell, _| {
-            (
-                PathBuf::from(&shell.identity.workspace),
-                shell.db_path.clone(),
-            )
-        }) else {
-            break;
-        };
-        let fingerprint = cx
-            .background_executor()
-            .spawn(async move { Fingerprint::read(&dir, &db) })
-            .await;
-        let Ok(job) = this.update(cx, |this, _| this.live_job(fingerprint)) else {
-            break;
-        };
-        let Some(job) = job else {
-            continue;
-        };
-        let read = cx
-            .background_executor()
-            .spawn(async move { job.read() })
-            .await;
-        if this
-            .update(cx, |this, cx| this.live_apply(read, cx))
-            .is_err()
-        {
-            break;
+    cx.spawn(async move |this, cx| {
+        loop {
+            cx.background_executor().timer(INTERVAL).await;
+            let Ok((dir, db)) = this.read_with(cx, |shell, _| {
+                (
+                    PathBuf::from(&shell.identity.workspace),
+                    shell.db_path.clone(),
+                )
+            }) else {
+                break;
+            };
+            let fingerprint = cx
+                .background_executor()
+                .spawn(async move { Fingerprint::read(&dir, &db) })
+                .await;
+            let Ok(job) = this.update(cx, |this, _| this.live_job(fingerprint)) else {
+                break;
+            };
+            let Some(job) = job else {
+                continue;
+            };
+            let read = cx
+                .background_executor()
+                .spawn(async move { job.read() })
+                .await;
+            if this
+                .update(cx, |this, cx| this.live_apply(read, cx))
+                .is_err()
+            {
+                break;
+            }
         }
     })
     .detach();

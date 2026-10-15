@@ -4,8 +4,8 @@
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
-use crate::gitx::{self, owned_args, run_stop, GitError};
-use crate::history::{parse_log, LogEntry, DECORATE, LOG_FORMAT};
+use crate::gitx::{self, GitError, owned_args, run_stop};
+use crate::history::{DECORATE, LOG_FORMAT, LogEntry, parse_log};
 
 /// What a commit search matches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,7 +94,7 @@ fn revisions(
             return Err(GitError {
                 args: owned_args(&args),
                 stderr: ran.stderr,
-            })
+            });
         }
     };
     Ok(match (born, all) {
@@ -115,7 +115,7 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use super::{commits, Field, Query};
+    use super::{Field, Query, commits};
     use crate::history::LogEntry;
     use crate::testrepo::{commit_all, git, repo, write};
 

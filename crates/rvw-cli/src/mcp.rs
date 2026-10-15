@@ -4,8 +4,8 @@ use std::net::IpAddr;
 
 use serde::Serialize;
 
-use crate::app::{lane_of, one_of, App, CliResult, Out};
 use crate::PROG;
+use crate::app::{App, CliResult, Out, lane_of, one_of};
 
 pub const MCP_PATH: &str = "/mcp";
 
@@ -70,10 +70,10 @@ fn executable() -> String {
             .map(|d| d.join(PROG))
             .find(|p| p.is_file())
     });
-    if let Some(found) = found.and_then(|p| std::fs::canonicalize(p).ok()) {
-        if found == me {
-            return PROG.to_owned();
-        }
+    if let Some(found) = found.and_then(|p| std::fs::canonicalize(p).ok())
+        && found == me
+    {
+        return PROG.to_owned();
     }
     me.to_string_lossy().into_owned()
 }
@@ -97,17 +97,17 @@ fn shell_join(words: &[String]) -> String {
 /// The `rvw mcp serve` command line that config describes.
 fn serve_args(app: &App, flags: &ServerFlags, with_http: bool) -> Vec<String> {
     let mut args = vec![executable(), "mcp".to_owned(), "serve".to_owned()];
-    if !app.db_flag().is_empty() {
-        if let Ok(db) = std::path::absolute(crate::app::expand_home(app.db_flag())) {
-            args.push("--db".to_owned());
-            args.push(db.to_string_lossy().into_owned());
-        }
+    if !app.db_flag().is_empty()
+        && let Ok(db) = std::path::absolute(crate::app::expand_home(app.db_flag()))
+    {
+        args.push("--db".to_owned());
+        args.push(db.to_string_lossy().into_owned());
     }
-    if !app.workspace_flag().is_empty() {
-        if let Ok(ws) = app.workspace() {
-            args.push("--workspace".to_owned());
-            args.push(ws);
-        }
+    if !app.workspace_flag().is_empty()
+        && let Ok(ws) = app.workspace()
+    {
+        args.push("--workspace".to_owned());
+        args.push(ws);
     }
     let lane = lane_of(&flags.lane);
     if !lane.is_empty() {

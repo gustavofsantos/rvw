@@ -10,7 +10,7 @@
 //! - there are no release or repeat events, so only presses are encoded;
 //! - Option is Alt on every platform, so Alt always prevents associated text.
 
-use crate::keys::{legacy, Key, Modifiers};
+use crate::keys::{Key, Modifiers, legacy};
 
 /// The kitty keyboard protocol flags a program has set with `CSI = u` or
 /// pushed with `CSI > u`. The bits are the ones the protocol numbers.

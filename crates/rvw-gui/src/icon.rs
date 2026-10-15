@@ -1,7 +1,7 @@
 //! The Phosphor icons the window draws, and how to place them: one name per
 //! file under `assets/icons/`, painted in the text colour of their parent.
 
-use gpui::{div, px, svg, Div, IntoElement, ParentElement, Pixels, Rgba, Styled, Svg};
+use gpui::{Div, IntoElement, ParentElement, Pixels, Rgba, Styled, Svg, div, px, svg};
 
 /// An icon in a row, a button or a tree.
 pub const SIZE: Pixels = px(16.);

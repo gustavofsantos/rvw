@@ -2,11 +2,11 @@
 
 use std::ops::RangeInclusive;
 
+use alacritty_terminal::Term;
 use alacritty_terminal::event::EventListener;
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Boundary, Column, Direction, Line, Point, Side};
 use alacritty_terminal::term::search::{Match, RegexIter, RegexSearch};
-use alacritty_terminal::Term;
 
 use crate::snapshot::{MatchSpan, SearchStatus};
 

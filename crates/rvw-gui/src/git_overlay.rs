@@ -4,7 +4,7 @@
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, ClickEvent, Context, Div, Entity, KeyDownEvent, ScrollHandle, SharedString, Stateful,
+    ClickEvent, Context, Div, Entity, KeyDownEvent, ScrollHandle, SharedString, Stateful, div, px,
 };
 use gpui::{Subscription, Window};
 use rvw_git::stash::StashEntry;

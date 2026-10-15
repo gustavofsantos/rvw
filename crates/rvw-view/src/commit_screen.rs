@@ -983,7 +983,9 @@ mod tests {
     fn gate_notice_says_every_lane_when_no_lane_is_named() {
         assert_eq!(
             gate_notice(&self::gate(3, 2, ""), GateAction::Commit).as_deref(),
-            Some("3 comments are still open and 2 decided comments have no verdict in every lane. Go ahead with the commit anyway?")
+            Some(
+                "3 comments are still open and 2 decided comments have no verdict in every lane. Go ahead with the commit anyway?"
+            )
         );
         assert_eq!(
             gate_notice(&self::gate(1, 0, "  "), GateAction::Commit).as_deref(),
@@ -994,15 +996,21 @@ mod tests {
     #[test]
     fn gate_notice_question_follows_the_action() {
         let g = self::gate(1, 0, "main");
-        assert!(gate_notice(&g, GateAction::Commit)
-            .unwrap()
-            .ends_with("Go ahead with the commit anyway?"));
-        assert!(gate_notice(&g, GateAction::Amend)
-            .unwrap()
-            .ends_with("Go ahead with the amend anyway?"));
-        assert!(gate_notice(&g, GateAction::Push)
-            .unwrap()
-            .ends_with("Go ahead with the push anyway?"));
+        assert!(
+            gate_notice(&g, GateAction::Commit)
+                .unwrap()
+                .ends_with("Go ahead with the commit anyway?")
+        );
+        assert!(
+            gate_notice(&g, GateAction::Amend)
+                .unwrap()
+                .ends_with("Go ahead with the amend anyway?")
+        );
+        assert!(
+            gate_notice(&g, GateAction::Push)
+                .unwrap()
+                .ends_with("Go ahead with the push anyway?")
+        );
     }
 
     #[test]

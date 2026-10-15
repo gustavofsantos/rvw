@@ -5,8 +5,8 @@
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, AnyElement, App, ClickEvent, CursorStyle, Div, FontWeight, MouseButton,
-    MouseDownEvent, MouseMoveEvent, Pixels, Rgba, Stateful, StyledText, WeakEntity, Window,
+    AnyElement, App, ClickEvent, CursorStyle, Div, FontWeight, MouseButton, MouseDownEvent,
+    MouseMoveEvent, Pixels, Rgba, Stateful, StyledText, WeakEntity, Window, div, px,
 };
 use rvw_core::types::{Comment, Location, Status};
 use rvw_view::diff::{Line, LineKind};

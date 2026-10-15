@@ -13,21 +13,21 @@ use rmcp::model::{
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler};
+use rvw_core::Service;
 use rvw_core::operations::{
     AddInput, EditInput, GateInput, GateOutput, GetInput, OverrideInput, PullInput, QueryInput,
     RemoveInput, ResolveInput, SheetsInput, SubmitInput, VerdictInput, VerdictOutput,
     WorkspacesInput,
 };
 use rvw_core::types::{Actor, GateOverride};
-use rvw_core::Service;
-use schemars::generate::SchemaSettings;
 use schemars::JsonSchema;
-use serde::de::DeserializeOwned;
+use schemars::generate::SchemaSettings;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
-use crate::scope::scope;
 use crate::Options;
+use crate::scope::scope;
 
 /// JSON object, the shape of tool arguments and schemas.
 type Object = Map<String, Value>;
@@ -458,13 +458,15 @@ mod tests {
         let root = dir.join("proj");
         fs::create_dir(&root).expect("mkdir");
         fs::write(root.join("app.py"), "one\ntwo\nthree\n").expect("write");
-        assert!(Command::new("git")
-            .arg("-C")
-            .arg(&root)
-            .args(["init", "-q"])
-            .status()
-            .expect("git init")
-            .success());
+        assert!(
+            Command::new("git")
+                .arg("-C")
+                .arg(&root)
+                .args(["init", "-q"])
+                .status()
+                .expect("git init")
+                .success()
+        );
         fs::canonicalize(&root)
             .expect("canonicalize")
             .to_string_lossy()

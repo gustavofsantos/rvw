@@ -6,12 +6,12 @@ use std::collections::HashMap;
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, AnyElement, App, ClickEvent, Context, Div, ElementId, FontWeight, Rgba, SharedString,
-    Stateful, Window,
+    AnyElement, App, ClickEvent, Context, Div, ElementId, FontWeight, Rgba, SharedString, Stateful,
+    Window, div, px,
 };
 use rvw_core::types::{Comment, Review, Status};
 use rvw_view::handoff::{CommentItem, LanePreview, Preview, ReviewItem};
-use rvw_view::queue::{glyph_of, Filter, Group, Queue, Row, State};
+use rvw_view::queue::{Filter, Group, Queue, Row, State, glyph_of};
 
 use crate::data::Snapshot;
 use crate::icon;
@@ -83,11 +83,13 @@ fn facet_rows(
     pick: fn(&mut Shell, &str, &mut Context<Shell>),
 ) -> Vec<AnyElement> {
     if names.is_empty() {
-        return vec![div()
-            .px(px(24.))
-            .text_color(theme::faint())
-            .child("None yet")
-            .into_any_element()];
+        return vec![
+            div()
+                .px(px(24.))
+                .text_color(theme::faint())
+                .child("None yet")
+                .into_any_element(),
+        ];
     }
     names
         .iter()
@@ -551,9 +553,5 @@ fn tag(text: String) -> Div {
 }
 
 pub(crate) fn noun(count: usize, one: &'static str, many: &'static str) -> &'static str {
-    if count == 1 {
-        one
-    } else {
-        many
-    }
+    if count == 1 { one } else { many }
 }

@@ -4,8 +4,8 @@
 
 use gpui::prelude::*;
 use gpui::{
-    actions, div, px, AnyElement, App, ClickEvent, Context, Div, FontWeight, KeyBinding, Rgba,
-    Stateful, Window,
+    AnyElement, App, ClickEvent, Context, Div, FontWeight, KeyBinding, Rgba, Stateful, Window,
+    actions, div, px,
 };
 use rvw_view::keys::Screen;
 use rvw_view::panels::{Panels as Shown, Side};

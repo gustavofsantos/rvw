@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use crate::gitx::{self, owned_args, run, GitError};
+use crate::gitx::{self, GitError, owned_args, run};
 
 /// One stash, newest first in a list.
 #[derive(Debug, Clone, PartialEq, Eq)]

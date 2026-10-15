@@ -4,7 +4,7 @@
 //! `terminal_mouse` and `terminal_dock` apply it.
 
 use crate::terminal_grid::cells;
-use rvw_term::{GridPoint, RowSpan, SearchStatus, SelectionKind, Side, UrlMatch, MAX_MATCHES};
+use rvw_term::{GridPoint, MAX_MATCHES, RowSpan, SearchStatus, SelectionKind, Side, UrlMatch};
 
 /// Lines one wheel notch scrolls.
 pub const LINES_PER_NOTCH: f32 = 3.;

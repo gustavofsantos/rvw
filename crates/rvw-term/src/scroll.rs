@@ -1,8 +1,8 @@
 //! Viewport scrolling over the scrollback.
 
+use alacritty_terminal::Term;
 use alacritty_terminal::event::EventListener;
 use alacritty_terminal::grid::Scroll as TermScroll;
-use alacritty_terminal::Term;
 
 /// A viewport move. "Up" goes toward older output.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

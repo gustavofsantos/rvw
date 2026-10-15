@@ -2,10 +2,10 @@
 //! `tx` type in internal/store.
 
 use rusqlite::types::{Type, Value};
-use rusqlite::{params, params_from_iter, OptionalExtension, Row, Transaction};
+use rusqlite::{OptionalExtension, Row, Transaction, params, params_from_iter};
 use rvw_core::types::{
-    comment_id, parse_seq, review_id, Actor, Comment, GateOverride, Location, Review, ReviewStatus,
-    Status, Verdict, VerdictKind,
+    Actor, Comment, GateOverride, Location, Review, ReviewStatus, Status, Verdict, VerdictKind,
+    comment_id, parse_seq, review_id,
 };
 use rvw_core::{Error, Result, Tx};
 
@@ -25,8 +25,7 @@ const COMMENT_FROM: &str = " FROM comments c \
 
 const REVIEW_COLUMNS: &str = "seq, status, lane, author, decision, summary, created_at, pulled_at";
 
-const INSERT_COMMENT: &str =
-    "INSERT INTO comments (workspace_id, seq, status, lane, author, file, path, \
+const INSERT_COMMENT: &str = "INSERT INTO comments (workspace_id, seq, status, lane, author, file, path, \
     start_line, end_line, filetype, code, comment, created_at, pulled_at, resolved_at, \
     resolved_by, resolution_note, file_version, resolved_file_version, edited_at, \
     reopens_seq, points_file, points_start, points_end, verdict, verdict_by, verdict_actor, \
@@ -36,8 +35,7 @@ const INSERT_COMMENT: &str =
 
 // "points at" and "reopens" are fixed when the comment is written, so the
 // update leaves them alone.
-const UPDATE_COMMENT: &str =
-    "UPDATE comments SET status = ?, comment = ?, pulled_at = ?, resolved_at = ?, \
+const UPDATE_COMMENT: &str = "UPDATE comments SET status = ?, comment = ?, pulled_at = ?, resolved_at = ?, \
     resolved_by = ?, resolution_note = ?, resolved_file_version = ?, edited_at = ?, \
     verdict = ?, verdict_by = ?, verdict_actor = ?, verdict_at = ?, verdict_note = ?, \
     verdict_followup_seq = ? \
@@ -217,14 +215,13 @@ impl Tx for SqlTx<'_> {
         sql.push_str(" ORDER BY seq");
         let mut reviews = {
             let mut stmt = self.tx.prepare(&sql).map_err(internal)?;
-            let rows = stmt
-                .query_map(params_from_iter(args), |row| {
-                    scan_review(row, &self.workspace)
-                })
-                .map_err(internal)?
-                .collect::<rusqlite::Result<Vec<Review>>>()
-                .map_err(internal)?;
-            rows
+
+            stmt.query_map(params_from_iter(args), |row| {
+                scan_review(row, &self.workspace)
+            })
+            .map_err(internal)?
+            .collect::<rusqlite::Result<Vec<Review>>>()
+            .map_err(internal)?
         };
         for r in &mut reviews {
             r.comment_ids = self.links(&r.id)?;

@@ -14,7 +14,7 @@ use crate::fuzzy::Ranked;
 use crate::model::{Detail, FileView, Model, Pane, Picker, PickerKind, Sidebar};
 use crate::pages::wrap;
 use crate::rail::{covering, covers, rail_at};
-use crate::style::{self, piece, width, Piece, Sign};
+use crate::style::{self, Piece, Sign, piece, width};
 use crate::tree::{Node, Row};
 
 /// The most rows the bottom bar's comment list takes.
@@ -175,10 +175,11 @@ pub(crate) fn truncate_left(s: &str, w: i64) -> (String, usize) {
         }
         cut += 1;
     }
-    if cut < rs.len() && rs[cut] != '/' {
-        if let Some(k) = rs[cut..].iter().position(|&c| c == '/') {
-            cut += k;
-        }
+    if cut < rs.len()
+        && rs[cut] != '/'
+        && let Some(k) = rs[cut..].iter().position(|&c| c == '/')
+    {
+        cut += k;
     }
     let rest: String = rs[cut..].iter().collect();
     (format!("…{rest}"), cut)
@@ -960,7 +961,7 @@ impl Model {
 mod tests {
     use super::*;
     use crate::model::Event;
-    use crate::testing::{keys, screen_text, setup, Fixture, PARSE_PY};
+    use crate::testing::{Fixture, PARSE_PY, keys, screen_text, setup};
     use rvw_core::operations::{PullInput, ResolveInput, SubmitInput};
 
     fn text_of(rows: &[Vec<Piece>]) -> Vec<String> {

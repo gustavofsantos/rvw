@@ -11,8 +11,8 @@
 
 use std::path::Path;
 
-use crate::gitx::{exec, owned_args, run, run_env, GitError};
-use crate::history::{parse_log, LogEntry, LOG_FORMAT};
+use crate::gitx::{GitError, exec, owned_args, run, run_env};
+use crate::history::{LOG_FORMAT, LogEntry, parse_log};
 
 /// Why the list of editable commits ends where it does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -681,15 +681,19 @@ mod tests {
             r.path(),
             &["update-ref", "refs/remotes/origin/main", &ids[0]],
         );
-        assert!(plan(r.path(), &[(ids[0].clone(), Action::Drop)])
-            .unwrap_err()
-            .stderr
-            .contains("cannot be edited"));
+        assert!(
+            plan(r.path(), &[(ids[0].clone(), Action::Drop)])
+                .unwrap_err()
+                .stderr
+                .contains("cannot be edited")
+        );
         git(r.path(), &["update-ref", "-d", "refs/remotes/origin/main"]);
-        assert!(plan(r.path(), &[(ids[0].clone(), Action::Drop)])
-            .unwrap_err()
-            .stderr
-            .contains("first commit"));
+        assert!(
+            plan(r.path(), &[(ids[0].clone(), Action::Drop)])
+                .unwrap_err()
+                .stderr
+                .contains("first commit")
+        );
     }
 
     #[test]

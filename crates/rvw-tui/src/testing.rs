@@ -7,13 +7,13 @@ use std::process::Command;
 use std::sync::Arc;
 
 use regex_lite_dates::mask_dates;
+use rvw_core::Service;
 use rvw_core::operations::AddInput;
 use rvw_core::types::Comment;
-use rvw_core::Service;
 use tempfile::TempDir;
 
-use crate::model::{Effect, Event, Model};
 use crate::Options;
+use crate::model::{Effect, Event, Model};
 
 pub const PARSE_PY: &str = "import parse
 
@@ -125,11 +125,7 @@ impl Fixture {
 
 /// The key name for a test key: `leader` is the space key.
 fn key_name(k: &str) -> &str {
-    if k == "leader" {
-        "space"
-    } else {
-        k
-    }
+    if k == "leader" { "space" } else { k }
 }
 
 /// Presses named keys (`leader`, `enter`, `esc`, `tab`, `down`, ...), and types

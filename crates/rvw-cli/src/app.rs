@@ -11,7 +11,7 @@ use rvw_core::{Error as CoreError, Service};
 use rvw_render::Terminal;
 use rvw_store::Store;
 
-use crate::{commands, help, PROG};
+use crate::{PROG, commands, help};
 
 /// Every failure is the text after `rvw: `.
 pub type CliResult<T> = Result<T, String>;
@@ -96,10 +96,10 @@ pub fn core_err(e: CoreError) -> String {
 }
 
 pub fn expand_home(path: &str) -> String {
-    if path == "~" || path.starts_with("~/") {
-        if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
-            return format!("{}{}", home.to_string_lossy(), &path[1..]);
-        }
+    if (path == "~" || path.starts_with("~/"))
+        && let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty())
+    {
+        return format!("{}{}", home.to_string_lossy(), &path[1..]);
     }
     path.to_owned()
 }

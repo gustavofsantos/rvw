@@ -12,7 +12,7 @@ use rvw_git::checkpoint;
 use rvw_git::commits;
 use rvw_git::index;
 use rvw_view::diff::{self, LineKind};
-use rvw_view::patch::{lines_patch, Direction};
+use rvw_view::patch::{Direction, lines_patch};
 
 /// The one file most tests change.
 const FILE: &str = "notes.txt";

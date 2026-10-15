@@ -10,9 +10,9 @@
 use std::collections::VecDeque;
 use std::io::{self, ErrorKind, Read, Write};
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Instant;
 
@@ -176,11 +176,11 @@ impl PumpLoop {
                 break;
             }
             // A synchronized update that ran past its time is shown as is.
-            if let Some(at) = self.parser.sync_timeout().sync_timeout() {
-                if at <= Instant::now() {
-                    self.parser.stop_sync(&mut *self.term.lock());
-                    self.shared.mark_changed();
-                }
+            if let Some(at) = self.parser.sync_timeout().sync_timeout()
+                && at <= Instant::now()
+            {
+                self.parser.stop_sync(&mut *self.term.lock());
+                self.shared.mark_changed();
             }
             for event in events.iter() {
                 let turn = match event.key {

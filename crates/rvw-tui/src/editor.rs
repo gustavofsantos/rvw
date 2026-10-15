@@ -179,7 +179,12 @@ mod tests {
     fn template_adds_a_newline_only_when_the_body_lacks_one() {
         let with = template("body\n", &[]);
         let without = template("body", &[]);
-        assert_eq!(with, format!("body\n\n{SCISSORS}\n# Do not modify or remove the line above.\n# Everything below it is ignored. Save an empty note to cancel.\n"));
+        assert_eq!(
+            with,
+            format!(
+                "body\n\n{SCISSORS}\n# Do not modify or remove the line above.\n# Everything below it is ignored. Save an empty note to cancel.\n"
+            )
+        );
         assert_eq!(with, without);
     }
 
@@ -226,11 +231,12 @@ mod tests {
         let path = write_temp("hello\nworld\n").unwrap();
         assert!(path.starts_with(env::temp_dir()));
         assert_eq!(path.extension(), Some(OsStr::new("md")));
-        assert!(path
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .starts_with("rvw-"));
+        assert!(
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("rvw-")
+        );
         assert_eq!(fs::read_to_string(&path).unwrap(), "hello\nworld\n");
         fs::remove_file(&path).unwrap();
     }

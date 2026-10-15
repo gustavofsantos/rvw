@@ -3,10 +3,10 @@
 use std::ops::Range;
 
 use gpui::{
-    point, px, size, Bounds, Context, EntityInputHandler, Pixels, Point, UTF16Selection, Window,
+    Bounds, Context, EntityInputHandler, Pixels, Point, UTF16Selection, Window, point, px, size,
 };
 
-use super::{TextArea, LINE_HEIGHT};
+use super::{LINE_HEIGHT, TextArea};
 use crate::text_area_math::{offset_from_utf16, offset_to_utf16, rows_height};
 
 impl EntityInputHandler for TextArea {

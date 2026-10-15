@@ -13,7 +13,7 @@ if [ -f "${BASH_SOURCE[0]}" ] && [ -f "$(dirname "${BASH_SOURCE[0]}")/../Cargo.t
 fi
 
 # rust-version in Cargo.toml, checked by the msrv job in ci.yml.
-MSRV=1.93.0
+MSRV=1.99.0
 
 sudo=""
 if [ "$(id -u)" -ne 0 ]; then sudo="sudo"; fi

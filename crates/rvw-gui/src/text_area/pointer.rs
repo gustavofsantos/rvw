@@ -1,13 +1,13 @@
 //! The clipboard, the mouse and the wheel.
 
 use gpui::{
-    px, ClipboardItem, Context, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ScrollWheelEvent,
-    Window,
+    ClipboardItem, Context, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ScrollWheelEvent, Window,
+    px,
 };
 
 use super::keys::{Copy, Cut, Paste};
-use super::{TextArea, LINE_HEIGHT};
-use crate::text_area_math::{click_kind, max_scroll, ClickKind};
+use super::{LINE_HEIGHT, TextArea};
+use crate::text_area_math::{ClickKind, click_kind, max_scroll};
 
 impl TextArea {
     pub(super) fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
@@ -70,11 +70,11 @@ impl TextArea {
         if !self.selecting {
             return;
         }
-        if let Some(offset) = self.offset_for_point(event.position) {
-            if offset != self.editor.cursor() {
-                self.editor.set_cursor(offset, true);
-                self.touched(window, cx);
-            }
+        if let Some(offset) = self.offset_for_point(event.position)
+            && offset != self.editor.cursor()
+        {
+            self.editor.set_cursor(offset, true);
+            self.touched(window, cx);
         }
     }
 

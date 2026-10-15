@@ -7,13 +7,13 @@ use std::ops::Range;
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, uniform_list, AnyElement, ClickEvent, Context, Div, Entity, FontWeight, SharedString,
-    Stateful, Window,
+    AnyElement, ClickEvent, Context, Div, Entity, FontWeight, SharedString, Stateful, Window, div,
+    px, uniform_list,
 };
 use rvw_core::types::Comment;
 use rvw_git::merge::Operation;
 use rvw_view::commit_screen::{
-    before_commit, commit_label, hunk_open_comments, Entry, LineChoice, Side,
+    Entry, LineChoice, Side, before_commit, commit_label, hunk_open_comments,
 };
 use rvw_view::diff::{Line, LineKind};
 use rvw_view::selection::Pos;

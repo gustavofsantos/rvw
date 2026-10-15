@@ -179,10 +179,10 @@ fn split(diff: &str) -> (Vec<&str>, Vec<Hunk<'_>>) {
     let mut after_body = false;
     for raw in diff.split('\n') {
         if raw.starts_with('\\') {
-            if after_body {
-                if let Some(line) = hunks.last_mut().and_then(|hunk| hunk.lines.last_mut()) {
-                    line.marker = Some(raw);
-                }
+            if after_body
+                && let Some(line) = hunks.last_mut().and_then(|hunk| hunk.lines.last_mut())
+            {
+                line.marker = Some(raw);
             }
             continue;
         }

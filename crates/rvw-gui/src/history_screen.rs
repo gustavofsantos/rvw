@@ -8,15 +8,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use gpui::prelude::*;
 use gpui::{
-    canvas, div, point, px, uniform_list, AnyElement, Bounds, ClickEvent, Context, Div, FontWeight,
-    PathBuilder, Pixels, Point, Stateful, Window,
+    AnyElement, Bounds, ClickEvent, Context, Div, FontWeight, PathBuilder, Pixels, Point, Stateful,
+    Window, canvas, div, point, px, uniform_list,
 };
 use rvw_git::blame::BlameLine;
 use rvw_git::history::{CommitDetail, FileChange};
 use rvw_git::search::Field;
 use rvw_view::diff::LineKind;
 use rvw_view::graph::{Row as GraphRow, Seg};
-use rvw_view::history::{ago, short, HistoryRow, Label, LabelKind, MAX_LANES};
+use rvw_view::history::{HistoryRow, Label, LabelKind, MAX_LANES, ago, short};
 use rvw_view::selection::Pos;
 
 use crate::code_scroll;

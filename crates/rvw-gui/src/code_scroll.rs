@@ -4,7 +4,7 @@
 //! put. The offset stops when the longest line's end is in view.
 
 use gpui::prelude::*;
-use gpui::{div, font, px, AnyElement, Div, Pixels, ScrollWheelEvent, Window};
+use gpui::{AnyElement, Div, Pixels, ScrollWheelEvent, Window, div, font, px};
 use rvw_view::diff::FileDiff;
 
 use crate::theme;

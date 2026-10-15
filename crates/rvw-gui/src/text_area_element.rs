@@ -5,16 +5,16 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use gpui::{
-    fill, point, px, relative, size, App, AvailableSpace, Bounds, Corners, Element, ElementId,
-    ElementInputHandler, Entity, Focusable, Font, GlobalElementId, Hsla, IntoElement, LayoutId,
-    PaintQuad, Pixels, Rgba, SharedString, Size, Style, TextAlign, TextRun, UnderlineStyle, Window,
-    WrappedLine,
+    App, AvailableSpace, Bounds, Corners, Element, ElementId, ElementInputHandler, Entity,
+    Focusable, Font, GlobalElementId, Hsla, IntoElement, LayoutId, PaintQuad, Pixels, Rgba,
+    SharedString, Size, Style, TextAlign, TextRun, UnderlineStyle, Window, WrappedLine, fill,
+    point, px, relative, size,
 };
 
-use crate::text_area::{TextArea, LINE_HEIGHT};
+use crate::text_area::{LINE_HEIGHT, TextArea};
 use crate::text_area_math::{
-    build_visual_lines, clamp_scroll, row_for_offset, rows_height, scroll_to_caret,
-    selection_segments, visible_rows, LogicalSpan, VisualLine,
+    LogicalSpan, VisualLine, build_visual_lines, clamp_scroll, row_for_offset, rows_height,
+    scroll_to_caret, selection_segments, visible_rows,
 };
 use crate::theme;
 

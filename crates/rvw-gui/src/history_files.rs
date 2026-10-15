@@ -2,19 +2,19 @@
 //! selected commit, and the selected commit compared with a branch or tag.
 
 use std::path::Path;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use gpui::{Context, ScrollStrategy, Window};
 use rvw_git::blame::{self, BlameLine};
 use rvw_git::history;
-use rvw_view::diff::{parse, FileDiff, Hunk, Line, LineKind};
+use rvw_view::diff::{FileDiff, Hunk, Line, LineKind, parse};
 use rvw_view::history::short;
 use rvw_view::keys::Screen;
 use rvw_view::palette::Action;
 
 use crate::git_tools::last_line;
-use crate::history_state::{open_file, BlameView, CompareView, OpenCommitFile, Source, CONTEXT};
+use crate::history_state::{BlameView, CONTEXT, CompareView, OpenCommitFile, Source, open_file};
 use crate::shell::Shell;
 
 /// A tab's width in columns, as `code_scroll` counts it.

@@ -7,7 +7,7 @@
 use std::time::Duration;
 
 use gpui::Pixels;
-use gpui::{px, AsyncApp, Context, Point, WeakEntity};
+use gpui::{AsyncApp, Context, Point, WeakEntity, px};
 use rvw_view::selection::{self, Pos};
 
 use crate::shell::Shell;

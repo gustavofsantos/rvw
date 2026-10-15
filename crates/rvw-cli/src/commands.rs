@@ -3,22 +3,22 @@
 use std::fmt::Write as _;
 use std::io::{IsTerminal, Read, Write};
 
-use clap::{value_parser, Arg, ArgAction, ArgMatches, Command};
+use clap::{Arg, ArgAction, ArgMatches, Command, value_parser};
 use rvw_core::operations::{
     AddInput, EditInput, GateInput, GetInput, OverrideInput, PullInput, QueryInput, RemoveInput,
-    ResolveInput, SheetsInput, SubmitInput, VerdictInput, WorkspacesInput, SHEET_FILTERS,
+    ResolveInput, SHEET_FILTERS, SheetsInput, SubmitInput, VerdictInput, WorkspacesInput,
 };
 use rvw_core::service::MAX_SOURCE;
-use rvw_core::types::{is_review_id, DECISIONS, OUTCOME_DONE, OUTCOME_REJECTED, STATUS_FILTERS};
-use rvw_core::types::{Actor, Comment, Handoff, LineRange, Location, VerdictKind, GATE_ACTIONS};
+use rvw_core::types::{Actor, Comment, GATE_ACTIONS, Handoff, LineRange, Location, VerdictKind};
+use rvw_core::types::{DECISIONS, OUTCOME_DONE, OUTCOME_REJECTED, STATUS_FILTERS, is_review_id};
 use rvw_render as render;
 
+use crate::PROG;
 use crate::app::{
-    author_of, core_err, expand_home, file_path, lane_of, one_of, App, CliResult, Out,
+    App, CliResult, Out, author_of, core_err, expand_home, file_path, lane_of, one_of,
 };
 use crate::help;
 use crate::mcp::{self, ServerFlags};
-use crate::PROG;
 
 fn version() -> &'static str {
     option_env!("RVW_VERSION").unwrap_or("(devel)")

@@ -30,7 +30,7 @@ Run `make check` before calling a change done.
 `make lint` must stay at 0 warnings. Fix the finding; do not relax a lint. An
 `#[allow(clippy::...)]` carries a one-line reason and is for a finding that is
 wrong in context, never for convenience.
-The non-GUI crates must compile on `rust-version` (1.93, the workspace
+The non-GUI crates must compile on `rust-version` (1.99, the workspace
 `Cargo.toml`); CI checks it.
 
 When you try `target/debug/rvw` by hand, pass `--db` with a scratch file. The

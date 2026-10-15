@@ -3,8 +3,8 @@
 //! lay them out later; `lines` is only its first, plain view.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use rvw_git::GitLog;
 

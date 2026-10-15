@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, App, Context, Div, Entity, FocusHandle, Focusable, KeyDownEvent, Render,
-    UniformListScrollHandle, Window,
+    App, Context, Div, Entity, FocusHandle, Focusable, KeyDownEvent, Render,
+    UniformListScrollHandle, Window, div, px,
 };
 use rvw_core::Service;
 use rvw_view::keys::Screen;
@@ -22,8 +22,8 @@ use rvw_view::viewmode::ViewMode;
 use crate::changes_state::{ChangesState, CommitChanges, RestoreLatest};
 use crate::composer::Composer;
 use crate::data::{self, Identity, Snapshot};
-use crate::diff_list::drag::DragState;
 use crate::diff_list::DiffList;
+use crate::diff_list::drag::DragState;
 use crate::draft_edit::Removal;
 use crate::file_view;
 use crate::files_panel::{self, FileList};

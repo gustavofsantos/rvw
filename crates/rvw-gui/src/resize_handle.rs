@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, App, ClickEvent, Context, DragMoveEvent, ElementId, Entity, Render, Stateful, Window,
+    App, ClickEvent, Context, DragMoveEvent, ElementId, Entity, Render, Stateful, Window, div, px,
 };
 use rvw_view::resize::{self, Limits};
 

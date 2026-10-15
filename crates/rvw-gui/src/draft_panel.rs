@@ -2,7 +2,7 @@
 //! button.
 
 use gpui::prelude::*;
-use gpui::{div, px, ClickEvent, Context, Div, FontWeight, SharedString, Stateful, Window};
+use gpui::{ClickEvent, Context, Div, FontWeight, SharedString, Stateful, Window, div, px};
 use rvw_core::types::Location;
 use rvw_view::queue::Row;
 

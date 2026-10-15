@@ -2,11 +2,11 @@
 //! the call; the emulation anchors them to the content, so a selection
 //! follows output that scrolls it and is cleared when it scrolls out.
 
+use alacritty_terminal::Term;
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line, Point, Side as TermSide};
 use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::cell::Flags;
-use alacritty_terminal::Term;
 
 use crate::snapshot::RowSpan;
 

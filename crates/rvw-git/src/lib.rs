@@ -25,5 +25,5 @@ pub mod worktree;
 pub(crate) mod testrepo;
 
 pub use gitx::{
-    cancel_flag, os_error_text, set_logger, set_shell_env, Change, GitError, GitLog, Hunk,
+    Change, GitError, GitLog, Hunk, cancel_flag, os_error_text, set_logger, set_shell_env,
 };

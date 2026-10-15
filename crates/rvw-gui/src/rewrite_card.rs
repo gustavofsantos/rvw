@@ -4,8 +4,8 @@
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, AnyElement, Context, Div, Entity, FontWeight, KeyDownEvent, ScrollHandle,
-    Subscription, Window,
+    AnyElement, Context, Div, Entity, FontWeight, KeyDownEvent, ScrollHandle, Subscription, Window,
+    div, px,
 };
 use rvw_git::history::{self, LogEntry};
 use rvw_git::rewrite::{self, Action, End, Planned};

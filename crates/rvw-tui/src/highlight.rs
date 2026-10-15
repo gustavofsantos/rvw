@@ -418,9 +418,11 @@ mod tests {
     #[test]
     fn a_named_theme_colors_with_rgb_and_an_unknown_one_is_plain() {
         let themed = highlight("lib.rs", "fn main() {}\n", "base16-ocean.dark");
-        assert!(themed[0]
-            .iter()
-            .any(|s| matches!(s.style.fg, Some(Color::Rgb(..)))));
+        assert!(
+            themed[0]
+                .iter()
+                .any(|s| matches!(s.style.fg, Some(Color::Rgb(..))))
+        );
         let mono = highlight("lib.rs", "fn main() {}\n", "no-such-theme");
         assert!(mono[0].iter().all(|s| s.style == Style::default()));
     }

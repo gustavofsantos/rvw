@@ -4,8 +4,8 @@
 use std::path::{Path, PathBuf};
 
 use gpui::{Context, Window};
-use rvw_git::worktree::{self, Start, Worktree};
 use rvw_git::GitError;
+use rvw_git::worktree::{self, Start, Worktree};
 use rvw_view::palette::Action;
 use rvw_view::workspaces;
 
