@@ -103,6 +103,39 @@ pub fn byte_at(text: &str, column: f32) -> usize {
     textpos::from_column(text, column, TAB_WIDTH)
 }
 
+/// The text as drawn: each tab replaced by the spaces up to its next stop, so
+/// that a character's cell is the same for the caret, the tint and the text.
+/// The buffer keeps the real tabs; only the row drawn is expanded.
+pub fn expand_tabs(text: &str) -> String {
+    if !text.contains('\t') {
+        return text.to_owned();
+    }
+    let mut out = String::with_capacity(text.len() + 8);
+    for (at, c) in text.char_indices() {
+        if c == '\t' {
+            let stop = TAB_WIDTH - textpos::column_of(text, at, TAB_WIDTH) % TAB_WIDTH;
+            out.extend(std::iter::repeat_n(' ', stop));
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// The byte offset in `expand_tabs(text)` of byte `offset` of `text`.
+pub fn shown_offset(text: &str, offset: usize) -> usize {
+    let mut extra = 0;
+    for (at, c) in text.char_indices() {
+        if at >= offset {
+            break;
+        }
+        if c == '\t' {
+            extra += TAB_WIDTH - textpos::column_of(text, at, TAB_WIDTH) % TAB_WIDTH - 1;
+        }
+    }
+    offset + extra
+}
+
 /// `cells` cell widths in pixels.
 fn cells_px(cells: usize, advance: f32) -> f32 {
     f32::from(u16::try_from(cells).unwrap_or(u16::MAX)) * advance
@@ -243,6 +276,20 @@ impl CodeCaret {
         self.dragging = false;
     }
 
+    /// The anchor and the head of the selection, or `None` with no caret.
+    pub fn ends(&self) -> Option<(TextPos, TextPos)> {
+        let sel = self.sel?;
+        let (start, end) = sel.ordered();
+        let head = if self.anchor == start { end } else { start };
+        Some((self.anchor, head))
+    }
+
+    /// Sets the caret from an anchor and a head, as the file buffer has them.
+    pub fn set_ends(&mut self, anchor: TextPos, head: TextPos) {
+        self.anchor = anchor;
+        self.sel = Some(TextSelection::new(anchor, head));
+    }
+
     /// The selected text of `diff`, or `None` when nothing is selected.
     pub fn copied(&self, diff: &FileDiff) -> Option<String> {
         let sel = self.sel.filter(|sel| !sel.is_empty())?;
@@ -308,6 +355,7 @@ impl Shell {
         } else {
             self.code_caret.place(at);
         }
+        self.caret_to_buffer();
         cx.notify();
     }
 
@@ -332,6 +380,7 @@ impl Shell {
         if let Some(at) = self.code_point(pos, column, x)
             && self.code_caret.drag_to(at)
         {
+            self.caret_to_buffer();
             cx.notify();
         }
     }
@@ -512,6 +561,32 @@ mod tests {
         assert_eq!(caret.copied(&diff).as_deref(), Some("b\ncd\nx\n\ty"));
         caret.clear();
         assert_eq!(caret.copied(&diff), None);
+    }
+
+    #[test]
+    fn ends_report_anchor_and_head_in_either_direction() {
+        let mut caret = CodeCaret::default();
+        caret.place(at(2, 3));
+        caret.drag_to(at(1, 1));
+        assert_eq!(caret.ends(), Some((at(2, 3), at(1, 1))));
+        caret.release();
+        caret.set_ends(at(0, 0), at(0, 0));
+        assert_eq!(caret.ends(), Some((at(0, 0), at(0, 0))));
+        caret.clear();
+        assert_eq!(caret.ends(), None);
+    }
+
+    #[test]
+    fn tabs_expand_to_the_next_stop_and_offsets_follow() {
+        assert_eq!(expand_tabs("a\tb"), "a   b");
+        assert_eq!(expand_tabs("\t\tx"), "        x");
+        assert_eq!(expand_tabs("abcd\te"), "abcd    e");
+        assert_eq!(expand_tabs("no tabs"), "no tabs");
+        // A span over "b" in "a\tb" starts at byte 2 of the text, byte 4 of the shown text.
+        assert_eq!(shown_offset("a\tb", 2), 4);
+        assert_eq!(shown_offset("a\tb", 1), 1);
+        assert_eq!(shown_offset("\t\tx", 2), 8);
+        assert_eq!(shown_offset("a\tb", 3), 5);
     }
 
     #[test]

@@ -17,6 +17,7 @@ mod diff_list;
 mod diff_view;
 mod draft_edit;
 mod draft_panel;
+mod editing;
 mod export_card;
 mod export_file;
 mod external_tools;
@@ -200,6 +201,7 @@ fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identit
             frame::bind_keys(cx);
             workspace_picker::bind_keys(cx);
             code_caret::bind_keys(cx);
+            editing::bind_keys(cx);
             quit_with_the_window(cx);
             let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
             let options = WindowOptions {

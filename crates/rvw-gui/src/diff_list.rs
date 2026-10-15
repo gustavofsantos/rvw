@@ -29,6 +29,7 @@ use crate::code_caret;
 use crate::code_scroll;
 use crate::diff_view;
 use crate::highlights::Shared;
+use crate::review_screen::Selected;
 use crate::shell::Shell;
 use crate::text_area::TextArea;
 use crate::text_input::TextInput;
@@ -101,6 +102,8 @@ struct Key {
     /// The why-line arrives after the composer opens; its arrival rebuilds.
     why: bool,
     split: bool,
+    /// Bumped by each edit of the open file; see `editing`.
+    edit: u64,
 }
 
 pub struct DiffList {
@@ -123,6 +126,22 @@ impl DiffList {
         list(self.state.clone(), move |index, _, cx| {
             diff_view::row(&model, index, selection.get(), caret.get(), &shell, cx)
         })
+    }
+
+    /// Scrolls so the line with index `line` (over every line of the diff) is in view.
+    pub fn reveal_line(&self, line: usize) {
+        let starts = &self.model.hunk_starts;
+        let is_line = |pos: Pos| code_caret::line_index(starts, pos) == Some(line);
+        let row = self.model.rows.iter().position(|row| match *row {
+            DiffRow::Line { pos } => is_line(pos),
+            DiffRow::Pair { left, right } => {
+                left.is_some_and(is_line) || right.is_some_and(is_line)
+            }
+            _ => false,
+        });
+        if let Some(index) = row {
+            self.state.scroll_to_reveal_item(index);
+        }
     }
 
     /// The code's sideways offset, in pixels.
@@ -272,6 +291,26 @@ impl Shell {
             .map_or_else(Rc::default, |list| Rc::clone(&list.model.scroll_x))
     }
 
+    /// Where the composer sits, and whether it edits a comment outside the
+    /// shown lines. A comment's composer sits under that comment's last line,
+    /// or under the comment in the outside strip; a new one, under the
+    /// selection.
+    fn composer_place(
+        &self,
+        diff: &FileDiff,
+        selected: &Selected,
+        editing: Option<&Comment>,
+    ) -> (Option<Pos>, bool) {
+        match (self.composer.as_ref(), editing) {
+            (None, _) => (None, false),
+            (Some(_), Some(comment)) => {
+                let anchor = selection::anchor(diff, comment.end_line);
+                (anchor, anchor.is_none())
+            }
+            (Some(_), None) => (selected.selection.last(), false),
+        }
+    }
+
     pub(crate) fn sync_diff_list(&mut self, window: &Window) {
         let split = self.split_active();
         self.scope_code_caret();
@@ -286,22 +325,12 @@ impl Shell {
                 return;
             }
         };
-        // A composer editing a comment sits under that comment's last line,
-        // or under the comment in the outside strip; a new one, under the
-        // selection.
         let editing = self
             .composer
             .as_ref()
             .and_then(|composer| composer.editing.as_deref())
             .and_then(|id| self.snapshot.comments.iter().find(|c| c.id == id));
-        let (composer_after, edits_outside) = match (self.composer.as_ref(), editing) {
-            (None, _) => (None, false),
-            (Some(_), Some(comment)) => {
-                let anchor = selection::anchor(diff, comment.end_line);
-                (anchor, anchor.is_none())
-            }
-            (Some(_), None) => (selected.selection.last(), false),
-        };
+        let (composer_after, edits_outside) = self.composer_place(diff, selected, editing);
         let key = Key {
             generation: self.diff_generation,
             composer_after,
@@ -312,6 +341,7 @@ impl Shell {
                 .is_some_and(|composer| composer.error.is_some()),
             why: self.composer.as_ref().is_some_and(|c| c.why.is_some()),
             split,
+            edit: self.edit_revision,
         };
         if let Some(current) = self.diff_list.as_ref()
             && current.key == key

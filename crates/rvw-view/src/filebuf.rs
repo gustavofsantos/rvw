@@ -129,7 +129,38 @@ impl FileBuf {
 
     /// The cursor as (line, column in bytes), both 0-based.
     pub fn cursor_pos(&self) -> (usize, usize) {
-        let offset = self.editor.cursor();
+        self.pos_of(self.editor.cursor())
+    }
+
+    /// The selection's anchor and head as (line, column in bytes). With no
+    /// selection both are the cursor.
+    pub fn caret(&self) -> ((usize, usize), (usize, usize)) {
+        let cursor = self.editor.cursor();
+        let range = self.editor.selection();
+        let anchor = if !self.editor.has_selection() {
+            cursor
+        } else if cursor == range.end {
+            range.start
+        } else {
+            range.end
+        };
+        (self.pos_of(anchor), self.pos_of(cursor))
+    }
+
+    /// The selected text, or the empty string with no selection.
+    pub fn selected_text(&self) -> &str {
+        self.editor.selected_text()
+    }
+
+    /// Sets the selection from `anchor` to `head`, each (line, column in
+    /// bytes). Positions are clamped as `set_cursor` clamps them.
+    pub fn select(&mut self, anchor: (usize, usize), head: (usize, usize)) {
+        self.set_cursor(anchor.0, anchor.1, false);
+        self.set_cursor(head.0, head.1, true);
+    }
+
+    /// The (line, column in bytes) of byte `offset`.
+    fn pos_of(&self, offset: usize) -> (usize, usize) {
         let line = self.starts().partition_point(|&start| start <= offset) - 1;
         (line, offset - self.starts()[line])
     }
@@ -400,6 +431,28 @@ mod tests {
         b.undo();
         assert_eq!(b.line_count(), 3);
         assert_eq!(b.line(1), "b");
+    }
+
+    #[test]
+    fn caret_reports_anchor_and_head_in_either_direction() {
+        let mut b = buf("abc\ndef");
+        b.set_cursor(0, 1, false);
+        assert_eq!(b.caret(), ((0, 1), (0, 1)));
+        b.set_cursor(1, 2, true);
+        assert_eq!(b.caret(), ((0, 1), (1, 2)));
+        assert_eq!(b.selected_text(), "bc\nde");
+        b.set_cursor(0, 0, true);
+        assert_eq!(b.caret(), ((0, 1), (0, 0)));
+        assert_eq!(b.selected_text(), "a");
+    }
+
+    #[test]
+    fn select_sets_anchor_and_head_and_copies_the_text() {
+        let mut b = buf("hello world");
+        b.select((0, 6), (0, 11));
+        assert_eq!(b.caret(), ((0, 6), (0, 11)));
+        assert_eq!(b.selected_text(), "world");
+        assert!(!b.is_dirty());
     }
 
     #[test]

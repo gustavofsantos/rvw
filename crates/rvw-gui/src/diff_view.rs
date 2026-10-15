@@ -371,14 +371,28 @@ pub(crate) fn drag_move(pos: Pos, column: Column, shell: &WeakEntity<Shell>) -> 
     })
 }
 
-/// The text of a line with its syntax colours. A line with nothing to colour
-/// stays a plain string, which is the cheap path for most lines.
+/// The text of a line with its syntax colours. Tabs are drawn as the spaces
+/// up to their stops, so the caret and the tint line up with the characters;
+/// the colour runs follow the text. A run that does not fit the text (the
+/// spans of an edited line) is dropped. A line with nothing to colour stays a
+/// plain string, which is the cheap path for most lines.
 pub(crate) fn code_text(text: &str, spans: &[Span]) -> AnyElement {
-    let runs = highlights::runs(spans);
+    let shown = code_caret::expand_tabs(text);
+    let runs: Vec<_> = highlights::runs(spans)
+        .into_iter()
+        .filter_map(|(range, style)| {
+            let start = code_caret::shown_offset(text, range.start);
+            let end = code_caret::shown_offset(text, range.end);
+            let fits = range.end <= text.len()
+                && text.is_char_boundary(range.start)
+                && text.is_char_boundary(range.end);
+            (fits && start <= end && end <= shown.len()).then_some((start..end, style))
+        })
+        .collect();
     if runs.is_empty() {
-        text.to_owned().into_any_element()
+        shown.into_any_element()
     } else {
-        StyledText::new(text.to_owned())
+        StyledText::new(shown)
             .with_highlights(runs)
             .into_any_element()
     }
@@ -469,7 +483,10 @@ fn action(kind: &'static str, comment: &Comment, shell: &WeakEntity<Shell>) -> S
             shell
                 .update(cx, |this, cx| {
                     if kind == "edit" {
-                        this.start_edit(&id, window, cx);
+                        if !this.refuse_unsaved_comment() {
+                            this.start_edit(&id, window, cx);
+                        }
+                        cx.notify();
                     } else {
                         this.delete_comment(&id, cx);
                     }

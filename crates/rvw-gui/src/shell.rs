@@ -26,6 +26,7 @@ use crate::data::{self, Identity, Snapshot};
 use crate::diff_list::DiffList;
 use crate::diff_list::drag::DragState;
 use crate::draft_edit::Removal;
+use crate::editing::Edit;
 use crate::file_view;
 use crate::files_panel::{self, FileList};
 use crate::finder::{self, Finder, OpenFinder};
@@ -100,6 +101,15 @@ pub struct Shell {
     pub(crate) code_caret: CodeCaret,
     /// Syntax colour of the open file, tokenized in the background.
     pub(crate) highlights: Highlighter,
+    /// The files edited in their whole-file view this session, by path; see
+    /// `editing`.
+    pub(crate) edits: BTreeMap<String, Edit>,
+    /// Bumped by each edit, so the diff list rebuilds its rows.
+    pub(crate) edit_revision: u64,
+    /// The caret moved or the text changed: the diff list scrolls to the caret.
+    pub(crate) reveal_caret: bool,
+    /// A message shown at the foot of the window, such as a refused action.
+    pub(crate) edit_notice: Option<String>,
     /// The delete the right panel offers to undo, or why one failed.
     pub(crate) removal: Option<Removal>,
     /// Keeps the Changes list's row in view when the keyboard moves.
@@ -219,6 +229,10 @@ impl Shell {
             drag: DragState::default(),
             code_caret: CodeCaret::default(),
             highlights: Highlighter::default(),
+            edits: BTreeMap::new(),
+            edit_revision: 0,
+            reveal_caret: false,
+            edit_notice: None,
             removal: None,
             changes_scroll: UniformListScrollHandle::new(),
             files_scroll: UniformListScrollHandle::new(),
@@ -317,12 +331,13 @@ impl Shell {
         &mut self,
         id: u64,
         switched: bool,
-        selected: Selected,
+        mut selected: Selected,
         cx: &mut Context<Self>,
     ) {
         let Some(request) = self.file_pending.take_if(|request| request.id == id) else {
             return;
         };
+        self.overlay_edit(&mut selected);
         if switched {
             self.file_modes.insert(request.path, request.mode);
             // Row indices differ between the modes, so the list starts at the top.
@@ -396,6 +411,10 @@ impl Shell {
         if self.composer.is_some() || nothing_selected {
             return;
         }
+        if self.refuse_unsaved_comment() {
+            cx.notify();
+            return;
+        }
         self.removal = None;
         self.install_composer(None, "", window, cx);
     }
@@ -414,10 +433,11 @@ impl Shell {
         self.queue = snapshot.view(&self.filter);
         self.snapshot = snapshot;
         let mode = self.selected.as_ref().map(|selected| selected.mode);
-        self.selected = path.map(|path| {
+        let loaded = path.map(|path| {
             let mode = mode.unwrap_or_else(|| self.mode_for(&path));
             self.load_selected(&path, mode)
         });
+        self.selected = loaded;
         // A read asked for before this reload must not replace the file it reloads.
         self.file_pending = None;
         self.diff_generation = self.diff_generation.wrapping_add(1);
@@ -453,7 +473,13 @@ impl Shell {
         let (Some(old), Some(before)) = (previous, before) else {
             return self.file_pending.is_none();
         };
-        let fresh = fresh.unwrap_or_else(|| self.load_selected(&old.path, old.mode));
+        let fresh = match fresh {
+            Some(mut fresh) => {
+                self.overlay_edit(&mut fresh);
+                fresh
+            }
+            None => self.load_selected(&old.path, old.mode),
+        };
         let moved = file_comments(&self.snapshot, &old.path) != before;
         let same_file = fresh.diff == old.diff
             && fresh.mode == old.mode
@@ -503,6 +529,8 @@ impl Shell {
 
     /// Keys with no field open: C, and the file keys J, K and the arrows.
     fn on_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // A notice shown for the last key lasts until the next one.
+        self.edit_notice = None;
         // The quit question takes Enter and Esc before anything else.
         if self.quit_key(&event.keystroke.key, cx) {
             return;
@@ -542,6 +570,18 @@ impl Shell {
                 "up" => self.move_highlight(false, cx),
                 _ => {}
             }
+            return;
+        }
+        // With the caret in an editable file, the keys type into it, before
+        // the window's own single keys (C, J, K) see them.
+        if self.no_field_open(window, cx)
+            && self.edit_key(
+                &event.keystroke.key,
+                event.keystroke.key_char.as_deref(),
+                event.keystroke.modifiers,
+                cx,
+            )
+        {
             return;
         }
         // With no field open, plain keys move through the review: C opens the
@@ -630,8 +670,10 @@ fn toggled<T: PartialEq>(current: Option<&T>, value: T) -> Option<T> {
     }
 }
 
-impl Render for Shell {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+impl Shell {
+    /// Brings the focus, the highlights and the diff list in line with the
+    /// state before the window is drawn.
+    fn sync_frame(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // With no field open, the shell holds the focus so that C reaches it.
         // The restore confirmation is modal and has no field, so it always
         // takes the keyboard to the shell, from the commit message too.
@@ -640,8 +682,18 @@ impl Render for Shell {
         if (no_field || self.git.confirm.is_some()) && !self.focus.is_focused(window) {
             self.focus.focus(window);
         }
-        self.sync_highlights(cx);
+        // A file with unsaved edits is drawn plain: its spans would not match its lines.
+        if !self.file_dirty() {
+            self.sync_highlights(cx);
+        }
         self.sync_diff_list(window);
+        self.reveal_pending_caret();
+    }
+}
+
+impl Render for Shell {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_frame(window, cx);
         let panels = self.panels(cx);
         let dock = self.terminal_dock(cx);
         let rail_screen = self.rail_screen();
@@ -716,8 +768,14 @@ impl Render for Shell {
                 this.commit_changes(cx);
             }))
             .on_action(cx.listener(|this: &mut Self, _: &RestoreLatest, _, cx| {
-                this.restore_latest(cx);
+                // ⌘Z undoes an edit of the open file; otherwise it restores.
+                if !this.edit_history(false, cx) {
+                    this.restore_latest(cx);
+                }
             }))
+            .on_action(cx.listener(Self::on_edit_redo))
+            .on_action(cx.listener(Self::on_edit_cut))
+            .on_action(cx.listener(Self::on_edit_paste))
             .on_action(cx.listener(|this: &mut Self, _: &CopyCode, window, cx| {
                 // A focused terminal or field has its own copy; this is the code's.
                 if this.terminal_focused(window, cx) || this.message_focused(window, cx) {
@@ -742,6 +800,7 @@ impl Render for Shell {
             .children(self.tool_overlays(cx))
             .children(self.rewrite_overlay(cx))
             .children(self.gate_overlay(cx))
+            .children(self.edit_notice.as_deref().map(notice_toast))
             .children(resize_layer)
     }
 }
@@ -928,6 +987,23 @@ impl Shell {
             _ => review_screen::left(&self.snapshot, &self.changes_scroll, cx),
         }
     }
+}
+
+/// The message at the foot of the window: a line on a card-like band.
+fn notice_toast(text: &str) -> Div {
+    div()
+        .absolute()
+        .left(px(16.))
+        .right(px(16.))
+        .bottom(px(16.))
+        .px(px(12.))
+        .py(px(8.))
+        .rounded(px(6.))
+        .bg(theme::paper())
+        .border_1()
+        .border_color(theme::hairline())
+        .text_color(theme::ink())
+        .child(text.to_owned())
 }
 
 /// A file read asked for: which file, in which view, and its number.

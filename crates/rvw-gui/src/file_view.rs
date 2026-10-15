@@ -23,7 +23,7 @@ use crate::theme;
 const MAX_BYTES: u64 = 1 << 20;
 
 /// The bytes of the file at `path`, or what to show instead of them.
-fn read(dir: &Path, path: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn read(dir: &Path, path: &str) -> Result<Vec<u8>, String> {
     let full = dir.join(path);
     let size = fs::metadata(&full)
         .map_err(|error| format!("Cannot read {path}: {error}"))?
@@ -114,8 +114,10 @@ impl Shell {
     /// Reads `path` for the centre in `wanted` mode. A file the change does
     /// not touch is always its content; a deleted or unreadable changed file
     /// falls back to its diff.
-    pub(crate) fn load_selected(&self, path: &str, wanted: ViewMode) -> Selected {
-        load_selected(&self.snapshot, path, wanted)
+    pub(crate) fn load_selected(&mut self, path: &str, wanted: ViewMode) -> Selected {
+        let mut selected = load_selected(&self.snapshot, path, wanted);
+        self.overlay_edit(&mut selected);
+        selected
     }
 
     /// Shows the file on screen in `mode` and remembers the choice. Does
