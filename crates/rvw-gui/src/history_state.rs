@@ -151,8 +151,9 @@ pub struct HistoryState {
     pub(crate) open_request: u64,
     /// The commit to select once a restarted list's first page is read.
     keep: Option<String>,
-    /// The commit whose details were asked for last.
-    detail_request: Option<String>,
+    /// Numbers the commit detail reads. The detail and the review of one
+    /// selection share the number; a read for an older number is dropped.
+    detail_request: u64,
     search_events: Option<Subscription>,
 }
 
@@ -185,7 +186,7 @@ impl Default for HistoryState {
             compare_request: 0,
             open_request: 0,
             keep: None,
-            detail_request: None,
+            detail_request: 0,
             search_events: None,
         }
     }
@@ -210,6 +211,90 @@ impl HistoryState {
     pub(crate) fn cancel_open(&mut self) {
         self.open_request = self.open_request.wrapping_add(1);
         self.open = None;
+    }
+
+    /// Drops the selected commit's detail and review, and any read of them in
+    /// flight.
+    pub(crate) fn clear_detail(&mut self) {
+        self.detail_request = self.detail_request.wrapping_add(1);
+        self.detail = None;
+        self.review = None;
+    }
+
+    /// Starts the reads of commit `id`'s detail and review, and returns the
+    /// number they carry. None when `id`'s detail is shown with its review,
+    /// so nothing needs reading.
+    pub(crate) fn start_detail(&mut self, id: &str) -> Option<u64> {
+        let shown = self
+            .detail
+            .as_ref()
+            .is_some_and(|d| d.as_ref().is_ok_and(|d| d.entry.id == id));
+        if shown && self.review.is_some() {
+            return None;
+        }
+        self.detail_request = self.detail_request.wrapping_add(1);
+        self.review = None;
+        Some(self.detail_request)
+    }
+
+    /// Shows the detail read for `request`, when it is still the one asked
+    /// for. Returns whether it was shown.
+    pub(crate) fn apply_detail(
+        &mut self,
+        request: u64,
+        read: Result<CommitDetail, String>,
+    ) -> bool {
+        if request != self.detail_request {
+            return false;
+        }
+        self.detail = Some(read);
+        true
+    }
+
+    /// Shows the review read for `request`, when it is still the one asked
+    /// for. Returns whether it was shown.
+    pub(crate) fn apply_review(
+        &mut self,
+        request: u64,
+        review: Result<data::CommitReview, String>,
+    ) -> bool {
+        if request != self.detail_request {
+            return false;
+        }
+        self.review = Some(review);
+        true
+    }
+
+    /// Adds the session reviews read for list `request`, when it is still the
+    /// list asked for. Returns whether they were added.
+    pub(crate) fn apply_session_reviews(
+        &mut self,
+        request: u64,
+        reviews: HashMap<String, data::CommitReview>,
+    ) -> bool {
+        if request != self.list_request {
+            return false;
+        }
+        self.session_reviews.extend(reviews);
+        true
+    }
+
+    /// Appends a page read for list `request`, when it is still the list
+    /// asked for. Returns whether the page was shown.
+    pub(crate) fn apply_list_page(
+        &mut self,
+        request: u64,
+        page: Result<Vec<LogEntry>, String>,
+    ) -> bool {
+        if request != self.list_request {
+            return false;
+        }
+        self.loading = false;
+        match page {
+            Ok(entries) => self.history.append(entries, PAGE),
+            Err(message) => self.error = Some(message),
+        }
+        true
     }
 }
 
@@ -458,8 +543,7 @@ impl Shell {
         self.history.history = History::new();
         self.history.loading = false;
         self.history.error = None;
-        self.history.detail = None;
-        self.history.review = None;
+        self.history.clear_detail();
         self.history.session_reviews.clear();
         self.history.keep = keep;
         self.history.sessions =
@@ -478,27 +562,39 @@ impl Shell {
         let source = self.history.source.clone();
         let commits = self.session_commits(&source);
         let skip = self.history.history.next_skip();
-        // The reviews of a session come with its first page, read off the UI
-        // thread in the same spawn and dropped with it when overtaken.
+        // A session's reviews are a second read, started once its first page
+        // is shown, so the commit list does not wait for the ledger.
         let reviews_of_session = matches!(source, Source::Session { .. }) && skip == 0;
         let service = Arc::clone(&self.service);
         let workspace = self.identity.workspace.clone();
+        let page_stop = Arc::clone(&stop);
         cx.spawn(async move |this, cx| {
-            let (page, reviews) = cx
+            let page = cx
                 .background_executor()
-                .spawn(async move {
-                    let page = read_page(&dir, &source, &commits, skip, &stop);
-                    let reviews = match &page {
-                        Ok(entries) if reviews_of_session => {
-                            read_reviews(&service, &workspace, entries, &stop)
-                        }
-                        _ => HashMap::new(),
-                    };
-                    (page, reviews)
-                })
+                .spawn(async move { read_page(&dir, &source, &commits, skip, &page_stop) })
                 .await;
-            this.update(cx, |this, cx| this.apply_page(request, page, reviews, cx))
-                .ok();
+            let ids: Vec<String> = match &page {
+                Ok(entries) if reviews_of_session => {
+                    entries.iter().map(|entry| entry.id.clone()).collect()
+                }
+                _ => Vec::new(),
+            };
+            let shown = this
+                .update(cx, |this, cx| this.apply_page(request, page, cx))
+                .unwrap_or(false);
+            if !shown || ids.is_empty() {
+                return;
+            }
+            let reviews = cx
+                .background_executor()
+                .spawn(async move { read_reviews(&service, &workspace, &ids, &stop) })
+                .await;
+            this.update(cx, |this, cx| {
+                if this.history.apply_session_reviews(request, reviews) {
+                    cx.notify();
+                }
+            })
+            .ok();
         })
         .detach();
     }
@@ -518,24 +614,18 @@ impl Shell {
     }
 
     /// Shows a page read for `request`, when it is still the list asked for.
+    /// Returns whether it was shown.
     fn apply_page(
         &mut self,
         request: u64,
         page: Result<Vec<LogEntry>, String>,
-        reviews: HashMap<String, data::CommitReview>,
         cx: &mut Context<Self>,
-    ) {
-        if request != self.history.list_request {
-            return;
-        }
-        self.history.loading = false;
+    ) -> bool {
         let first_page = self.history.history.is_empty();
-        match page {
-            Ok(entries) => self.history.history.append(entries, PAGE),
-            Err(message) => self.history.error = Some(message),
+        if !self.history.apply_list_page(request, page) {
+            return false;
         }
         if first_page {
-            self.history.session_reviews = reviews;
             // The commit selected before the reload, when this page has it;
             // else the first row, which `append` selected.
             if let Some(keep) = self.history.keep.take() {
@@ -549,9 +639,12 @@ impl Shell {
             self.request_detail(cx);
         }
         cx.notify();
+        true
     }
 
-    /// Reads the selected commit's details off the UI thread.
+    /// Reads the selected commit's details and its review, each off the UI
+    /// thread in its own read. The details show as soon as they are read; the
+    /// review follows when the ledger read finishes.
     fn request_detail(&mut self, cx: &mut Context<Self>) {
         let Some(id) = self
             .history
@@ -559,38 +652,40 @@ impl Shell {
             .selected_row()
             .map(|row| row.entry.id.clone())
         else {
-            self.history.detail = None;
-            self.history.review = None;
+            self.history.clear_detail();
             return;
         };
-        if self
-            .history
-            .detail
-            .as_ref()
-            .is_some_and(|d| d.as_ref().is_ok_and(|d| d.entry.id == id))
-        {
+        let Some(request) = self.history.start_detail(&id) else {
             return;
-        }
-        self.history.detail_request = Some(id.clone());
+        };
+        let review_id = id.clone();
         let dir = self.repo_path().to_path_buf();
+        cx.spawn(async move |this, cx| {
+            let read = cx
+                .background_executor()
+                .spawn(async move { history::show(&dir, &id).map_err(|e| last_line(&e.stderr)) })
+                .await;
+            this.update(cx, |this, cx| {
+                if this.history.apply_detail(request, read) {
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+
         let service = Arc::clone(&self.service);
         let workspace = self.identity.workspace.clone();
         cx.spawn(async move |this, cx| {
-            let wanted = id.clone();
-            let (read, review) = cx
+            let review = cx
                 .background_executor()
                 .spawn(async move {
-                    let read = history::show(&dir, &id).map_err(|e| last_line(&e.stderr));
-                    let review = data::ledger_for_commit(&service, &workspace, &id)
-                        .map(Option::unwrap_or_default);
-                    (read, review)
+                    data::ledger_for_commit(&service, &workspace, &review_id)
+                        .map(Option::unwrap_or_default)
                 })
                 .await;
             this.update(cx, |this, cx| {
-                if this.history.detail_request.as_deref() == Some(wanted.as_str()) {
-                    this.history.detail_request = None;
-                    this.history.detail = Some(read);
-                    this.history.review = Some(review);
+                if this.history.apply_review(request, review) {
                     cx.notify();
                 }
             })
@@ -664,21 +759,22 @@ fn read_session(dir: &Path, commits: &[String], skip: usize, stop: &AtomicBool) 
     entries
 }
 
-/// The reviews of the first `REVIEW_LIMIT` of `entries`, by full id. A commit
-/// whose ledger cannot be read has none, so one bad commit never fails the list.
+/// The reviews of the first `REVIEW_LIMIT` of the commits `ids`, by full id.
+/// A commit whose ledger cannot be read has none, so one bad commit never
+/// fails the list.
 fn read_reviews(
     service: &Service,
     workspace: &str,
-    entries: &[LogEntry],
+    ids: &[String],
     stop: &AtomicBool,
 ) -> HashMap<String, data::CommitReview> {
     let mut reviews = HashMap::new();
-    for entry in entries.iter().take(provenance_sessions::REVIEW_LIMIT) {
+    for id in ids.iter().take(provenance_sessions::REVIEW_LIMIT) {
         if stop.load(Ordering::Relaxed) {
             break;
         }
-        if let Ok(Some(review)) = data::ledger_for_commit(service, workspace, &entry.id) {
-            reviews.insert(entry.id.clone(), review);
+        if let Ok(Some(review)) = data::ledger_for_commit(service, workspace, id) {
+            reviews.insert(id.clone(), review);
         }
     }
     reviews
@@ -766,5 +862,104 @@ mod tests {
 
         // the whole list comes on the first page; a later page is empty
         assert!(read_session(dir.path(), &reported, 1, &stop).is_empty());
+    }
+
+    /// The detail of commit `id` with nothing but its id set.
+    fn detail_of(id: &str) -> CommitDetail {
+        CommitDetail {
+            entry: LogEntry {
+                id: id.to_owned(),
+                parents: Vec::new(),
+                author: String::new(),
+                email: String::new(),
+                time: 0,
+                refs: Vec::new(),
+                subject: String::new(),
+                session_markers: Vec::new(),
+            },
+            committer: String::new(),
+            committer_email: String::new(),
+            committer_time: 0,
+            message: String::new(),
+            files: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_detail_read_for_an_older_selection_is_dropped() {
+        let mut state = HistoryState::default();
+        let first = state.start_detail("aaa").expect("first read");
+        let second = state.start_detail("bbb").expect("second read");
+        assert!(!state.apply_detail(first, Ok(detail_of("aaa"))));
+        assert!(state.detail.is_none());
+        assert!(state.apply_detail(second, Ok(detail_of("bbb"))));
+        assert!(state.detail.is_some());
+    }
+
+    #[test]
+    fn the_review_appears_after_the_detail_and_only_for_its_selection() {
+        let mut state = HistoryState::default();
+        let first = state.start_detail("aaa").expect("first read");
+        assert!(state.apply_detail(first, Ok(detail_of("aaa"))));
+        assert!(state.review.is_none(), "the detail shows before its review");
+        assert!(state.apply_review(first, Ok(data::CommitReview::default())));
+        assert!(state.review.is_some());
+        assert_eq!(state.start_detail("aaa"), None, "shown: nothing to read");
+
+        let second = state.start_detail("bbb").expect("second read");
+        assert!(state.review.is_none(), "the old review is not kept");
+        assert!(!state.apply_review(first, Err("stale".to_owned())));
+        assert!(state.review.is_none());
+        assert!(state.apply_review(second, Err("ledger failed".to_owned())));
+        assert!(matches!(&state.review, Some(Err(message)) if message == "ledger failed"));
+    }
+
+    #[test]
+    fn a_detail_shown_without_its_review_is_read_again() {
+        let mut state = HistoryState::default();
+        let first = state.start_detail("aaa").expect("first read");
+        assert!(state.apply_detail(first, Ok(detail_of("aaa"))));
+        let again = state.start_detail("aaa").expect("review still missing");
+        assert_ne!(again, first);
+        assert!(!state.apply_review(first, Ok(data::CommitReview::default())));
+    }
+
+    #[test]
+    fn clearing_the_selection_drops_the_reads_in_flight() {
+        let mut state = HistoryState::default();
+        let request = state.start_detail("aaa").expect("read");
+        state.clear_detail();
+        assert!(!state.apply_detail(request, Ok(detail_of("aaa"))));
+        assert!(!state.apply_review(request, Ok(data::CommitReview::default())));
+        assert!(state.detail.is_none());
+        assert!(state.review.is_none());
+    }
+
+    #[test]
+    fn session_reviews_of_a_replaced_list_are_dropped() {
+        let mut state = HistoryState {
+            list_request: 2,
+            ..HistoryState::default()
+        };
+        let reviews = HashMap::from([("aaa".to_owned(), data::CommitReview::default())]);
+        assert!(!state.apply_session_reviews(1, reviews.clone()));
+        assert!(state.session_reviews.is_empty());
+        assert!(state.apply_session_reviews(2, reviews));
+        assert!(state.session_reviews.contains_key("aaa"));
+    }
+
+    #[test]
+    fn a_page_of_a_replaced_list_is_dropped() {
+        let mut state = HistoryState {
+            list_request: 2,
+            loading: true,
+            ..HistoryState::default()
+        };
+        assert!(!state.apply_list_page(1, Err("old".to_owned())));
+        assert!(state.loading);
+        assert!(state.error.is_none());
+        assert!(state.apply_list_page(2, Err("new".to_owned())));
+        assert!(!state.loading);
+        assert_eq!(state.error.as_deref(), Some("new"));
     }
 }
