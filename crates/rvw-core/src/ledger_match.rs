@@ -55,15 +55,30 @@ pub fn link(
         return None;
     }
     let fact = commit.files.iter().find(|f| f.path == comment.file)?;
-    if !comment.resolved_file_version.is_empty()
-        && fact.blob_after.as_deref() == Some(comment.resolved_file_version.as_str())
-    {
+    if exact_fact(comment, fact) {
         return Some(LinkKind::Exact);
     }
     match (fact.patch_id.as_deref(), resolution_patch_id) {
         (Some(mine), Some(theirs)) if mine == theirs => Some(LinkKind::SameChange),
         _ => None,
     }
+}
+
+/// Whether `commit` left the comment's file as the comment resolved it: the
+/// same blob. Needs no patch-id, so the ledger checks it before reading one.
+#[must_use]
+pub fn exact(comment: &Comment, commit: &CommitFiles) -> bool {
+    comment.status == Status::Done
+        && commit
+            .files
+            .iter()
+            .find(|f| f.path == comment.file)
+            .is_some_and(|fact| exact_fact(comment, fact))
+}
+
+fn exact_fact(comment: &Comment, fact: &FileFact) -> bool {
+    !comment.resolved_file_version.is_empty()
+        && fact.blob_after.as_deref() == Some(comment.resolved_file_version.as_str())
 }
 
 /// Every commit of `commits` that `comment` links to, in input order.

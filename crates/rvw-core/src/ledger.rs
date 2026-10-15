@@ -4,7 +4,7 @@
 //! computed here from git and the store, never recorded. The matching rules
 //! are in `ledger_match`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
@@ -14,7 +14,7 @@ use time::{Date, Month, OffsetDateTime, PrimitiveDateTime, Time};
 
 use crate::error::{Error, Result};
 use crate::evidence::snapshot_diff;
-use crate::ledger_match::{CommitFiles, FileFact, link_all, same_commit, unlinked_reason};
+use crate::ledger_match::{CommitFiles, FileFact, exact, link_all, same_commit, unlinked_reason};
 use crate::operations::{LedgerCommit, LedgerInput, LedgerOutput, LinkedComment, UnlinkedComment};
 use crate::service::{Service, format_time};
 use crate::types::{Comment, Session, Status};
@@ -44,10 +44,6 @@ impl Service {
 
         let mut entries = read_range(dir, &range)?;
         entries.retain(|e| since.is_none_or(|s| e.time >= s) && until.is_none_or(|u| e.time <= u));
-        let files = entries
-            .iter()
-            .map(|e| commit_files(dir, &e.id))
-            .collect::<Result<Vec<_>>>()?;
 
         // Store reads first, then git: a slow git never holds the database lock.
         let (comments, overrides, mut sessions) = self.read(&input.workspace, |tx| {
@@ -57,6 +53,17 @@ impl Service {
                 tx.sessions()?,
             ))
         })?;
+        let comments: Vec<Comment> = comments
+            .into_iter()
+            .filter(|c| in_lane(c, &input.lane))
+            .collect();
+
+        // Only the files a comment in scope names are read from git.
+        let watched: HashSet<&str> = comments.iter().map(|c| c.file.as_str()).collect();
+        let mut files = entries
+            .iter()
+            .map(|e| commit_files(dir, &e.id, &watched))
+            .collect::<Result<Vec<_>>>()?;
 
         // The earliest-reported session owns a commit first, so sort oldest first.
         sessions.sort_by(|a, b| {
@@ -65,7 +72,7 @@ impl Service {
                 .then_with(|| a.session_id.cmp(&b.session_id))
         });
 
-        let (linked, unlinked) = match_comments(dir, &input.lane, comments, &files);
+        let (linked, unlinked) = match_comments(dir, comments, &mut files)?;
 
         let mut commits = Vec::with_capacity(entries.len());
         for ((entry, facts), comments) in entries.into_iter().zip(&files).zip(linked) {
@@ -166,22 +173,40 @@ fn read_range(dir: &Path, range: &str) -> Result<Vec<LogEntry>> {
     Ok(entries)
 }
 
-/// What one commit did to each file it changed: the blob it left and the
-/// patch-id of its change, which matching compares.
-fn commit_files(dir: &Path, id: &str) -> Result<CommitFiles> {
+#[cfg(test)]
+thread_local! {
+    /// The git reads the ledger made, in order, for the tests that count them.
+    static GIT_READS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// What one commit did to each watched file it changed: the blob it left. The
+/// patch-id of the change is read later, and only where matching needs it.
+/// With no watched file, git is not read at all: the commit is its id alone.
+fn commit_files(dir: &Path, id: &str, watched: &HashSet<&str>) -> Result<CommitFiles> {
+    if watched.is_empty() {
+        return Ok(CommitFiles {
+            id: id.to_owned(),
+            files: Vec::new(),
+        });
+    }
+    #[cfg(test)]
+    GIT_READS.with(|r| r.borrow_mut().push(format!("show {id}")));
     let detail = history::show(dir, id).map_err(|e| git_error(&e))?;
-    let files = detail
+    let mut files = Vec::new();
+    for change in detail
         .files
         .iter()
-        .map(|change| {
-            Ok(FileFact {
-                path: change.path.clone(),
-                blob_after: patch_id::blob_at(dir, id, &change.path).map_err(|e| git_error(&e))?,
-                patch_id: patch_id::commit_file_patch_id(dir, id, &change.path)
-                    .map_err(|e| git_error(&e))?,
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
+        .filter(|change| watched.contains(change.path.as_str()))
+    {
+        #[cfg(test)]
+        GIT_READS.with(|r| r.borrow_mut().push(format!("blob {id} {}", change.path)));
+        let blob_after = patch_id::blob_at(dir, id, &change.path).map_err(|e| git_error(&e))?;
+        files.push(FileFact {
+            path: change.path.clone(),
+            blob_after,
+            patch_id: None,
+        });
+    }
     Ok(CommitFiles {
         id: id.to_owned(),
         files,
@@ -193,37 +218,83 @@ fn commit_files(dir: &Path, id: &str) -> Result<CommitFiles> {
 /// rebase is shown once. A comment that links nowhere is unlinked when a
 /// commit of the range touches its file; a comment on an untouched file is
 /// left out, which is a content scope, not a time scope.
+///
+/// The patch-id of a commit's change to a file is read only for a commit
+/// before the comment's exact link, because only such a commit can link it
+/// first by patch-id. Reads are cached per (commit, file), so a commit is
+/// read once however many comments name its file.
 fn match_comments(
     dir: &Path,
-    lane: &str,
     comments: Vec<Comment>,
-    files: &[CommitFiles],
-) -> (Vec<Vec<LinkedComment>>, Vec<UnlinkedComment>) {
-    let index: HashMap<&str, usize> = files
+    files: &mut [CommitFiles],
+) -> Result<(Vec<Vec<LinkedComment>>, Vec<UnlinkedComment>)> {
+    let index: HashMap<String, usize> = files
         .iter()
         .enumerate()
-        .map(|(i, f)| (f.id.as_str(), i))
+        .map(|(i, f)| (f.id.clone(), i))
         .collect();
+    let mut patched: HashSet<(usize, String)> = HashSet::new();
     let mut linked: Vec<Vec<LinkedComment>> = vec![Vec::new(); files.len()];
     let mut unlinked = Vec::new();
-    for c in comments.into_iter().filter(|c| in_lane(c, lane)) {
-        let patch = resolution_patch_id(dir, &c);
+    for c in comments {
+        let touching: Vec<usize> = (0..files.len())
+            .filter(|&i| touches(&files[i], &c.file))
+            .collect();
+        if touching.is_empty() {
+            // Not in the range's content scope.
+            continue;
+        }
+        let exact_at = touching.iter().copied().find(|&i| exact(&c, &files[i]));
+        let before = exact_at.unwrap_or(usize::MAX);
+        let patch = if touching.iter().any(|&i| i < before) {
+            resolution_patch_id(dir, &c)
+        } else {
+            None
+        };
+        if patch.is_some() {
+            for &i in touching.iter().take_while(|&&i| i < before) {
+                fill_patch_id(dir, files, &mut patched, i, &c.file)?;
+            }
+        }
+        // Every commit before the exact one now has its patch-id, and the
+        // exact one needs none, so the first link is the oldest one.
         let oldest = link_all(&c, patch.as_deref(), files)
             .first()
-            .map(|&(commit, kind)| (commit.id.as_str(), kind));
-        if let Some((id, link)) = oldest {
+            .map(|&(commit, kind)| (index[&commit.id], kind));
+        if let Some((i, link)) = oldest {
             let (diff, _) = snapshot_diff(&c);
-            linked[index[id]].push(LinkedComment {
+            linked[i].push(LinkedComment {
                 comment: c,
                 link,
                 diff,
             });
-        } else if touched(files, &c.file) {
+        } else {
             let reason = unlinked_reason(&c, patch.as_deref(), files);
             unlinked.push(UnlinkedComment { comment: c, reason });
         }
     }
-    (linked, unlinked)
+    Ok((linked, unlinked))
+}
+
+/// Reads the patch-id of commit `i`'s change to `path` into its fact, once.
+fn fill_patch_id(
+    dir: &Path,
+    files: &mut [CommitFiles],
+    patched: &mut HashSet<(usize, String)>,
+    i: usize,
+    path: &str,
+) -> Result<()> {
+    if !patched.insert((i, path.to_owned())) {
+        return Ok(());
+    }
+    #[cfg(test)]
+    GIT_READS.with(|r| r.borrow_mut().push(format!("patch {} {path}", files[i].id)));
+    let id = files[i].id.clone();
+    let read = patch_id::commit_file_patch_id(dir, &id, path).map_err(|e| git_error(&e))?;
+    if let Some(fact) = files[i].files.iter_mut().find(|f| f.path == path) {
+        fact.patch_id = read;
+    }
+    Ok(())
 }
 
 /// The patch-id of the change from the reviewed blob to the resolved one.
@@ -233,6 +304,8 @@ fn resolution_patch_id(dir: &Path, c: &Comment) -> Option<String> {
     if c.file_version.is_empty() || c.resolved_file_version.is_empty() {
         return None;
     }
+    #[cfg(test)]
+    GIT_READS.with(|r| r.borrow_mut().push(format!("resolution {}", c.file)));
     patch_id::blobs_patch_id(dir, &c.file_version, &c.resolved_file_version, &c.file)
         .ok()
         .flatten()
@@ -242,10 +315,8 @@ fn in_lane(c: &Comment, lane: &str) -> bool {
     lane.is_empty() || c.lane.as_deref() == Some(lane)
 }
 
-fn touched(files: &[CommitFiles], path: &str) -> bool {
-    files
-        .iter()
-        .any(|f| f.files.iter().any(|fact| fact.path == path))
+fn touches(files: &CommitFiles, path: &str) -> bool {
+    files.files.iter().any(|fact| fact.path == path)
 }
 
 /// Whether the reported session names one of the commit's ids.
@@ -794,5 +865,70 @@ mod tests {
         assert!(tidy.marked, "a marker with no report is marked");
         let sessions: Vec<&str> = out.sessions.iter().map(|s| s.session_id.as_str()).collect();
         assert_eq!(sessions, ["s1"]);
+    }
+
+    /// The git reads the last ledger made, clearing the log first.
+    fn reads_of(f: impl FnOnce()) -> Vec<String> {
+        GIT_READS.with(|r| r.borrow_mut().clear());
+        f();
+        GIT_READS.with(|r| r.borrow().clone())
+    }
+
+    #[test]
+    fn a_comment_on_one_file_reads_no_other_file() {
+        let f = setup();
+        git(&f.root, &["checkout", "-q", "-b", "feature"]);
+        fs::write(f.root.join("other.txt"), "x\n").expect("write");
+        f.commit("touch other");
+        let c = f.add(2, "say two", "");
+        f.write("one\nTWO\nthree\nfour\n");
+        f.resolve(&c.id);
+        f.commit("fix two");
+        fs::write(f.root.join("other.txt"), "y\n").expect("write");
+        f.commit("touch other again");
+
+        let mut out = None;
+        let reads = reads_of(|| out = Some(f.ledger("")));
+        let out = out.expect("ledger ran");
+        assert_eq!(
+            Fixture::subjects(&out),
+            ["touch other", "fix two", "touch other again"]
+        );
+        assert_eq!(
+            commit_named(&out, "fix two").comments[0].link,
+            LinkKind::Exact
+        );
+        assert!(!reads.is_empty(), "the ledger reads git");
+        assert!(
+            reads.iter().all(|read| !read.contains("other.txt")),
+            "no read names the other file: {reads:?}"
+        );
+        // The exact link is the first commit touching app.py, so nothing is
+        // compared by patch-id.
+        assert!(
+            reads
+                .iter()
+                .all(|read| !read.starts_with("patch") && !read.starts_with("resolution")),
+            "{reads:?}"
+        );
+    }
+
+    #[test]
+    fn no_done_comment_in_scope_reads_no_commit_detail() {
+        let f = setup();
+        git(&f.root, &["checkout", "-q", "-b", "feature"]);
+        f.write("one\nTWO\nthree\nfour\n");
+        f.commit("fix two");
+        f.add(1, "pending only", "");
+
+        let mut out = None;
+        let reads = reads_of(|| out = Some(f.ledger("")));
+        let out = out.expect("ledger ran");
+        assert_eq!(Fixture::subjects(&out), ["fix two"]);
+        assert!(out.commits[0].comments.is_empty());
+        assert!(
+            reads.is_empty(),
+            "no done comment, no commit detail: {reads:?}"
+        );
     }
 }
