@@ -279,6 +279,7 @@ mod tests {
             time: 1_000,
             refs: Vec::new(),
             subject: "subject".to_owned(),
+            session_markers: Vec::new(),
         }
     }
 

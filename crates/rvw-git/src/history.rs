@@ -22,6 +22,9 @@ pub struct LogEntry {
     /// "refs/remotes/origin/main", "tag: refs/tags/v1"]`.
     pub refs: Vec<String>,
     pub subject: String,
+    /// Session ids from the `Claude-Session` trailers of the message, in
+    /// order: a URL value gives its last path segment. Empty when none.
+    pub session_markers: Vec<String>,
 }
 
 /// The `--format` that [`parse_log`] reads: fields split by 0x1f, records
@@ -30,29 +33,47 @@ pub struct LogEntry {
 /// `feat/x` is told apart from a remote branch.
 pub(crate) const DECORATE: &str = "--decorate=full";
 
-pub(crate) const LOG_FORMAT: &str = "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%D%x1f%s%x1e";
+/// The `--format` of one log record: the seven fields, then the `Claude-Session`
+/// trailer values joined by 0x1d (see [`session_markers`]). `git` reads the
+/// trailers of the last paragraph of the message only.
+pub(crate) const LOG_FORMAT: &str = concat!(
+    "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%D%x1f%s%x1f",
+    "%(trailers:key=Claude-Session,valueonly,unfold,separator=%x1d)%x1e",
+);
 
 /// The `--format` of one commit in full: the seven [`LOG_FORMAT`] fields, then
-/// the committer name, email and time, then the whole message, all split by
-/// 0x1f. The message is last, so it may hold any character.
-const COMMIT_FORMAT: &str =
-    "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%D%x1f%s%x1f%cn%x1f%ce%x1f%ct%x1f%B";
+/// the committer name, email and time, the session trailers, then the whole
+/// message, all split by 0x1f. The message is last, so it may hold any character.
+const COMMIT_FORMAT: &str = concat!(
+    "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%D%x1f%s%x1f%cn%x1f%ce%x1f%ct%x1f",
+    "%(trailers:key=Claude-Session,valueonly,unfold,separator=%x1d)%x1f%B",
+);
 
-/// The entries of `git log` output written with [`LOG_FORMAT`]. A record that
-/// does not have seven fields is skipped.
+/// The entries of `git log` output written with [`LOG_FORMAT`]. A record with
+/// seven fields has no session trailers, as `blame` writes it. A record that
+/// does not have seven or eight fields is skipped.
 pub(crate) fn parse_log(out: &str) -> Vec<LogEntry> {
     out.split('\x1e')
         .filter_map(|record| {
             let record = record.trim_start_matches('\n');
-            let fields: Vec<&str> = record.split('\x1f').collect();
+            let mut fields: Vec<&str> = record.split('\x1f').collect();
+            let trailers = if fields.len() == 8 {
+                fields.pop().unwrap_or_default()
+            } else {
+                ""
+            };
             let fields: [&str; 7] = fields.try_into().ok()?;
-            Some(log_entry(fields))
+            Some(log_entry(fields, trailers))
         })
         .collect()
 }
 
-/// The entry for the seven fields of [`LOG_FORMAT`], in order.
-fn log_entry([id, parents, author, email, time, refs, subject]: [&str; 7]) -> LogEntry {
+/// The entry for the seven fields of [`LOG_FORMAT`], in order, with the
+/// session trailer values.
+fn log_entry(
+    [id, parents, author, email, time, refs, subject]: [&str; 7],
+    trailers: &str,
+) -> LogEntry {
     LogEntry {
         id: id.to_owned(),
         parents: parents.split_whitespace().map(str::to_owned).collect(),
@@ -65,7 +86,26 @@ fn log_entry([id, parents, author, email, time, refs, subject]: [&str; 7]) -> Lo
             .map(str::to_owned)
             .collect(),
         subject: subject.to_owned(),
+        session_markers: session_markers(trailers),
     }
+}
+
+/// The session ids in the joined `Claude-Session` values: each value trimmed,
+/// then reduced to its last path segment, so a URL gives its id. Empty values
+/// are dropped.
+fn session_markers(trailers: &str) -> Vec<String> {
+    trailers
+        .split('\x1d')
+        .filter_map(|value| {
+            let id = value
+                .trim()
+                .trim_end_matches('/')
+                .rsplit('/')
+                .next()?
+                .trim();
+            (!id.is_empty()).then(|| id.to_owned())
+        })
+        .collect()
 }
 
 /// Which commits a log page reads.
@@ -171,7 +211,7 @@ pub fn show(dir: &Path, rev: &str) -> Result<CommitDetail, GitError> {
         "--",
     ];
     let out = run(dir, &[], &args)?;
-    let fields: Vec<&str> = out.splitn(11, '\x1f').collect();
+    let fields: Vec<&str> = out.splitn(12, '\x1f').collect();
     let [
         id,
         parents,
@@ -183,10 +223,11 @@ pub fn show(dir: &Path, rev: &str) -> Result<CommitDetail, GitError> {
         committer,
         committer_email,
         committer_time,
+        trailers,
         message,
-    ]: [&str; 11] = fields.try_into().map_err(|_| malformed(&args))?;
+    ]: [&str; 12] = fields.try_into().map_err(|_| malformed(&args))?;
     let committer_time: i64 = committer_time.parse().map_err(|_| malformed(&args))?;
-    let entry = log_entry([id, parents, author, email, time, refs, subject]);
+    let entry = log_entry([id, parents, author, email, time, refs, subject], trailers);
     let base = base_of(dir, &entry.parents)?;
     let files = changes(dir, &base, &entry.id)?;
     Ok(CommitDetail {
@@ -687,5 +728,97 @@ mod tests {
         assert!(entries[1].parents.is_empty());
         assert!(entries[1].refs.is_empty());
         assert_eq!(entries[1].subject, "root");
+    }
+
+    /// Commits a new file with the full message `msg`: subject, blank line, body or trailers.
+    fn commit_with_message(dir: &Path, msg: &str) {
+        write(dir, "f.txt", msg);
+        commit_all(dir, msg);
+    }
+
+    /// The session markers of the newest commit, from the log and from show.
+    fn markers_of_head(dir: &Path) -> (Vec<String>, Vec<String>) {
+        let stop = AtomicBool::new(false);
+        let logged = log(dir, &page(1), &stop).unwrap().remove(0).session_markers;
+        let shown = show(dir, "HEAD").unwrap().entry.session_markers;
+        (logged, shown)
+    }
+
+    #[test]
+    fn session_markers_are_empty_without_a_trailer() {
+        let dir = repo();
+        commit_with_message(dir.path(), "plain subject\n\nplain body.");
+        assert_eq!(markers_of_head(dir.path()), (vec![], vec![]));
+    }
+
+    #[test]
+    fn session_marker_reduces_a_url_trailer_to_its_id() {
+        let dir = repo();
+        commit_with_message(
+            dir.path(),
+            "subject\n\nClaude-Session: https://claude.ai/code/session_01Abc",
+        );
+        let (logged, shown) = markers_of_head(dir.path());
+        assert_eq!(logged, ["session_01Abc"]);
+        assert_eq!(shown, ["session_01Abc"]);
+    }
+
+    #[test]
+    fn session_marker_takes_a_bare_id() {
+        let dir = repo();
+        commit_with_message(dir.path(), "subject\n\nClaude-Session: session_01Bare");
+        let (logged, shown) = markers_of_head(dir.path());
+        assert_eq!(logged, ["session_01Bare"]);
+        assert_eq!(shown, ["session_01Bare"]);
+    }
+
+    #[test]
+    fn session_markers_keep_every_trailer_in_order() {
+        let dir = repo();
+        commit_with_message(
+            dir.path(),
+            "subject\n\nClaude-Session: session_01First\nSigned-off-by: A <a@example.com>\n\
+             Claude-Session: https://claude.ai/code/session_01Second",
+        );
+        let (logged, shown) = markers_of_head(dir.path());
+        assert_eq!(logged, ["session_01First", "session_01Second"]);
+        assert_eq!(shown, ["session_01First", "session_01Second"]);
+    }
+
+    #[test]
+    fn session_marker_key_match_is_case_insensitive() {
+        let dir = repo();
+        commit_with_message(dir.path(), "subject\n\nclaude-session: session_01Lower");
+        let (logged, shown) = markers_of_head(dir.path());
+        assert_eq!(logged, ["session_01Lower"]);
+        assert_eq!(shown, ["session_01Lower"]);
+    }
+
+    #[test]
+    fn trailer_like_line_in_body_is_not_a_session_marker() {
+        let dir = repo();
+        commit_with_message(
+            dir.path(),
+            "subject\n\nClaude-Session: session_01Body\n\nThe last paragraph is prose.",
+        );
+        assert_eq!(markers_of_head(dir.path()), (vec![], vec![]));
+    }
+
+    #[test]
+    fn session_markers_are_read_from_the_eighth_field_only_when_present() {
+        let out = "a1\x1f\x1fAna\x1fana@x\x1f100\x1f\x1fsubj\x1fsession_01A\x1dhttps://x/y/session_01B/\x1e\n\
+                   b2\x1f\x1fBo\x1fbo@x\x1f50\x1f\x1froot\x1e\n";
+        let entries = parse_log(out);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].session_markers, ["session_01A", "session_01B"]);
+        assert!(entries[1].session_markers.is_empty());
+    }
+
+    #[test]
+    fn session_markers_trim_whitespace_and_skip_empty_values() {
+        assert_eq!(
+            session_markers("  session_01X  \x1d\x1d https://claude.ai/code/session_01Y/ "),
+            ["session_01X", "session_01Y"]
+        );
     }
 }

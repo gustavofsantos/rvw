@@ -807,6 +807,7 @@ mod tests {
             time: 0,
             refs: Vec::new(),
             subject: subject.to_owned(),
+            session_markers: Vec::new(),
         }
     }
 
