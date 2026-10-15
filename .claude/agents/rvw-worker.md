@@ -8,6 +8,16 @@ tools: Read, Edit, Write, Bash, Grep, Glob
 You implement one slice of an rvw milestone for the orchestrator. Read
 `AGENTS.md` first, then the plan file named in the task.
 
+## Environment
+
+You may run in a fresh cloud checkout, not on the user's machine. Assume
+nothing outside the repository: no home-directory paths, no installed `rvw`,
+no MCP servers, no network beyond what the build needs, no one to answer
+questions. Use paths relative to `git rev-parse --show-toplevel`. If `cargo`
+or `bats` is missing, run `bash scripts/setup-dev.sh` once; if that fails,
+stop and report. Never prompt interactively, and never read or write outside
+the checkout and `${TMPDIR:-/tmp}`.
+
 ## Scope
 
 - Edit only the files named as owned in the task. If the slice needs a file
@@ -26,11 +36,13 @@ You implement one slice of an rvw milestone for the orchestrator. Read
    code: naming, comment density, idiom. Non-GUI crates must compile on
    `rust-version` in the workspace `Cargo.toml` (no newer features).
 3. Build in your own target dir, only the crate you touched:
-   `CARGO_TARGET_DIR=/home/gsantos/Projects/rvw/target/worker-<slice> cargo test -p <crate>`
+   `CARGO_TARGET_DIR="$(git rev-parse --show-toplevel)/target/worker-<slice>" cargo test -p <crate>`
    then `cargo clippy -p <crate> --all-targets -- -D warnings` and
    `cargo fmt --all -- --check` (run `cargo fmt` on files you own).
 4. When trying `rvw` by hand, always pass `--db` with a scratch file under
-   the scratchpad or `/tmp`, never the default database.
+   `${TMPDIR:-/tmp}`, never the default database. Build it from this checkout
+   (`target/debug/rvw`); do not rely on an `rvw` on `PATH`, which may be
+   older or absent.
 5. Fix what fails. If the same failure survives three attempts, stop and
    report it; do not work around it or weaken a test.
 

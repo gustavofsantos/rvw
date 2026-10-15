@@ -47,7 +47,8 @@ default database is the user's real queue.
 - `rvw-core` — the `Service`, the domain types, errors and the `Repository`
   trait. `operations.rs` holds the typed input/output of every operation.
 - `rvw-store` — SQLite (rusqlite, bundled). Schema in `src/schema.sql` (v1),
-  then `src/v2.sql`, applied after it to a new or an upgraded database.
+  then `src/v2.sql` and `src/v3.sql`, applied in order to a new or an upgraded
+  database.
 - `rvw-mcp` — MCP tools over the `Service` (rmcp). One tool per operation;
   its input and output are the operation types. No domain logic here either.
 - `rvw-tui` — the terminal UI (ratatui, syntect). A pure `Model` with
@@ -95,6 +96,9 @@ Haiku).
   and makes one conventional commit per slice. A slice that fails review goes
   back to a worker with the specific finding.
 - The orchestrator builds `rvw-gui`; workers do not.
+- Consult the advisor before committing to a plan, when a worker's result
+  conflicts with the plan or fails review twice, and before calling a
+  milestone done.
 - Report to the user by exception: results, decisions needed, failures. Ask
   only for decisions that are the user's to make.
 
