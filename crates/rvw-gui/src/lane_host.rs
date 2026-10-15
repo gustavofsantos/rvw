@@ -31,6 +31,9 @@ pub fn bind_keys(cx: &mut App) {
     ]);
 }
 
+/// The opened lanes (workspace, shell), shared with every lane's `Shell`.
+pub(crate) type SharedLanes = std::rc::Rc<std::cell::RefCell<Vec<(String, Entity<Shell>)>>>;
+
 struct OpenLane {
     workspace: String,
     shell: Entity<Shell>,
@@ -44,6 +47,7 @@ pub struct LaneHost {
     /// lane is opened. Each is a lane.
     worktrees: Vec<rvw_git::worktree::Worktree>,
     project: rvw_project::Project,
+    shared: SharedLanes,
 }
 
 impl LaneHost {
@@ -56,9 +60,12 @@ impl LaneHost {
         let worktrees =
             rvw_git::worktree::list(std::path::Path::new(&workspace)).unwrap_or_default();
         let this = cx.entity().downgrade();
+        let shared = SharedLanes::default();
+        shared.borrow_mut().push((workspace.clone(), first.clone()));
         first.update(cx, |shell, _| {
             shell.host = Some(this.clone());
             shell.inset = SIDEBAR_WIDTH;
+            shell.lanes = shared.clone();
         });
         // Closing the window asks about every lane's terminals and edits.
         window.on_window_should_close(cx, move |window, cx| {
@@ -73,15 +80,8 @@ impl LaneHost {
             active: 0,
             worktrees,
             project,
+            shared,
         }
-    }
-
-    /// The opened lanes with the label each shows: the branch.
-    pub(crate) fn lanes(&self) -> Vec<(String, Entity<Shell>)> {
-        self.open
-            .iter()
-            .map(|lane| (lane.workspace.clone(), lane.shell.clone()))
-            .collect()
     }
 
     pub(crate) fn has(&self, workspace: &str) -> bool {
@@ -126,7 +126,11 @@ impl LaneHost {
         shell.update(cx, |shell, _| {
             shell.host = Some(this);
             shell.inset = SIDEBAR_WIDTH;
+            shell.lanes = self.shared.clone();
         });
+        self.shared
+            .borrow_mut()
+            .push((workspace.clone(), shell.clone()));
         self.open.push(OpenLane {
             workspace: workspace.clone(),
             shell,

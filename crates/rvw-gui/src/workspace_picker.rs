@@ -197,7 +197,12 @@ impl Shell {
         if let Some(host) = host.clone() {
             // A hosted lane stays alive, so nothing is lost by leaving it;
             // an open lane is simply shown.
-            if host.read(cx).has(&workspace) {
+            if self
+                .lanes
+                .borrow()
+                .iter()
+                .any(|(open, _)| *open == workspace)
+            {
                 self.close_workspaces(cx);
                 let target = workspace.clone();
                 window.defer(cx, move |window, cx| {

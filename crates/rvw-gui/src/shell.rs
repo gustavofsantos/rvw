@@ -148,6 +148,9 @@ pub struct Shell {
     focus: FocusHandle,
     /// The lane host this shell is one lane of; `None` before it is hosted.
     pub(crate) host: Option<gpui::WeakEntity<crate::lane_host::LaneHost>>,
+    /// The host's opened lanes, shared so a lane never reads the host entity
+    /// (the host is mid-update when it calls into a lane).
+    pub(crate) lanes: crate::lane_host::SharedLanes,
     /// Pixels of the window width the host takes beside this shell.
     pub(crate) inset: f32,
     /// The database the queue lives in. The live poller fingerprints it
@@ -264,6 +267,7 @@ impl Shell {
             quit_ask: None,
             focus: cx.focus_handle(),
             host: None,
+            lanes: crate::lane_host::SharedLanes::default(),
             inset: 0.,
         };
         // The staged list lights Commit on every screen, so it is read now,

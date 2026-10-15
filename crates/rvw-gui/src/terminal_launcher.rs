@@ -125,12 +125,7 @@ impl Shell {
         // Every lane of the host is asked: quitting ends all their terminals
         // and discards all their unsaved edits.
         let (mut running, mut unsaved) = self.quit_parts(cx);
-        let siblings = self
-            .host
-            .as_ref()
-            .and_then(gpui::WeakEntity::upgrade)
-            .map(|host| host.read(cx).lanes())
-            .unwrap_or_default();
+        let siblings = self.lanes.borrow().clone();
         let me = cx.entity_id();
         let hosted = !siblings.is_empty();
         let label = self.snapshot.branch.clone();
