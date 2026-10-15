@@ -8,6 +8,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 mod read;
+mod write;
 
 /// One repository of a project.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,16 +78,6 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-impl Error {
-    fn unimplemented(what: &str) -> Self {
-        Error {
-            file: None,
-            key: String::new(),
-            message: format!("{what} is not built yet"),
-        }
-    }
-}
-
 /// The directory holding project files: `config` when given (`--config`),
 /// else `$XDG_CONFIG_HOME/rvw/projects`, else `<home>/.config/rvw/projects`.
 /// `xdg_config_home` and `home` are passed in; this crate reads no
@@ -118,12 +109,10 @@ pub fn implicit(name: &str, repo: &Path) -> Project {
 /// `text` with `lane` appended as a `[[lane]]`, the rest untouched (comments
 /// and order kept).
 pub fn add_lane(text: &str, lane: &Lane) -> Result<String, Error> {
-    let _ = (text, lane);
-    Err(Error::unimplemented("adding a lane"))
+    write::add_lane(text, lane)
 }
 
 /// `text` without the `[[lane]]` named `name`, the rest untouched.
 pub fn remove_lane(text: &str, name: &str) -> Result<String, Error> {
-    let _ = (text, name);
-    Err(Error::unimplemented("removing a lane"))
+    write::remove_lane(text, name)
 }
