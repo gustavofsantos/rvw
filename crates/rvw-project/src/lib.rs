@@ -7,6 +7,8 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+mod read;
+
 /// One repository of a project.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Repo {
@@ -90,8 +92,7 @@ impl Error {
 /// `xdg_config_home` and `home` are passed in; this crate reads no
 /// environment.
 pub fn projects_dir(config: Option<&Path>, xdg_config_home: Option<&Path>, home: &Path) -> PathBuf {
-    let _ = (config, xdg_config_home, home);
-    PathBuf::new()
+    read::projects_dir(config, xdg_config_home, home)
 }
 
 /// Parses `text` (read from `file`). `~` in a repo path expands to `home`.
@@ -99,8 +100,7 @@ pub fn projects_dir(config: Option<&Path>, xdg_config_home: Option<&Path>, home:
 /// name, a repo path that is not an existing directory, or an `after` that
 /// names no lane or closes a cycle is an [`Error`].
 pub fn parse(text: &str, file: Option<&Path>, home: &Path) -> Result<Project, Error> {
-    let _ = (text, file, home);
-    Err(Error::unimplemented("reading a project"))
+    read::parse(text, file, home)
 }
 
 /// The implicit project of one repository: no file, no lanes written.

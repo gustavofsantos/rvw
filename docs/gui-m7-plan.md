@@ -153,6 +153,10 @@ push = "git push -u origin HEAD"
 pr   = "gh pr create --fill"
 
 [[lane]]
+name  = "like-schema"
+repo  = "proto"
+
+[[lane]]
 name  = "likes-endpoint"
 repo  = "api"
 after = "like-schema"          # read in M7, acted on in M8
