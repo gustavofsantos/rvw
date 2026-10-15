@@ -16,8 +16,8 @@ use rmcp::{ErrorData, RoleServer, ServerHandler};
 use rvw_core::Service;
 use rvw_core::operations::{
     AddInput, EditInput, GateInput, GateOutput, GetInput, OverrideInput, PullInput, QueryInput,
-    RemoveInput, ResolveInput, SheetsInput, SubmitInput, VerdictInput, VerdictOutput,
-    WorkspacesInput,
+    RemoveInput, ReportSessionInput, ReportSessionOutput, ResolveInput, SheetsInput, SubmitInput,
+    VerdictInput, VerdictOutput, WorkspacesInput,
 };
 use rvw_core::types::{Actor, GateOverride};
 use schemars::JsonSchema;
@@ -48,6 +48,10 @@ A comment with `reopens` is a follow-up: the reviewer rejected your earlier answ
 To review code for another agent: add comments on line ranges, then submit
 them as one review with a decision (comment, approve, request-changes).
 Only a reviewing agent judges, and never its own decision.
+
+To record the session behind your commits: call report_session with your
+session id, tool, model and the commit ids you made. Call it again as you
+commit; a repeat adds commits, and the first report's tool and model stay.
 
 Pass "author" with your name on writes. A pull pinned to a lane takes only
 that lane; "elsewhere" says when work waits in other lanes."#;
@@ -142,6 +146,7 @@ fn invoke(shared: &Shared, name: &str, args: Object) -> Result<Value, String> {
         "resolve" => ctx.resolve(args),
         "edit" => ctx.edit(args),
         "remove" => ctx.remove(args),
+        "report_session" => ctx.report_session(args),
         "judge" => ctx.judge(args),
         "gate" => ctx.gate(args),
         "override_gate" => ctx.override_gate(args),
@@ -260,6 +265,12 @@ impl Ctx<'_> {
             Some(&mut input.author),
         )?;
         reply(self.0.svc.override_gate(input, Actor::Agent))
+    }
+
+    fn report_session(&self, args: Object) -> Result<Value, String> {
+        let mut input: ReportSessionInput = parse(args)?;
+        self.scope(&mut input.workspace, None, None)?;
+        reply(self.0.svc.report_session(input))
     }
 
     fn workspaces(&self, args: Object) -> Result<Value, String> {
@@ -411,6 +422,11 @@ fn tool_definitions() -> Vec<Tool> {
             "Delete a pending comment that is not part of a submitted review, to retract a note from a draft. Returns the comment as it was; a pulled, decided or submitted one is refused.",
             false,
         ),
+        tool::<ReportSessionInput, ReportSessionOutput>(
+            "report_session",
+            "Reports the agent session that did the work and the commits it made, so history can show which commits an agent made. Call it again as you commit; a repeat adds commits. The tool and model of the first report stay.",
+            false,
+        ),
         tool::<VerdictInput, VerdictOutput>(
             "judge",
             "Judges a decided comment: accept the decision, or reopen it with a note, which creates a follow-up comment in the same lane.",
@@ -500,7 +516,7 @@ mod tests {
     }
 
     #[test]
-    fn registers_the_fifteen_tools_in_name_order() {
+    fn registers_the_sixteen_tools_in_name_order() {
         let dir = tempfile::tempdir().expect("tempdir");
         let names: Vec<String> = server(dir.path(), "", "")
             .0
@@ -521,6 +537,7 @@ mod tests {
                 "override_gate",
                 "pull",
                 "remove",
+                "report_session",
                 "resolve",
                 "show_comment",
                 "show_review",
@@ -539,6 +556,7 @@ mod tests {
             tool.annotations.as_ref().and_then(|a| a.read_only_hint)
         };
         assert_eq!(read_only("gate"), Some(true));
+        assert_ne!(read_only("report_session"), Some(true));
         assert_ne!(read_only("judge"), Some(true));
         assert_ne!(read_only("override_gate"), Some(true));
     }
@@ -558,6 +576,10 @@ mod tests {
             );
             tool.input_schema["required"].clone()
         };
+        assert_eq!(
+            required("report_session"),
+            json!(["workspace", "session_id", "tool", "model"])
+        );
         assert_eq!(required("judge"), json!(["workspace", "id", "verdict"]));
         assert_eq!(required("gate"), json!(["workspace"]));
         assert_eq!(
@@ -608,6 +630,7 @@ mod tests {
             text.contains("Only a reviewing agent judges, and never its own decision."),
             "{text}"
         );
+        assert!(text.contains("call report_session with your"), "{text}");
     }
 
     #[test]
@@ -1032,6 +1055,74 @@ mod tests {
             &claude,
             "override_gate",
             json!({"workspace": root, "action": "push", "reason": "urgent"}),
+        );
+    }
+
+    #[test]
+    fn report_session_then_a_repeat_adds_commits() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = repo(dir.path());
+        let srv = server(dir.path(), "", "");
+        let first = checked(
+            &srv,
+            "report_session",
+            json!({"workspace": root, "session_id": "s1", "tool": "claude-code", "model": "opus",
+                   "summary": "fixed the parser", "commits": ["abc1234"]}),
+        );
+        assert_eq!(first["session"]["commits"], json!(["abc1234"]));
+
+        let repeat = checked(
+            &srv,
+            "report_session",
+            json!({"workspace": root, "session_id": "s1", "tool": "claude-code", "model": "opus",
+                   "commits": ["def5678"]}),
+        );
+        assert_eq!(repeat["session"]["commits"], json!(["abc1234", "def5678"]));
+        assert_eq!(repeat["session"]["summary"], "fixed the parser");
+        assert_eq!(
+            repeat["session"]["reported_at"],
+            first["session"]["reported_at"]
+        );
+    }
+
+    #[test]
+    fn report_session_keeps_the_first_tool_and_model() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = repo(dir.path());
+        let srv = server(dir.path(), "", "");
+        checked(
+            &srv,
+            "report_session",
+            json!({"workspace": root, "session_id": "s1", "tool": "claude-code", "model": "opus"}),
+        );
+        let err = invoke(
+            &srv.0,
+            "report_session",
+            args(&json!({"workspace": root, "session_id": "s1", "tool": "codex", "model": "opus"})),
+        )
+        .unwrap_err();
+        assert!(err.contains("was reported by claude-code/opus"), "{err}");
+    }
+
+    #[test]
+    fn report_session_refuses_a_bad_commit_id_and_stores_nothing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = repo(dir.path());
+        let srv = server(dir.path(), "", "");
+        let err = invoke(
+            &srv.0,
+            "report_session",
+            args(&json!({"workspace": root, "session_id": "s1", "tool": "claude-code", "model": "opus",
+                         "commits": ["not-a-commit"]})),
+        )
+        .unwrap_err();
+        assert!(err.contains("is not a commit id"), "{err}");
+
+        // Nothing was stored, so a report under another tool is not a conflict.
+        checked(
+            &srv,
+            "report_session",
+            json!({"workspace": root, "session_id": "s1", "tool": "codex", "model": "gpt", "commits": ["abc1234"]}),
         );
     }
 }

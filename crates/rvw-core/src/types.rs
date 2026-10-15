@@ -468,7 +468,7 @@ pub struct Session {
     /// the model the agent reported
     pub model: String,
     /// what the session did, null when the agent gave none
-    #[schemars(required)]
+    #[schemars(required, schema_with = "nullable_string")]
     pub summary: Option<String>,
     /// commit ids as reported, full or abbreviated, in report order
     pub commits: Vec<String>,
