@@ -18,7 +18,9 @@ use rvw_git::search::Field;
 use rvw_view::diff::LineKind;
 use rvw_view::graph::{Row as GraphRow, Seg};
 use rvw_view::history::{HistoryRow, Label, LabelKind, MAX_LANES, ago, short};
+use rvw_view::provenance::{self};
 use rvw_view::provenance_label::{self, Badge, BadgeKind};
+use rvw_view::provenance_sessions;
 use rvw_view::selection::Pos;
 
 use crate::code_scroll;
@@ -75,7 +77,75 @@ pub fn left(state: &HistoryState, cx: &Context<Shell>) -> Div {
     if let Source::File { path } = &state.source {
         column = column.child(file_section(path, cx));
     }
+    if let Source::Session { session_id } = &state.source {
+        column = column.child(session_section(state, session_id, cx));
+    }
     column.child(placeholders())
+}
+
+/// The session the list is about: who ran it, its summary, its commit count
+/// and what this repository lacks of it, and a link back to the whole log.
+/// A session that is no longer reported says so.
+fn session_section(state: &HistoryState, session_id: &str, cx: &Context<Shell>) -> Div {
+    let mut section = div().flex().flex_col().child(heading("Session"));
+    let Some(session) = state
+        .sessions
+        .iter()
+        .find(|session| session.session_id == session_id)
+    else {
+        return section
+            .child(
+                div()
+                    .px(px(8.))
+                    .text_color(theme::muted())
+                    .child("This session is not reported in this workspace."),
+            )
+            .child(show_all_link(cx));
+    };
+    let row = provenance_sessions::rows(std::slice::from_ref(session), now_secs())
+        .into_iter()
+        .next();
+    if let Some(row) = row {
+        let count = if row.age.is_empty() {
+            row.commits
+        } else {
+            format!("{} \u{00b7} {}", row.commits, row.age)
+        };
+        let facts = [row.who, row.summary, count];
+        section = section.children(
+            facts
+                .into_iter()
+                .filter(|fact| !fact.is_empty())
+                .map(|fact| {
+                    div()
+                        .px(px(8.))
+                        .pb(px(4.))
+                        .text_size(px(SMALL))
+                        .text_color(theme::ink())
+                        .truncate()
+                        .child(fact)
+                }),
+        );
+    }
+    if state.history.complete() && !state.loading {
+        let shown: Vec<&str> = state
+            .history
+            .rows()
+            .iter()
+            .map(|row| row.entry.id.as_str())
+            .collect();
+        let missing = provenance_sessions::missing(session, &shown);
+        if let Some(note) = provenance_sessions::missing_note(missing) {
+            section = section.child(
+                div()
+                    .px(px(8.))
+                    .text_size(px(SMALL))
+                    .text_color(theme::faint())
+                    .child(note),
+            );
+        }
+    }
+    section.child(show_all_link(cx))
 }
 
 /// The search field in its box, and the hint under it.
@@ -818,6 +888,7 @@ fn empty_list(state: &HistoryState) -> Div {
         match &state.source {
             Source::Search { .. } => "No commits match.",
             Source::File { .. } => "No commits changed this file.",
+            Source::Session { .. } => "No commits of this session are in this repository.",
             Source::Log { .. } => "No commits yet.",
         }
     };
@@ -1254,9 +1325,55 @@ fn detail_body(state: &HistoryState, detail: &CommitDetail, now: i64, cx: &Conte
             &detail.entry.session_markers,
             &state.sessions,
         ))
+        .children(session_link(
+            state,
+            &detail.entry.id,
+            &detail.entry.session_markers,
+            cx,
+        ))
         .children(body_lines(&detail.message))
         .child(parents_row(&detail.entry.parents))
         .child(files_section(state, detail, cx))
+}
+
+/// "Show this session's commits": the agent session that made the commit,
+/// listed in the list. Only for a commit an agent reported, and not while
+/// that session is the list already.
+fn session_link(
+    state: &HistoryState,
+    commit_id: &str,
+    markers: &[String],
+    cx: &Context<Shell>,
+) -> Option<Stateful<Div>> {
+    let session_id = provenance::agent_session(commit_id, markers, &state.sessions)?;
+    if let Source::Session { session_id: shown } = &state.source
+        && *shown == session_id
+    {
+        return None;
+    }
+    Some(
+        div()
+            .id("history-session-commits")
+            .mt(px(8.))
+            .flex()
+            .items_center()
+            .h(px(30.))
+            .px(px(8.))
+            .rounded(theme::ROW_RADIUS)
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(theme::ink())
+            .cursor_pointer()
+            .child("Show this session's commits")
+            .on_click(cx.listener(
+                move |this: &mut Shell,
+                      _: &ClickEvent,
+                      window: &mut Window,
+                      cx: &mut Context<Shell>| {
+                    this.show_session_history(&session_id, cx);
+                    this.focus_shell(window);
+                },
+            )),
+    )
 }
 
 /// The authorship facts under the meta line, one div per line.

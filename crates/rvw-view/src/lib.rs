@@ -26,6 +26,7 @@ pub mod patch;
 pub mod points_at;
 pub mod provenance;
 pub mod provenance_label;
+pub mod provenance_sessions;
 pub mod queue;
 pub mod resize;
 pub mod selection;

@@ -64,6 +64,16 @@ pub fn session_for<'a>(
     })
 }
 
+/// The session an agent made a commit in, by its report; None for a human's
+/// commit and for a marker that was never reported.
+#[must_use]
+pub fn agent_session(commit_id: &str, markers: &[String], sessions: &[Session]) -> Option<String> {
+    match provenance(commit_id, markers, sessions) {
+        Provenance::Agent { session_id, .. } => Some(session_id),
+        Provenance::Human | Provenance::Marked { .. } => None,
+    }
+}
+
 /// The ids in `ids` that the session reported, in the order given.
 #[must_use]
 pub fn commits_of(session: &Session, ids: &[String]) -> Vec<String> {
@@ -83,7 +93,7 @@ fn agent(session: &Session) -> Provenance {
 
 /// Whether two commit ids name the same commit: one is a prefix of the
 /// other, the shorter has at least `MIN_PREFIX` hex digits, case ignored.
-fn same_commit(a: &str, b: &str) -> bool {
+pub(crate) fn same_commit(a: &str, b: &str) -> bool {
     let (a, b) = (a.to_ascii_lowercase(), b.to_ascii_lowercase());
     let (short, long) = if a.len() <= b.len() {
         (&a, &b)
@@ -243,6 +253,27 @@ mod tests {
             Some("s1")
         );
         assert!(session_for("ffffffffffff", &markers(&["s9"]), &sessions).is_none());
+    }
+
+    #[test]
+    fn agent_session_is_only_for_a_reported_commit() {
+        let reported = [session("s1", "2026-10-01T10:00:00Z", &["0123456"])];
+        assert_eq!(
+            agent_session(FULL, &markers(&[]), &reported).as_deref(),
+            Some("s1")
+        );
+        assert_eq!(
+            agent_session("ffffffffffff", &markers(&["s1"]), &reported).as_deref(),
+            Some("s1")
+        );
+        assert_eq!(
+            agent_session("ffffffffffff", &markers(&["s9"]), &reported),
+            None
+        );
+        assert_eq!(
+            agent_session("ffffffffffff", &markers(&[]), &reported),
+            None
+        );
     }
 
     #[test]

@@ -16,6 +16,7 @@ use rvw_git::search::{self, Field};
 use rvw_git::{GitError, blame};
 use rvw_view::diff::{FileDiff, parse};
 use rvw_view::history::{History, PAGE};
+use rvw_view::provenance_sessions;
 use rvw_view::selection::Pos;
 
 use crate::code_scroll;
@@ -48,11 +49,13 @@ pub enum Source {
     },
     /// The commits that changed one file, following renames.
     File { path: String },
+    /// The commits one agent session reported, that this repository has.
+    Session { session_id: String },
 }
 
 impl Source {
-    /// The graph is drawn only for the whole log; a search or a file's
-    /// history skips commits, so its lanes would mean nothing.
+    /// The graph is drawn only for the whole log; a search, a file's history
+    /// or a session's commits skip commits, so its lanes would mean nothing.
     pub fn draws_graph(&self) -> bool {
         matches!(self, Source::Log { .. })
     }
@@ -296,6 +299,7 @@ impl Shell {
             Source::Log { .. } => Source::Log { all },
             Source::Search { text, field, .. } => Source::Search { text, field, all },
             file @ Source::File { .. } => file,
+            session @ Source::Session { .. } => session,
         };
         self.show_history_source(source, cx);
     }
@@ -306,6 +310,18 @@ impl Shell {
         self.show_history_source(
             Source::File {
                 path: path.to_owned(),
+            },
+            cx,
+        );
+    }
+
+    /// Shows the commits session `session_id` reported, from the commit
+    /// detail's link or the Sessions timeline.
+    pub fn show_session_history(&mut self, session_id: &str, cx: &mut Context<Self>) {
+        self.show(rvw_view::keys::Screen::History, cx);
+        self.show_history_source(
+            Source::Session {
+                session_id: session_id.to_owned(),
             },
             cx,
         );
@@ -447,16 +463,31 @@ impl Shell {
         let stop = Arc::clone(&self.history.stop);
         let dir = self.repo_path().to_path_buf();
         let source = self.history.source.clone();
+        let commits = self.session_commits(&source);
         let skip = self.history.history.next_skip();
         cx.spawn(async move |this, cx| {
             let page = cx
                 .background_executor()
-                .spawn(async move { read_page(&dir, &source, skip, &stop) })
+                .spawn(async move { read_page(&dir, &source, &commits, skip, &stop) })
                 .await;
             this.update(cx, |this, cx| this.apply_page(request, page, cx))
                 .ok();
         })
         .detach();
+    }
+
+    /// The commits the reported session of a session source names, in the
+    /// order they were reported; empty for any other source.
+    fn session_commits(&self, source: &Source) -> Vec<String> {
+        let Source::Session { session_id } = source else {
+            return Vec::new();
+        };
+        self.history
+            .sessions
+            .iter()
+            .find(|session| session.session_id == *session_id)
+            .map(|session| session.commits.clone())
+            .unwrap_or_default()
     }
 
     /// Shows a page read for `request`, when it is still the list asked for.
@@ -531,14 +562,17 @@ impl Shell {
     }
 }
 
-/// One page of `source`, starting `skip` commits from the top.
+/// One page of `source`, starting `skip` commits from the top. `commits` is
+/// the reported commits of a session source, and is ignored for the others.
 fn read_page(
     dir: &Path,
     source: &Source,
+    commits: &[String],
     skip: usize,
     stop: &AtomicBool,
 ) -> Result<Vec<LogEntry>, String> {
     let read: Result<Vec<LogEntry>, GitError> = match source {
+        Source::Session { .. } => return Ok(read_session(dir, commits, skip, stop)),
         Source::Log { all } => history::log(
             dir,
             &LogQuery {
@@ -566,6 +600,32 @@ fn read_page(
     read.map_err(|e| last_line(&e.stderr))
 }
 
+/// The commits a session reported that this repository has, newest first.
+/// The whole list comes on the first page; a later page is empty. A commit
+/// git cannot name is left out, so the list never fails on one.
+fn read_session(dir: &Path, commits: &[String], skip: usize, stop: &AtomicBool) -> Vec<LogEntry> {
+    if skip > 0 {
+        return Vec::new();
+    }
+    let mut entries = Vec::new();
+    for commit in commits {
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        let query = LogQuery {
+            revs: vec![commit.clone()],
+            all: false,
+            skip: 0,
+            limit: 1,
+        };
+        if let Ok(found) = history::log(dir, &query, stop) {
+            entries.extend(found);
+        }
+    }
+    provenance_sessions::sort_newest_first(&mut entries);
+    entries
+}
+
 /// The diff of `path` in `commit`, parsed into rows.
 fn read_commit_file(dir: &Path, commit: &str, path: &str) -> Result<OpenCommitFile, String> {
     let raw = history::commit_diff(dir, commit, path, CONTEXT).map_err(|e| last_line(&e.stderr))?;
@@ -589,5 +649,64 @@ pub(crate) fn open_file(commit: &str, path: &str, diff: FileDiff) -> OpenCommitF
         longest_line: code_scroll::longest_line(&diff),
         diff: Arc::new(diff),
         rows,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::process::Command;
+
+    use super::*;
+
+    /// Runs git in `dir` and returns its stdout; a git failure fails the test.
+    fn git(dir: &Path, args: &[&str]) -> String {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .expect("run git");
+        assert!(out.status.success(), "git {args:?} failed");
+        String::from_utf8(out.stdout).expect("git output is UTF-8")
+    }
+
+    /// A commit with its author time set to `at`; returns its full id.
+    fn commit(dir: &Path, message: &str, at: i64) -> String {
+        git(
+            dir,
+            &[
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                message,
+                &format!("--date=@{at}"),
+            ],
+        );
+        git(dir, &["rev-parse", "HEAD"]).trim().to_owned()
+    }
+
+    #[test]
+    fn a_session_lists_its_commits_newest_first_and_skips_unknown_ids() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        git(dir.path(), &["init", "-q", "-b", "main"]);
+        git(dir.path(), &["config", "user.name", "Test"]);
+        git(dir.path(), &["config", "user.email", "test@example.com"]);
+        git(dir.path(), &["config", "commit.gpgsign", "false"]);
+        let older = commit(dir.path(), "first", 1_800_000_000);
+        let newer = commit(dir.path(), "second", 1_800_000_100);
+        let stop = AtomicBool::new(false);
+        let reported = [
+            older.clone(),
+            newer[..7].to_owned(),
+            "deadbeef00".to_owned(),
+        ];
+
+        let entries = read_session(dir.path(), &reported, 0, &stop);
+        let ids: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();
+        assert_eq!(ids, [newer.as_str(), older.as_str()]);
+
+        // the whole list comes on the first page; a later page is empty
+        assert!(read_session(dir.path(), &reported, 1, &stop).is_empty());
     }
 }

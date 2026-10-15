@@ -70,7 +70,7 @@ pub fn detail_facts(commit_id: &str, markers: &[String], sessions: &[Session]) -
 }
 
 /// "tool · model", or only the part that is not empty.
-fn who(tool: &str, model: &str) -> String {
+pub(crate) fn who(tool: &str, model: &str) -> String {
     [tool, model]
         .into_iter()
         .filter(|part| !part.is_empty())
@@ -79,7 +79,7 @@ fn who(tool: &str, model: &str) -> String {
 }
 
 /// The first line of `text` that has anything in it, trimmed.
-fn first_line(text: &str) -> Option<String> {
+pub(crate) fn first_line(text: &str) -> Option<String> {
     text.lines()
         .map(str::trim)
         .find(|line| !line.is_empty())
