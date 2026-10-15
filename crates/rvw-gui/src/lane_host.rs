@@ -266,10 +266,8 @@ impl LaneHost {
             .update(cx, |shell, cx| shell.switch_workspace(&path, window, cx));
     }
 
-    fn sidebar_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let sidebar = self.sidebar(cx);
-        let active_path = self.open[self.active].workspace.clone();
-        let mut rows = Vec::new();
+    /// The sidebar's New and Archive buttons.
+    fn sidebar_buttons(cx: &mut Context<Self>) -> gpui::AnyElement {
         let button = |id: &'static str, label: &'static str| {
             div()
                 .id(id)
@@ -284,24 +282,29 @@ impl LaneHost {
                 .hover(|s| s.bg(theme::hairline()))
                 .child(label)
         };
-        rows.push(
-            div()
-                .flex()
-                .gap(px(4.))
-                .px(px(8.))
-                .pt(px(10.))
-                .child(button("new-lane", "+ New lane").on_click(cx.listener(
-                    |this, _, window, cx| {
-                        this.ask(rvw_view::palette::Action::NewWorktree, window, cx);
-                    },
-                )))
-                .child(button("archive-lane", "Archive…").on_click(cx.listener(
-                    |this, _, window, cx| {
-                        this.ask(rvw_view::palette::Action::RemoveWorktree, window, cx);
-                    },
-                )))
-                .into_any_element(),
-        );
+        div()
+            .flex()
+            .gap(px(4.))
+            .px(px(8.))
+            .pt(px(10.))
+            .child(
+                button("new-lane", "+ New lane").on_click(cx.listener(|this, _, window, cx| {
+                    this.ask(rvw_view::palette::Action::NewWorktree, window, cx);
+                })),
+            )
+            .child(button("archive-lane", "Archive…").on_click(cx.listener(
+                |this, _, window, cx| {
+                    this.ask(rvw_view::palette::Action::RemoveWorktree, window, cx);
+                },
+            )))
+            .into_any_element()
+    }
+
+    fn sidebar_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let sidebar = self.sidebar(cx);
+        let active_path = self.open[self.active].workspace.clone();
+        let mut rows = Vec::new();
+        rows.push(Self::sidebar_buttons(cx));
         for group in &sidebar.projects {
             rows.push(
                 div()
