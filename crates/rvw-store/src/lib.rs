@@ -17,7 +17,8 @@ use tx::SqlTx;
 
 const SCHEMA: &str = include_str!("schema.sql");
 const SCHEMA_V2: &str = include_str!("v2.sql");
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_V3: &str = include_str!("v3.sql");
+const SCHEMA_VERSION: i64 = 3;
 
 /// Maps a SQLite failure to the internal error every store failure becomes.
 fn internal(e: impl std::fmt::Display) -> Error {
@@ -150,8 +151,9 @@ fn workspace_id(tx: &Transaction<'_>, workspace: &str, create: bool) -> Result<i
 }
 
 /// Sets the connection's pragmas and brings the schema up to date, all in one
-/// immediate transaction. A fresh database (version 0) gets `schema.sql` and
-/// then `v2.sql`; a version 1 database gets `v2.sql` alone.
+/// immediate transaction. Each version applies the files after it: a fresh
+/// database (version 0) gets `schema.sql`, `v2.sql` and `v3.sql`; version 1 gets
+/// `v2.sql` and `v3.sql`; version 2 gets `v3.sql` alone.
 fn migrate(conn: &mut Connection, path: &Path) -> Result<()> {
     conn.pragma_update(None, "busy_timeout", 10_000)
         .map_err(internal)?;
@@ -178,7 +180,12 @@ fn migrate(conn: &mut Connection, path: &Path) -> Result<()> {
     if version < 1 {
         tx.execute_batch(SCHEMA).map_err(internal)?;
     }
-    tx.execute_batch(SCHEMA_V2).map_err(internal)?;
+    if version < 2 {
+        tx.execute_batch(SCHEMA_V2).map_err(internal)?;
+    }
+    if version < 3 {
+        tx.execute_batch(SCHEMA_V3).map_err(internal)?;
+    }
     tx.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))
         .map_err(internal)?;
     tx.commit().map_err(internal)
@@ -266,8 +273,8 @@ mod tests {
 
     use rusqlite::Connection;
     use rvw_core::types::{
-        Actor, Comment, GateOverride, Location, Review, ReviewStatus, Status, Verdict, VerdictKind,
-        comment_id, review_id,
+        Actor, Comment, GateOverride, Location, Review, ReviewStatus, Session, Status, Verdict,
+        VerdictKind, comment_id, review_id,
     };
     use rvw_core::{Error, ErrorKind, Repository, Result, Tx};
     use tempfile::TempDir;
@@ -355,7 +362,7 @@ mod tests {
         let version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
     }
 
     #[test]
@@ -364,13 +371,13 @@ mod tests {
         let path = dir.path().join("rvw.db");
         {
             let conn = Connection::open(&path).unwrap();
-            conn.pragma_update(None, "user_version", 3).unwrap();
+            conn.pragma_update(None, "user_version", 4).unwrap();
         }
         let err = Store::open(&path).err().expect("open must fail");
         assert_eq!(
             err,
             Error::internal(format!(
-                "cannot prepare {}: schema version 3 is newer than this rvw understands (2)",
+                "cannot prepare {}: schema version 4 is newer than this rvw understands (3)",
                 path.display()
             ))
         );
@@ -448,26 +455,29 @@ mod tests {
         vec![one, two, three]
     }
 
-    /// Every column of `comments` and the names of all tables, as SQLite
-    /// describes them.
-    fn schema_of(path: &Path) -> (Vec<String>, Vec<String>) {
+    /// Builds a version 2 database the way the v2 binary left it: the v1 rows,
+    /// a verdict on one comment and a recorded gate override.
+    fn build_v2(path: &Path) {
+        build_v1(path);
         let conn = Connection::open(path).unwrap();
-        let mut stmt = conn.prepare("PRAGMA table_info(comments)").unwrap();
-        let columns = stmt
-            .query_map([], |row| {
-                Ok(format!(
-                    "{}|{}|{}|{}|{}|{}",
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, Option<String>>(4)?.unwrap_or_default(),
-                    row.get::<_, i64>(5)?
-                ))
-            })
-            .unwrap()
-            .collect::<rusqlite::Result<Vec<String>>>()
-            .unwrap();
+        conn.execute_batch(super::SCHEMA_V2).unwrap();
+        conn.pragma_update(None, "user_version", 2).unwrap();
+        conn.execute_batch(
+            "UPDATE comments SET verdict = 'accepted', verdict_by = 'bo', \
+                 verdict_actor = 'human', verdict_at = '2026-01-05T00:00:00+00:00', \
+                 verdict_note = 'good' WHERE workspace_id = 1 AND seq = 2;
+             INSERT INTO gate_overrides (workspace_id, seq, at, lane, action, reason, author, \
+                 actor, open, unjudged) VALUES \
+                 (1, 1, '2026-01-06T00:00:00+00:00', NULL, 'commit', 'shipping anyway', 'ana', \
+                 'human', 'r1 r2', '');",
+        )
+        .unwrap();
+    }
+
+    /// Every table and column of the database as SQLite describes them, one
+    /// line each, so a fresh schema and an upgraded one compare equal.
+    fn schema_of(path: &Path) -> Vec<String> {
+        let conn = Connection::open(path).unwrap();
         let mut stmt = conn
             .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
             .unwrap();
@@ -476,7 +486,30 @@ mod tests {
             .unwrap()
             .collect::<rusqlite::Result<Vec<String>>>()
             .unwrap();
-        (columns, tables)
+        let mut lines = Vec::new();
+        for table in tables {
+            lines.push(format!("table {table}"));
+            let mut stmt = conn
+                .prepare(&format!("PRAGMA table_info({table})"))
+                .unwrap();
+            let columns = stmt
+                .query_map([], |row| {
+                    Ok(format!(
+                        "{table}.{}|{}|{}|{}|{}|{}",
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                        row.get::<_, i64>(5)?
+                    ))
+                })
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<String>>>()
+                .unwrap();
+            lines.extend(columns);
+        }
+        lines
     }
 
     #[test]
@@ -514,6 +547,14 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM comments", [], |row| row.get(0))
             .unwrap();
         assert_eq!(rows, 3);
+        let conn = Connection::open(&path).unwrap();
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            version, 3,
+            "the upgraded database is at the current version"
+        );
     }
 
     #[test]
@@ -526,8 +567,68 @@ mod tests {
         drop(Store::open(&upgraded).unwrap());
 
         assert_eq!(schema_of(&fresh), schema_of(&upgraded));
-        assert!(schema_of(&fresh).1.contains(&"gate_overrides".to_owned()));
+        assert!(schema_of(&fresh).contains(&"table gate_overrides".to_owned()));
+        assert!(schema_of(&fresh).contains(&"table sessions".to_owned()));
+        assert!(schema_of(&fresh).contains(&"table session_commits".to_owned()));
         assert!(!dir.path().join("fresh.db.v1.bak").exists());
+    }
+
+    #[test]
+    fn upgrading_v2_keeps_every_row_and_writes_no_backup() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("rvw.db");
+        build_v2(&path);
+
+        let mut verdicted = v1_comments();
+        verdicted[1].verdict = Some(Verdict {
+            kind: VerdictKind::Accepted,
+            by: "bo".to_owned(),
+            actor: Actor::Human,
+            at: "2026-01-05T00:00:00+00:00".to_owned(),
+            note: Some("good".to_owned()),
+            followup: None,
+        });
+        let overrides = vec![GateOverride {
+            workspace: WS.to_owned(),
+            lane: None,
+            action: "commit".to_owned(),
+            reason: "shipping anyway".to_owned(),
+            by: "ana".to_owned(),
+            actor: Actor::Human,
+            at: "2026-01-06T00:00:00+00:00".to_owned(),
+            open: vec!["r1".to_owned(), "r2".to_owned()],
+            unjudged: Vec::new(),
+        }];
+
+        let store = Store::open(&path).unwrap();
+        assert_eq!(comments_of(&store, WS), verdicted);
+        store
+            .view(WS, &mut |tx: &mut dyn Tx| {
+                assert_eq!(tx.overrides()?, overrides);
+                let rv = tx.review("rv1")?.expect("rv1 survives the upgrade");
+                assert_eq!(rv.comment_ids, vec!["r3", "r1"]);
+                Ok(())
+            })
+            .unwrap();
+        store
+            .update(WS, &mut |tx: &mut dyn Tx| {
+                let report = report("s1", "2026-01-05T09:00:00+00:00", &["a1b2c3d"]);
+                tx.insert_session(WS, &report)?;
+                assert_eq!(tx.session(WS, "s1")?, Some(report.clone()));
+                Ok(())
+            })
+            .unwrap();
+        drop(store);
+
+        assert!(
+            !dir.path().join("rvw.db.v1.bak").exists(),
+            "no v1 backup for v2"
+        );
+        let conn = Connection::open(&path).unwrap();
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 3);
     }
 
     #[test]
@@ -915,5 +1016,148 @@ mod tests {
 
         let store = Store::open(&path).unwrap();
         assert_eq!(comments_of(&store, WS).len(), N);
+    }
+
+    /// A session as an agent reports it, with the given commits in order.
+    fn report(id: &str, reported_at: &str, commits: &[&str]) -> Session {
+        Session {
+            session_id: id.to_owned(),
+            tool: "claude-code".to_owned(),
+            model: "claude-haiku-5-5".to_owned(),
+            summary: Some(format!("work in {id}")),
+            commits: commits.iter().map(|c| (*c).to_owned()).collect(),
+            reported_at: reported_at.to_owned(),
+        }
+    }
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn session_round_trips_with_its_commits_in_report_order() {
+        let (_dir, store) = fresh();
+        let mut bare = report("s2", "2026-01-02T00:00:00+00:00", &[]);
+        bare.summary = None;
+        let full = report("s1", "2026-01-01T00:00:00+00:00", &["c3d4e5f", "a1b2c3d"]);
+        store
+            .update(WS, &mut |tx: &mut dyn Tx| {
+                tx.insert_session(WS, &full)?;
+                tx.insert_session(WS, &bare)
+            })
+            .unwrap();
+        store
+            .view(WS, &mut |tx: &mut dyn Tx| {
+                assert_eq!(tx.session(WS, "s1")?, Some(full.clone()));
+                assert_eq!(tx.session(WS, "s2")?, Some(bare.clone()));
+                assert_eq!(tx.session(WS, "s3")?, None);
+                Ok(())
+            })
+            .unwrap();
+        store
+            .view("/elsewhere", &mut |tx: &mut dyn Tx| {
+                assert_eq!(tx.session("/elsewhere", "s1")?, None);
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn a_repeated_session_id_is_refused_and_changes_nothing() {
+        let (_dir, store) = fresh();
+        store
+            .update(WS, &mut |tx: &mut dyn Tx| {
+                tx.insert_session(WS, &report("s1", "2026-01-01T00:00:00+00:00", &["a1"]))
+            })
+            .unwrap();
+        let second = store.update(WS, &mut |tx: &mut dyn Tx| {
+            tx.insert_session(WS, &report("s1", "2026-01-09T00:00:00+00:00", &["b2"]))
+        });
+        assert!(second.is_err());
+        store
+            .view(WS, &mut |tx: &mut dyn Tx| {
+                let kept = tx.session(WS, "s1")?.expect("first report kept");
+                assert_eq!(kept.commits, strings(&["a1"]));
+                assert_eq!(kept.reported_at, "2026-01-01T00:00:00+00:00");
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn added_commits_skip_stored_ones_and_keep_report_order() {
+        let (_dir, store) = fresh();
+        store
+            .update(WS, &mut |tx: &mut dyn Tx| {
+                tx.insert_session(
+                    WS,
+                    &report("s1", "2026-01-01T00:00:00+00:00", &["c1", "c2"]),
+                )?;
+                tx.add_session_commits(WS, "s1", &strings(&["c2", "c3", "c1", "c4", "c4"]))?;
+                tx.add_session_commits(WS, "s1", &[])
+            })
+            .unwrap();
+        store
+            .view(WS, &mut |tx: &mut dyn Tx| {
+                let s = tx.session(WS, "s1")?.expect("s1 stored");
+                assert_eq!(s.commits, strings(&["c1", "c2", "c3", "c4"]));
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn adding_commits_to_an_unknown_session_is_an_error() {
+        let (_dir, store) = fresh();
+        let added = store.update(WS, &mut |tx: &mut dyn Tx| {
+            tx.add_session_commits(WS, "ghost", &strings(&["c1"]))
+        });
+        assert!(added.is_err());
+        let empty = store.update(WS, &mut |tx: &mut dyn Tx| {
+            tx.add_session_commits(WS, "ghost", &[])
+        });
+        assert!(empty.is_err(), "an empty list still needs a known session");
+    }
+
+    #[test]
+    fn sessions_list_newest_report_first_then_by_id_per_workspace() {
+        let (_dir, store) = fresh();
+        store
+            .update(WS, &mut |tx: &mut dyn Tx| {
+                tx.insert_session(WS, &report("old", "2026-01-01T00:00:00+00:00", &["x1"]))?;
+                tx.insert_session(WS, &report("b", "2026-01-02T00:00:00+00:00", &[]))?;
+                tx.insert_session(WS, &report("a", "2026-01-02T00:00:00+00:00", &["y1", "y2"]))?;
+                tx.insert_session(WS, &report("new", "2026-01-03T00:00:00+00:00", &[]))
+            })
+            .unwrap();
+        store
+            .update("/elsewhere", &mut |tx: &mut dyn Tx| {
+                tx.insert_session(
+                    "/elsewhere",
+                    &report("other", "2026-01-09T00:00:00+00:00", &[]),
+                )
+            })
+            .unwrap();
+        store
+            .view(WS, &mut |tx: &mut dyn Tx| {
+                let ids: Vec<String> = tx.sessions(WS)?.into_iter().map(|s| s.session_id).collect();
+                assert_eq!(ids, strings(&["new", "a", "b", "old"]));
+                let a = tx.sessions(WS)?.into_iter().nth(1).expect("second session");
+                assert_eq!(a.commits, strings(&["y1", "y2"]));
+                Ok(())
+            })
+            .unwrap();
+        store
+            .view("/elsewhere", &mut |tx: &mut dyn Tx| {
+                assert_eq!(tx.sessions("/elsewhere")?.len(), 1);
+                Ok(())
+            })
+            .unwrap();
+        store
+            .view("/nowhere", &mut |tx: &mut dyn Tx| {
+                assert!(tx.sessions("/nowhere")?.is_empty());
+                Ok(())
+            })
+            .unwrap();
     }
 }

@@ -1038,15 +1038,25 @@ pub(crate) mod testing {
 
     use crate::error::{Error, Result};
     use crate::repository::{Repository, Tx};
-    use crate::types::{Comment, GateOverride, Review, ReviewStatus, Status};
+    use crate::types::{Comment, GateOverride, Review, ReviewStatus, Session, Status};
 
     #[derive(Default, Clone)]
     struct WorkspaceData {
         overrides: Vec<GateOverride>,
         comments: Vec<Comment>,
         reviews: Vec<Review>,
+        sessions: Vec<Session>,
         comment_seq: i64,
         review_seq: i64,
+    }
+
+    /// Appends the commits not already in `into`, in the order given.
+    fn append_new(into: &mut Vec<String>, commits: &[String]) {
+        for commit in commits {
+            if !into.contains(commit) {
+                into.push(commit.clone());
+            }
+        }
     }
 
     #[derive(Default)]
@@ -1196,6 +1206,68 @@ pub(crate) mod testing {
 
         fn overrides(&mut self) -> Result<Vec<GateOverride>> {
             Ok(self.data.overrides.clone())
+        }
+
+        // Each copy holds one workspace's data, so the workspace argument has
+        // nothing to select here.
+        fn session(&self, _workspace: &str, session_id: &str) -> Result<Option<Session>> {
+            Ok(self
+                .data
+                .sessions
+                .iter()
+                .find(|s| s.session_id == session_id)
+                .cloned())
+        }
+
+        fn insert_session(&mut self, _workspace: &str, s: &Session) -> Result<()> {
+            if self
+                .data
+                .sessions
+                .iter()
+                .any(|x| x.session_id == s.session_id)
+            {
+                return Err(Error::internal(format!(
+                    "session {} is already stored",
+                    s.session_id
+                )));
+            }
+            let mut stored = Session {
+                commits: Vec::new(),
+                ..s.clone()
+            };
+            append_new(&mut stored.commits, &s.commits);
+            self.data.sessions.push(stored);
+            Ok(())
+        }
+
+        fn add_session_commits(
+            &mut self,
+            _workspace: &str,
+            session_id: &str,
+            commits: &[String],
+        ) -> Result<()> {
+            match self
+                .data
+                .sessions
+                .iter_mut()
+                .find(|s| s.session_id == session_id)
+            {
+                Some(s) => {
+                    append_new(&mut s.commits, commits);
+                    Ok(())
+                }
+                None => Err(Error::internal(format!("no session {session_id}"))),
+            }
+        }
+
+        fn sessions(&self, _workspace: &str) -> Result<Vec<Session>> {
+            let mut all = self.data.sessions.clone();
+            all.sort_by(|a, b| {
+                b.reported_at
+                    .cmp(&a.reported_at)
+                    .then_with(|| a.session_id.cmp(&b.session_id))
+            });
+            Ok(all)
         }
     }
 

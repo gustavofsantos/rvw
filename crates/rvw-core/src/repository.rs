@@ -2,7 +2,7 @@
 //! `update`, so concurrent editors and agents serialize on it.
 
 use crate::error::Result;
-use crate::types::{Comment, GateOverride, Review, ReviewStatus, Status};
+use crate::types::{Comment, GateOverride, Review, ReviewStatus, Session, Status};
 
 pub trait Repository: Send + Sync {
     /// Runs `f` in one write transaction on the workspace, creating the
@@ -46,4 +46,21 @@ pub trait Tx {
     fn insert_override(&mut self, o: &GateOverride) -> Result<()>;
     /// Every recorded override of the workspace, oldest first.
     fn overrides(&mut self) -> Result<Vec<GateOverride>>;
+
+    /// The session with this id, its commits in report order; `Ok(None)` when
+    /// the workspace has no such session.
+    fn session(&self, workspace: &str, session_id: &str) -> Result<Option<Session>>;
+    /// Stores a new session and its commits. Errors when the id is already
+    /// stored in the workspace.
+    fn insert_session(&mut self, workspace: &str, s: &Session) -> Result<()>;
+    /// Appends commits to a stored session in the order given. A commit the
+    /// session already has is ignored. Errors when the session is unknown.
+    fn add_session_commits(
+        &mut self,
+        workspace: &str,
+        session_id: &str,
+        commits: &[String],
+    ) -> Result<()>;
+    /// Every session of the workspace, newest report first, then by session id.
+    fn sessions(&self, workspace: &str) -> Result<Vec<Session>>;
 }

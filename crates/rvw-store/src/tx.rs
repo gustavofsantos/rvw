@@ -4,12 +4,14 @@
 use rusqlite::types::{Type, Value};
 use rusqlite::{OptionalExtension, Row, Transaction, params, params_from_iter};
 use rvw_core::types::{
-    Actor, Comment, GateOverride, Location, Review, ReviewStatus, Status, Verdict, VerdictKind,
-    comment_id, parse_seq, review_id,
+    Actor, Comment, GateOverride, Location, Review, ReviewStatus, Session, Status, Verdict,
+    VerdictKind, comment_id, parse_seq, review_id,
 };
 use rvw_core::{Error, Result, Tx};
 
-use crate::internal;
+use crate::{internal, workspace_id};
+
+const SESSION_COLUMNS: &str = "session_id, tool, model, summary, reported_at";
 
 // The v2 columns come last, after l.review_seq, so the positional indexes that
 // scan_comment reads for the v1 columns do not move.
@@ -359,6 +361,133 @@ impl Tx for SqlTx<'_> {
             .map_err(internal)?;
         Ok(overrides)
     }
+
+    fn session(&self, workspace: &str, session_id: &str) -> Result<Option<Session>> {
+        let ws_id = workspace_id(&self.tx, workspace, false)?;
+        let sql = format!(
+            "SELECT {SESSION_COLUMNS} FROM sessions WHERE workspace_id = ? AND session_id = ?"
+        );
+        let Some(mut session) = self
+            .tx
+            .query_row(&sql, params![ws_id, session_id], scan_session)
+            .optional()
+            .map_err(internal)?
+        else {
+            return Ok(None);
+        };
+        session.commits = session_commits(&self.tx, ws_id, session_id)?;
+        Ok(Some(session))
+    }
+
+    fn insert_session(&mut self, workspace: &str, s: &Session) -> Result<()> {
+        let ws_id = workspace_id(&self.tx, workspace, false)?;
+        self.tx
+            .execute(
+                "INSERT INTO sessions (workspace_id, session_id, tool, model, summary, reported_at) \
+                 VALUES (?, ?, ?, ?, ?, ?)",
+                params![ws_id, s.session_id, s.tool, s.model, s.summary, s.reported_at],
+            )
+            .map_err(internal)?;
+        add_commits(&self.tx, ws_id, &s.session_id, &s.commits)
+    }
+
+    fn add_session_commits(
+        &mut self,
+        workspace: &str,
+        session_id: &str,
+        commits: &[String],
+    ) -> Result<()> {
+        let ws_id = workspace_id(&self.tx, workspace, false)?;
+        let known: bool = self
+            .tx
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM sessions WHERE workspace_id = ? AND session_id = ?)",
+                params![ws_id, session_id],
+                |row| row.get(0),
+            )
+            .map_err(internal)?;
+        if !known {
+            return Err(Error::internal(format!("no session {session_id}")));
+        }
+        add_commits(&self.tx, ws_id, session_id, commits)
+    }
+
+    fn sessions(&self, workspace: &str) -> Result<Vec<Session>> {
+        let ws_id = workspace_id(&self.tx, workspace, false)?;
+        let sql = format!(
+            "SELECT {SESSION_COLUMNS} FROM sessions WHERE workspace_id = ? \
+             ORDER BY reported_at DESC, session_id"
+        );
+        let mut stmt = self.tx.prepare(&sql).map_err(internal)?;
+        let mut sessions = stmt
+            .query_map(params![ws_id], scan_session)
+            .map_err(internal)?
+            .collect::<rusqlite::Result<Vec<Session>>>()
+            .map_err(internal)?;
+        for s in &mut sessions {
+            s.commits = session_commits(&self.tx, ws_id, &s.session_id)?;
+        }
+        Ok(sessions)
+    }
+}
+
+/// Appends `commits` to a session after the ones it has. A commit already
+/// stored is skipped and takes no position, so report order holds.
+fn add_commits(
+    tx: &Transaction<'_>,
+    ws_id: i64,
+    session_id: &str,
+    commits: &[String],
+) -> Result<()> {
+    let mut next: i64 = tx
+        .query_row(
+            "SELECT COALESCE(MAX(position) + 1, 0) FROM session_commits \
+             WHERE workspace_id = ? AND session_id = ?",
+            params![ws_id, session_id],
+            |row| row.get(0),
+        )
+        .map_err(internal)?;
+    for commit in commits {
+        let added = tx
+            .execute(
+                "INSERT OR IGNORE INTO session_commits (workspace_id, session_id, commit_id, position) \
+                 VALUES (?, ?, ?, ?)",
+                params![ws_id, session_id, commit, next],
+            )
+            .map_err(internal)?;
+        if added > 0 {
+            next += 1;
+        }
+    }
+    Ok(())
+}
+
+/// The commit ids a session reported, in report order.
+fn session_commits(tx: &Transaction<'_>, ws_id: i64, session_id: &str) -> Result<Vec<String>> {
+    let mut stmt = tx
+        .prepare(
+            "SELECT commit_id FROM session_commits \
+             WHERE workspace_id = ? AND session_id = ? ORDER BY position",
+        )
+        .map_err(internal)?;
+    let commits = stmt
+        .query_map(params![ws_id, session_id], |row| row.get::<_, String>(0))
+        .map_err(internal)?
+        .collect::<rusqlite::Result<Vec<String>>>()
+        .map_err(internal)?;
+    Ok(commits)
+}
+
+/// A session's own columns; its commits are filled in by the caller.
+fn scan_session(row: &Row<'_>) -> rusqlite::Result<Session> {
+    Ok(Session {
+        session_id: row.get(0)?,
+        tool: row.get(1)?,
+        model: row.get(2)?,
+        summary: row.get(3)?,
+        commits: Vec::new(),
+        reported_at: row.get(4)?,
+    })
 }
 
 /// The sequence number of a comment id, or an internal error for a malformed one.
