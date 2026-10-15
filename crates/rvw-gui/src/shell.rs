@@ -19,14 +19,15 @@ use rvw_view::queue::{Filter, Queue, State};
 use rvw_view::selection::Pos;
 use rvw_view::viewmode::ViewMode;
 
-use crate::changes_state::{ChangesState, CommitChanges, RestoreLatest};
+use crate::changes_state::{ChangesState, CommitChanges};
 use crate::code_caret::{CodeCaret, CopyCode};
 use crate::composer::Composer;
 use crate::data::{self, Identity, Snapshot};
 use crate::diff_list::DiffList;
 use crate::diff_list::drag::DragState;
+use crate::disk_card::DiskCard;
 use crate::draft_edit::Removal;
-use crate::editing::Edit;
+use crate::editing::{Edit, SaveFile};
 use crate::file_view;
 use crate::files_panel::{self, FileList};
 use crate::finder::{self, Finder, OpenFinder};
@@ -110,6 +111,11 @@ pub struct Shell {
     pub(crate) reveal_caret: bool,
     /// A message shown at the foot of the window, such as a refused action.
     pub(crate) edit_notice: Option<String>,
+    /// The card for an open file whose disk copy moved or went; see `disk_card`.
+    pub(crate) disk_card: Option<DiskCard>,
+    /// An Edit asked for: the file and the line its caret goes to, placed once
+    /// the file is shown in its whole-file view; see `editing::apply_edit_jump`.
+    pub(crate) edit_jump: Option<(String, usize)>,
     /// The delete the right panel offers to undo, or why one failed.
     pub(crate) removal: Option<Removal>,
     /// Keeps the Changes list's row in view when the keyboard moves.
@@ -166,9 +172,10 @@ impl Shell {
             && !self.terminal_focused(window, cx)
     }
 
-    /// Whether a modal card (the history edit or the commit gate) is open.
+    /// Whether a modal card (the history edit, the commit gate or the disk
+    /// card) is open.
     fn card_open(&self) -> bool {
-        self.rewrite.is_some() || self.gate.is_some()
+        self.rewrite.is_some() || self.gate.is_some() || self.disk_card_open()
     }
 
     /// Opens on the review screen when the workspace has changes, with its
@@ -233,6 +240,8 @@ impl Shell {
             edit_revision: 0,
             reveal_caret: false,
             edit_notice: None,
+            disk_card: None,
+            edit_jump: None,
             removal: None,
             changes_scroll: UniformListScrollHandle::new(),
             files_scroll: UniformListScrollHandle::new(),
@@ -338,6 +347,13 @@ impl Shell {
             return;
         };
         self.overlay_edit(&mut selected);
+        if self
+            .edit_jump
+            .as_ref()
+            .is_some_and(|(path, _)| *path != request.path)
+        {
+            self.edit_jump = None;
+        }
         if switched {
             self.file_modes.insert(request.path, request.mode);
             // Row indices differ between the modes, so the list starts at the top.
@@ -572,6 +588,14 @@ impl Shell {
             }
             return;
         }
+        // The disk card takes the keys while it is up: Esc closes a card for a
+        // missing file, and nothing reaches the buffer behind it.
+        if self.disk_card_open() && event.keystroke.modifiers.number_of_modifiers() == 0 {
+            if event.keystroke.key == "escape" {
+                self.close_disk_card(cx);
+            }
+            return;
+        }
         // With the caret in an editable file, the keys type into it, before
         // the window's own single keys (C, J, K) see them.
         if self.no_field_open(window, cx)
@@ -622,10 +646,39 @@ impl Shell {
         let on_review = matches!(self.screen, Screen::Diff | Screen::Files);
         match event.keystroke.key.as_str() {
             "c" if on_review => self.open_composer(window, cx),
+            "e" if on_review => self.edit_here(cx),
             "j" | "down" => self.step_file(1, cx),
             "k" | "up" => self.step_file(-1, cx),
             _ => {}
         }
+    }
+
+    /// ⌘C: copies the code's selection, outside a focused terminal or field.
+    fn on_copy_code(&mut self, _: &CopyCode, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.terminal_focused(window, cx) && !self.message_focused(window, cx) {
+            self.copy_code(cx);
+        }
+    }
+
+    /// ⌘S: writes the open file's unsaved edits, outside the text fields and the terminal.
+    pub(crate) fn on_save_file(
+        &mut self,
+        _: &SaveFile,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.terminal_focused(window, cx) && !self.message_focused(window, cx) {
+            self.save_file(cx);
+        }
+    }
+
+    /// Whether the Edit action is offered on the open file: it is a changed
+    /// file's diff, editable as text, with no Compare open.
+    pub(crate) fn edit_offered(&self) -> bool {
+        self.tools.compare.is_none()
+            && self.selected.as_ref().is_some_and(|selected| {
+                selected.editing.offered() && selected.changed && selected.mode == ViewMode::Diff
+            })
     }
 
     /// Selecting the state already shown clears it.
@@ -687,6 +740,7 @@ impl Shell {
             self.sync_highlights(cx);
         }
         self.sync_diff_list(window);
+        self.apply_edit_jump();
         self.reveal_pending_caret();
     }
 }
@@ -767,22 +821,12 @@ impl Render for Shell {
                 }
                 this.commit_changes(cx);
             }))
-            .on_action(cx.listener(|this: &mut Self, _: &RestoreLatest, _, cx| {
-                // ⌘Z undoes an edit of the open file; otherwise it restores.
-                if !this.edit_history(false, cx) {
-                    this.restore_latest(cx);
-                }
-            }))
+            .on_action(cx.listener(Self::on_restore_latest))
             .on_action(cx.listener(Self::on_edit_redo))
+            .on_action(cx.listener(Self::on_save_file))
             .on_action(cx.listener(Self::on_edit_cut))
             .on_action(cx.listener(Self::on_edit_paste))
-            .on_action(cx.listener(|this: &mut Self, _: &CopyCode, window, cx| {
-                // A focused terminal or field has its own copy; this is the code's.
-                if this.terminal_focused(window, cx) || this.message_focused(window, cx) {
-                    return;
-                }
-                this.copy_code(cx);
-            }))
+            .on_action(cx.listener(Self::on_copy_code))
             .on_action(cx.listener(Self::on_toggle_left_panel))
             .on_action(cx.listener(Self::on_toggle_right_panel))
             .on_action(cx.listener(Self::on_toggle_terminal))
@@ -799,7 +843,11 @@ impl Render for Shell {
             )
             .children(self.tool_overlays(cx))
             .children(self.rewrite_overlay(cx))
-            .children(self.gate_overlay(cx))
+            .children(
+                self.gate_overlay(cx)
+                    .into_iter()
+                    .chain(self.disk_overlay(cx)),
+            )
             .children(self.edit_notice.as_deref().map(notice_toast))
             .children(resize_layer)
     }
@@ -948,6 +996,7 @@ impl Shell {
                     self.diff_list.as_ref(),
                     self.split_available().then_some(self.tools.split),
                     self.show_resolved,
+                    self.edit_offered(),
                     cx,
                 ),
                 right: crate::draft_panel::right(&self.snapshot, self.removal.as_ref(), cx),

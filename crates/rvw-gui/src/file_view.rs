@@ -15,7 +15,7 @@ use rvw_view::selection::Selection;
 use rvw_view::viewmode::{self, ViewMode};
 
 use crate::data::Snapshot;
-use crate::review_screen::Selected;
+use crate::review_screen::{Editing, Selected};
 use crate::shell::Shell;
 use crate::theme;
 
@@ -56,13 +56,23 @@ fn whole(workspace: &str, base_id: &str, path: &str, changed: bool) -> Selected 
     };
     Selected {
         path: path.to_owned(),
-        diff,
         selection: Selection::default(),
         outside: !changed,
         cut,
         mode: ViewMode::File,
         changed,
+        editing: Editing::of(diff.is_ok() && !cut, false),
+        diff,
     }
+}
+
+/// Whether the file at `path` is text the whole-file view can edit: its bytes
+/// are text, within the size cap, and not cut short.
+pub(crate) fn editable_text(dir: &Path, path: &str) -> bool {
+    read(dir, path).is_ok_and(|bytes| {
+        matches!(context::shown(&bytes), Shown::Text { cut: false, .. })
+            && std::str::from_utf8(&bytes).is_ok()
+    })
 }
 
 /// Reads `path` for the centre in `wanted` mode from plain inputs, so it can

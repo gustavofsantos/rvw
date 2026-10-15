@@ -10,21 +10,26 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Arc;
 
-use gpui::{App, ClipboardItem, Context, KeyBinding, Modifiers, Window, actions};
+use gpui::prelude::*;
+use gpui::{App, ClipboardItem, Context, Div, KeyBinding, Modifiers, Window, actions, div, px};
 use rvw_view::context::{self, Shown};
 use rvw_view::diff::{FileDiff, Hunk, Line, LineKind};
 use rvw_view::filebuf::{DiskState, FileBuf};
 use rvw_view::filesave;
 use rvw_view::keys::Screen;
+use rvw_view::selection::Pos;
 use rvw_view::textpos::TextPos;
 use rvw_view::viewmode::ViewMode;
 
+use crate::changes_state::RestoreLatest;
+use crate::disk_card::{self, DiskCard, Need, SaveFailure};
 use crate::file_view;
 use crate::highlights::Highlighter;
-use crate::review_screen::Selected;
+use crate::review_screen::{Editing, Selected};
 use crate::shell::Shell;
+use crate::theme;
 
-actions!(rvw_edit, [EditCut, EditPaste, EditRedo]);
+actions!(rvw_edit, [EditCut, EditPaste, EditRedo, SaveFile]);
 
 /// The message when a comment is asked for on a file with unsaved edits.
 pub const SAVE_FIRST: &str =
@@ -39,6 +44,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-x", EditCut, context),
         KeyBinding::new("secondary-v", EditPaste, context),
         KeyBinding::new("secondary-shift-z", EditRedo, context),
+        KeyBinding::new("secondary-s", SaveFile, context),
     ]);
 }
 
@@ -48,6 +54,91 @@ pub struct Edit {
     pub buf: FileBuf,
     pub marks: BTreeSet<u32>,
     dirty: bool,
+    /// The blob id the buffer saves against, when it is not the buffer's own:
+    /// set by Keep mine to the disk's blob, cleared by a save.
+    pub base: Option<String>,
+    /// The reviewer closed the card for a file that is gone.
+    pub gone_acked: bool,
+    /// Whether the rows show the empty line after a final line break.
+    tail: bool,
+}
+
+impl Edit {
+    /// The blob id the buffer's save is made against.
+    fn base(&self) -> &str {
+        self.base
+            .as_deref()
+            .unwrap_or_else(|| self.buf.loaded_blob())
+    }
+}
+
+/// The message that names unsaved files, for the quit question.
+/// `None` when neither the terminals nor the files need a question.
+pub fn quit_question(terminals: Option<String>, unsaved: &[String]) -> Option<String> {
+    if unsaved.is_empty() {
+        return terminals;
+    }
+    let names = unsaved
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let edits = format!("Unsaved edits in {names} will be discarded.");
+    Some(match terminals {
+        Some(running) => format!("{running} {edits}"),
+        None => edits,
+    })
+}
+
+/// A small dot for a file with unsaved edits.
+pub fn dirty_dot() -> Div {
+    div()
+        .w(px(6.))
+        .h(px(6.))
+        .flex_none()
+        .rounded_full()
+        .bg(theme::ink())
+}
+
+/// The diff row at `flat`, counted over every line of every hunk, as the
+/// code caret counts them.
+pub fn line_pos(diff: &FileDiff, flat: usize) -> Option<Pos> {
+    let mut rest = flat;
+    for (hunk, shown) in diff.hunks.iter().enumerate() {
+        if rest < shown.lines.len() {
+            return Some(Pos { hunk, line: rest });
+        }
+        rest -= shown.lines.len();
+    }
+    None
+}
+
+/// The file line (0-based) an Edit lands on for the diff row `at`: the row's
+/// new-file line, or the nearest line above it that has one. A removed line
+/// with none above it, and no row at all, land on the first line.
+pub fn edit_line(diff: &FileDiff, at: Option<Pos>) -> usize {
+    let Some(at) = at else {
+        return 0;
+    };
+    let Some(shown) = diff.hunks.get(at.hunk) else {
+        return 0;
+    };
+    shown
+        .lines
+        .iter()
+        .take(at.line.saturating_add(1))
+        .rev()
+        .find_map(|line| line.new_no)
+        .map_or(0, |no| (no as usize).saturating_sub(1))
+}
+
+/// Whether the rows show the empty line after the file's last line break. It
+/// is shown only when the caret or the selection's anchor is on it, so that a
+/// file ending in a newline has no extra row to type into.
+pub fn shows_tail(buf: &FileBuf) -> bool {
+    let last = buf.line_count() - 1;
+    let (anchor, head) = buf.caret();
+    last == 0 || !buf.line(last).is_empty() || anchor.0 == last || head.0 == last
 }
 
 /// A caret motion.
@@ -145,8 +236,14 @@ pub fn apply(buf: &mut FileBuf, command: &Command) -> bool {
 
 /// The buffer's lines as a diff: one hunk, every line a context line except
 /// the numbers in `marks`, which are added lines as the change marked them.
+/// The empty line after a final line break is left out unless `shows_tail`.
 pub fn rows(buf: &FileBuf, marks: &BTreeSet<u32>) -> FileDiff {
-    let lines: Vec<Line> = (0..buf.line_count())
+    let count = if shows_tail(buf) {
+        buf.line_count()
+    } else {
+        buf.line_count() - 1
+    };
+    let lines: Vec<Line> = (0..count)
         .map(|index| {
             let no = u32::try_from(index + 1).unwrap_or(u32::MAX);
             let added = marks.contains(&no);
@@ -304,12 +401,16 @@ impl Shell {
         if let Some((anchor, head)) = self.code_caret.ends() {
             apply_caret(&mut buf, anchor, head);
         }
+        let tail = shows_tail(&buf);
         self.edits.insert(
             path,
             Edit {
                 buf,
                 marks,
                 dirty: false,
+                base: None,
+                gone_acked: false,
+                tail,
             },
         );
         true
@@ -328,10 +429,12 @@ impl Shell {
         let dirty = edit.buf.is_dirty();
         let flipped = dirty != edit.dirty;
         edit.dirty = dirty;
+        edit.tail = shows_tail(&edit.buf);
         let diff = rows(&edit.buf, &edit.marks);
         let (anchor, head) = caret_of(&edit.buf);
         if let Some(selected) = self.selected.as_mut() {
             selected.diff = Ok(Arc::new(diff));
+            selected.editing = Editing::of(true, dirty);
         }
         // Highlighting is off while the file is dirty, since its lines no
         // longer match the spans; it starts again when the file is clean.
@@ -359,7 +462,8 @@ impl Shell {
             return false;
         };
         let changed = apply(&mut edit.buf, command);
-        if changed || created {
+        let reshaped = shows_tail(&edit.buf) != edit.tail;
+        if changed || created || reshaped {
             self.refresh_edit_rows();
         } else if let Some(edit) = self.edits.get(&path) {
             let (anchor, head) = caret_of(&edit.buf);
@@ -398,6 +502,18 @@ impl Shell {
         };
         if let Some(edit) = self.edits.get_mut(&path) {
             apply_caret(&mut edit.buf, anchor, head);
+        }
+    }
+
+    /// ⌘Z: undoes an edit of the open file; otherwise it restores.
+    pub(crate) fn on_restore_latest(
+        &mut self,
+        _: &RestoreLatest,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.edit_history(false, cx) {
+            self.restore_latest(cx);
         }
     }
 
@@ -468,31 +584,196 @@ impl Shell {
     }
 
     /// Keeps the buffer of the open file across a snapshot or a read from
-    /// disk. A clean buffer whose file changed on disk is dropped, so the
-    /// disk's text shows; a dirty one keeps its own rows. Otherwise the
-    /// selected file's rows are the buffer's.
+    /// disk. The disk is compared with the buffer's save base: a clean buffer
+    /// whose file changed is dropped, so the disk's text shows; a dirty one
+    /// keeps its own rows and raises the disk card. The open file's rows are
+    /// the buffer's when it is in its whole-file view.
     pub(crate) fn overlay_edit(&mut self, selected: &mut Selected) {
+        let path = selected.path.clone();
+        let Some(edit) = self.edits.get(&path) else {
+            return;
+        };
+        let disk = file_view::read(Path::new(&self.snapshot.workspace), &path)
+            .ok()
+            .map(|bytes| filesave::blob_id(&bytes));
+        let state = disk_card::disk_state(edit.buf.is_dirty(), edit.base(), disk.as_deref());
+        let gone_acked = edit.gone_acked;
+        match disk_card::need(state, disk.as_deref(), gone_acked) {
+            Need::Reload => {
+                self.edits.remove(&path);
+                self.highlights = Highlighter::default();
+                return;
+            }
+            Need::Ask(prompt) => {
+                self.disk_card = Some(DiskCard {
+                    path: path.clone(),
+                    prompt,
+                });
+            }
+            Need::Nothing => {}
+        }
+        if let Some(edit) = self
+            .edits
+            .get_mut(&path)
+            .filter(|_| state != DiskState::Gone)
+        {
+            edit.gone_acked = false;
+        }
         if selected.mode != ViewMode::File {
             return;
         }
-        let Some(edit) = self.edits.get(&selected.path) else {
-            return;
-        };
-        let disk = file_view::read(Path::new(&self.snapshot.workspace), &selected.path)
-            .ok()
-            .map(|bytes| filesave::blob_id(&bytes));
-        if edit.buf.disk_state(disk.as_deref()) == DiskState::ChangedClean {
-            self.edits.remove(&selected.path);
-            self.highlights = Highlighter::default();
-            return;
-        }
-        let Some(edit) = self.edits.get(&selected.path) else {
+        let Some(edit) = self.edits.get(&path) else {
             return;
         };
         selected.diff = Ok(Arc::new(rows(&edit.buf, &edit.marks)));
+        selected.editing = Editing::of(true, edit.buf.is_dirty());
         if edit.buf.is_dirty() {
             self.highlights = Highlighter::default();
         }
+    }
+
+    /// Whether the file at `path` has unsaved edits.
+    pub(crate) fn dirty_path(&self, path: &str) -> bool {
+        self.edits.get(path).is_some_and(|edit| edit.buf.is_dirty())
+    }
+
+    /// The paths of every file with unsaved edits, for the quit question.
+    pub(crate) fn unsaved_paths(&self) -> Vec<String> {
+        self.edits
+            .iter()
+            .filter(|(_, edit)| edit.buf.is_dirty())
+            .map(|(path, _)| path.clone())
+            .collect()
+    }
+
+    /// ⌘S: writes the open file's buffer when it has unsaved edits. A file
+    /// that moved or went shows the card; any other failure is one line.
+    pub(crate) fn save_file(&mut self, cx: &mut Context<Self>) {
+        let Some(path) = self.selected.as_ref().map(|selected| selected.path.clone()) else {
+            return;
+        };
+        let Some(edit) = self.edits.get(&path) else {
+            return;
+        };
+        if !edit.buf.is_dirty() {
+            return;
+        }
+        let text = edit.buf.to_disk_text();
+        let base = edit.base().to_owned();
+        let full = Path::new(&self.snapshot.workspace).join(&path);
+        match filesave::save(&full, &text, &base, false) {
+            Ok(blob) => self.saved(&path, blob, cx),
+            Err(error) => match disk_card::save_failure(&error) {
+                SaveFailure::Ask(prompt) => {
+                    self.disk_card = Some(DiskCard { path, prompt });
+                }
+                SaveFailure::Notice(message) => self.edit_notice = Some(message),
+            },
+        }
+        cx.notify();
+    }
+
+    /// After a write: the buffer is clean at the new blob, the snapshot and
+    /// the Changes list are read again from disk, the change marks are the
+    /// saved file's, and the rows and caret follow the buffer.
+    fn saved(&mut self, path: &str, blob: String, cx: &mut Context<Self>) {
+        if let Some(edit) = self.edits.get_mut(path) {
+            edit.buf.mark_saved(blob);
+            edit.base = None;
+            edit.gone_acked = false;
+        }
+        if self
+            .disk_card
+            .as_ref()
+            .is_some_and(|card| card.path == path)
+        {
+            self.disk_card = None;
+        }
+        self.edit_notice = None;
+        if let Err(message) = self.refresh() {
+            self.edit_notice = Some(format!("Saved, but the view did not reload: {message}"));
+        }
+        self.reload_changes();
+        self.refresh_marks(path);
+        if self
+            .selected
+            .as_ref()
+            .is_some_and(|selected| selected.path == path && selected.mode == ViewMode::File)
+        {
+            // The reload moved the generation, which drops the caret; the
+            // buffer has the caret, so it comes back from there.
+            self.code_caret.scope(path, self.diff_generation);
+            self.refresh_edit_rows();
+        }
+        cx.notify();
+    }
+
+    /// Recomputes the change marks of `path` from the saved file against the
+    /// base. Done on save, since the marks drift while the file is edited.
+    fn refresh_marks(&mut self, path: &str) {
+        let fresh = file_view::load_selected(&self.snapshot, path, ViewMode::File);
+        if let (Ok(diff), Some(edit)) = (&fresh.diff, self.edits.get_mut(path)) {
+            edit.marks = marks_of(diff);
+        }
+    }
+
+    /// The Edit action: switches the open file from its diff to its whole-file
+    /// view, with the caret on the diff's selected line (or the caret's row).
+    /// Does nothing where the affordance is absent.
+    pub(crate) fn edit_here(&mut self, cx: &mut Context<Self>) {
+        let Some(selected) = self.selected.as_ref() else {
+            return;
+        };
+        if selected.mode != ViewMode::Diff
+            || !selected.changed
+            || !selected.editing.offered()
+            || self.tools.compare.is_some()
+        {
+            return;
+        }
+        let Ok(diff) = &selected.diff else {
+            return;
+        };
+        let at = selected.selection.last().or_else(|| {
+            self.code_caret
+                .ends()
+                .and_then(|(_, head)| line_pos(diff, head.line))
+        });
+        let line = edit_line(diff, at);
+        let path = selected.path.clone();
+        self.edit_jump = Some((path.clone(), line));
+        self.request_file(&path, ViewMode::File, true, cx);
+    }
+
+    /// Places the caret for a pending Edit once the file is shown in its
+    /// whole-file view, and keeps the request until then.
+    pub(crate) fn apply_edit_jump(&mut self) {
+        let Some((path, line)) = self.edit_jump.clone() else {
+            return;
+        };
+        let Some(selected) = self.selected.as_ref() else {
+            return;
+        };
+        if selected.path != path || selected.mode != ViewMode::File {
+            return;
+        }
+        let last = match &selected.diff {
+            Ok(diff) => diff
+                .hunks
+                .iter()
+                .map(|shown| shown.lines.len())
+                .sum::<usize>()
+                .saturating_sub(1),
+            Err(_) => 0,
+        };
+        self.edit_jump = None;
+        let at = TextPos {
+            line: line.min(last),
+            col: 0,
+        };
+        self.code_caret.set_ends(at, at);
+        self.caret_to_buffer();
+        self.reveal_caret = true;
     }
 
     /// The key handling of the editor, for a key press on the review screen
@@ -632,19 +913,85 @@ mod tests {
         assert_eq!(b.text(), "xy");
     }
 
-    #[test]
-    fn rows_are_one_line_per_buffer_line_including_a_trailing_empty_one() {
-        let diff = rows(&buf("a\n"), &BTreeSet::new());
-        assert_eq!(diff.hunks.len(), 1);
-        let texts: Vec<&str> = diff.hunks[0]
+    fn texts(diff: &FileDiff) -> Vec<&str> {
+        diff.hunks[0]
             .lines
             .iter()
             .map(|l| l.text.as_str())
-            .collect();
-        assert_eq!(texts, vec!["a", ""]);
+            .collect()
+    }
+
+    #[test]
+    fn a_file_ending_in_a_newline_has_no_extra_row_unless_the_caret_is_on_it() {
+        let mut b = buf("a\n");
+        assert_eq!(texts(&rows(&b, &BTreeSet::new())), vec!["a"]);
+        b.set_cursor(1, 0, false);
+        assert_eq!(texts(&rows(&b, &BTreeSet::new())), vec!["a", ""]);
         let empty = rows(&buf(""), &BTreeSet::new());
         assert_eq!(empty.hunks[0].lines.len(), 1);
         assert_eq!(empty.hunks[0].lines[0].text, "");
+    }
+
+    #[test]
+    fn a_line_break_in_the_middle_keeps_its_empty_line() {
+        let b = buf("a\n\nb");
+        assert_eq!(texts(&rows(&b, &BTreeSet::new())), vec!["a", "", "b"]);
+    }
+
+    #[test]
+    fn quit_names_the_unsaved_files_and_the_terminals() {
+        let files = vec!["a.rs".to_owned(), "src/b.rs".to_owned()];
+        assert_eq!(quit_question(None, &[]), None);
+        assert_eq!(
+            quit_question(Some("Two terminals run.".to_owned()), &[]),
+            Some("Two terminals run.".to_owned())
+        );
+        assert_eq!(
+            quit_question(None, &files),
+            Some("Unsaved edits in a.rs, src/b.rs will be discarded.".to_owned())
+        );
+        assert_eq!(
+            quit_question(Some("One terminal runs.".to_owned()), &files[..1]),
+            Some("One terminal runs. Unsaved edits in a.rs will be discarded.".to_owned())
+        );
+    }
+
+    #[test]
+    fn an_edit_lands_on_the_new_line_of_the_selected_row_or_the_one_above_it() {
+        let diff = FileDiff {
+            hunks: vec![Hunk {
+                header: String::new(),
+                lines: vec![
+                    Line {
+                        kind: LineKind::Context,
+                        old_no: Some(1),
+                        new_no: Some(1),
+                        text: "a".to_owned(),
+                    },
+                    Line {
+                        kind: LineKind::Removed,
+                        old_no: Some(2),
+                        new_no: None,
+                        text: "gone".to_owned(),
+                    },
+                    Line {
+                        kind: LineKind::Added,
+                        old_no: None,
+                        new_no: Some(2),
+                        text: "b".to_owned(),
+                    },
+                ],
+            }],
+            binary: false,
+            added: 1,
+            removed: 1,
+        };
+        assert_eq!(edit_line(&diff, Some(Pos { hunk: 0, line: 2 })), 1);
+        // A removed row has no new line; the line above it is the place.
+        assert_eq!(edit_line(&diff, Some(Pos { hunk: 0, line: 1 })), 0);
+        assert_eq!(edit_line(&diff, None), 0);
+        assert_eq!(line_pos(&diff, 2), Some(Pos { hunk: 0, line: 2 }));
+        assert_eq!(line_pos(&diff, 3), None);
     }
 
     #[test]
@@ -683,6 +1030,9 @@ mod tests {
                 buf: dirty,
                 marks: BTreeSet::new(),
                 dirty: true,
+                base: None,
+                gone_acked: false,
+                tail: false,
             },
         );
         edits.insert(
@@ -691,6 +1041,9 @@ mod tests {
                 buf: buf("x"),
                 marks: BTreeSet::new(),
                 dirty: false,
+                base: None,
+                gone_acked: false,
+                tail: false,
             },
         );
         assert!(!comment_allowed(&edits, "dirty.rs"));

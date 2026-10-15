@@ -15,6 +15,7 @@ mod data;
 mod decision;
 mod diff_list;
 mod diff_view;
+mod disk_card;
 mod draft_edit;
 mod draft_panel;
 mod editing;

@@ -74,7 +74,10 @@ pub fn left(
                             .get(range)
                             .unwrap_or_default()
                             .iter()
-                            .map(|row| tree_row(&list.tree, *row, &marks, selected, cx))
+                            .map(|row| {
+                                let dirty = this.dirty_path(&list.tree.node(row.node).path);
+                                tree_row(&list.tree, *row, &marks, selected, dirty, cx)
+                            })
                             .collect()
                     },
                 ),
@@ -103,6 +106,7 @@ fn tree_row(
     row: Row,
     marks: &Marks,
     selected: Option<&str>,
+    dirty: bool,
     cx: &Context<Shell>,
 ) -> AnyElement {
     let node = tree.node(row.node);
@@ -186,6 +190,7 @@ fn tree_row(
                 .text_size(px(12.))
                 .child(node.name.clone()),
         )
+        .when(dirty, |d| d.child(crate::editing::dirty_dot()))
         .when(mark.open_comments > 0, |d| {
             d.child(
                 icon::labelled(

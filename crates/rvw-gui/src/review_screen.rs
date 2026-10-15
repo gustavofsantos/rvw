@@ -45,6 +45,44 @@ pub struct Selected {
     pub mode: ViewMode,
     /// The change touches the file, so both modes exist for it.
     pub changed: bool,
+    /// Whether the whole-file view can edit the file, and whether it has
+    /// unsaved edits; see `editing`.
+    pub editing: Editing,
+}
+
+/// Whether the whole-file view can edit a file, and whether it has unsaved
+/// edits. The Edit action is offered for every state but `No`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Editing {
+    /// Not text the view can edit: binary, too large, cut short, or empty.
+    #[default]
+    No,
+    /// Editable, with no unsaved edits.
+    Yes,
+    /// Editable, with unsaved edits.
+    Dirty,
+}
+
+impl Editing {
+    /// The state of a file: `editable` as the view reads it, and `dirty`
+    /// when its buffer has unsaved edits.
+    pub fn of(editable: bool, dirty: bool) -> Self {
+        match (editable, dirty) {
+            (false, _) => Self::No,
+            (true, false) => Self::Yes,
+            (true, true) => Self::Dirty,
+        }
+    }
+
+    /// Whether the Edit action is offered.
+    pub fn offered(self) -> bool {
+        self != Self::No
+    }
+
+    /// Whether the file has unsaved edits.
+    pub fn dirty(self) -> bool {
+        self == Self::Dirty
+    }
 }
 
 impl Selected {
@@ -59,6 +97,10 @@ impl Selected {
             cut: false,
             mode: ViewMode::Diff,
             changed: true,
+            editing: Editing::of(
+                crate::file_view::editable_text(std::path::Path::new(workspace), path),
+                false,
+            ),
         }
     }
 
@@ -95,7 +137,8 @@ pub fn left(snapshot: &Snapshot, scroll: &UniformListScrollHandle, cx: &Context<
                                 this.select_file(&owned, cx);
                             },
                         );
-                        file_row(file, selected == Some(file.path.as_str()), on_click)
+                        let dirty = this.dirty_path(&file.path);
+                        file_row(file, selected == Some(file.path.as_str()), dirty, on_click)
                     })
                     .collect::<Vec<_>>()
             },
@@ -197,6 +240,7 @@ fn search_box(cx: &Context<Shell>) -> Stateful<Div> {
 fn file_row(
     file: &ChangedFile,
     selected: bool,
+    dirty: bool,
     on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
     let (dir, name) = split_path(&file.path);
@@ -232,6 +276,7 @@ fn file_row(
                 .text_size(px(12.))
                 .child(name.to_owned()),
         )
+        .when(dirty, |d| d.child(crate::editing::dirty_dot()))
         .child(
             div()
                 .flex_1()
@@ -242,6 +287,7 @@ fn file_row(
                 .text_color(theme::faint())
                 .child(dir.to_owned()),
         )
+        .when(dirty, |d| d.child(crate::editing::dirty_dot()))
         .when(file.open_comments > 0, |d| {
             d.child(
                 icon::labelled(
@@ -267,6 +313,7 @@ pub fn centre(
     diff_list: Option<&DiffList>,
     split: Option<bool>,
     show_resolved: bool,
+    edit: bool,
     cx: &Context<Shell>,
 ) -> Stateful<Div> {
     let resolved = selected.map_or(0, |selected| {
@@ -283,7 +330,13 @@ pub fn centre(
         .flex_1()
         .min_w(px(0.))
         .bg(theme::paper())
-        .child(file_header(selected, split, (resolved, show_resolved), cx))
+        .child(file_header(
+            selected,
+            split,
+            (resolved, show_resolved),
+            edit,
+            cx,
+        ))
         .children(selected.and_then(context_banner))
         .child(diff_body(snapshot, selected, diff_list, cx))
 }
@@ -295,6 +348,7 @@ fn file_header(
     selected: Option<&Selected>,
     split: Option<bool>,
     resolved: (usize, bool),
+    edit: bool,
     cx: &Context<Shell>,
 ) -> Div {
     let path = selected.map_or("", |s| s.path.as_str()).to_owned();
@@ -313,6 +367,9 @@ fn file_header(
     let Some(selected) = selected else {
         return header;
     };
+    if selected.editing.dirty() {
+        header = header.child(crate::editing::dirty_dot());
+    }
     if let Ok(diff) = &selected.diff {
         if !selected.outside && selected.mode == ViewMode::Diff {
             header = header
@@ -340,6 +397,9 @@ fn file_header(
     }
     if resolved.0 > 0 {
         header = header.child(resolved_toggle(resolved.0, resolved.1, cx));
+    }
+    if edit && selected.changed && selected.mode == ViewMode::Diff && selected.editing.offered() {
+        header = header.child(edit_button(cx));
     }
     if selected.changed {
         header = header.child(crate::file_view::mode_toggle(selected.mode, cx));
@@ -415,6 +475,35 @@ fn context_banner(selected: &Selected) -> Option<Div> {
         );
     }
     Some(banner)
+}
+
+/// Switches the file from its diff to its whole-file view, at the selected line;
+/// the same as pressing E.
+fn edit_button(cx: &Context<Shell>) -> Stateful<Div> {
+    div()
+        .id("edit-button")
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .h(px(26.))
+        .px(px(10.))
+        .rounded(theme::CONTROL_RADIUS)
+        .bg(theme::hairline())
+        .font_family(theme::ui_font())
+        .text_color(theme::ink())
+        .on_click(cx.listener(
+            |this: &mut Shell, _: &ClickEvent, _: &mut Window, cx: &mut Context<Shell>| {
+                this.edit_here(cx);
+            },
+        ))
+        .child("Edit")
+        .child(
+            div()
+                .font_family(theme::code_font())
+                .text_size(px(theme::KEY_FONT_SIZE))
+                .text_color(theme::faint())
+                .child("E"),
+        )
 }
 
 /// Opens the composer for the selection; the same as pressing C.

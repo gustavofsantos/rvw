@@ -122,11 +122,13 @@ impl Shell {
     /// Asks before the window closes with terminals running; closes at once
     /// otherwise. The processes are looked at now.
     pub(crate) fn request_quit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let ask = self
+        let running = self
             .terminal
             .as_ref()
             .and_then(|terminal| terminal.update(cx, TerminalView::quit_guard));
-        match ask {
+        // Unsaved edits are named too; the question's Quit discards them.
+        let unsaved = self.unsaved_paths();
+        match crate::editing::quit_question(running, &unsaved) {
             None => cx.quit(),
             Some(message) => {
                 self.launcher = None;
