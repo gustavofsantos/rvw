@@ -1,10 +1,11 @@
 //! The diff's virtualised list: its rows, and when they are rebuilt.
 //!
 //! The list measures and draws only the rows in view, so a selection click or
-//! a caret blink repaints a screenful whatever the length of the file. Its
+//! a caret move repaints a screenful whatever the length of the file. Its
 //! rows are rebuilt (and their measured heights dropped) only when the file,
 //! its comments, the composer's place or the composer's error change; the
-//! current selection is read from a shared cell by the visible rows.
+//! current line selection and text caret are read from shared cells by the
+//! visible rows.
 
 pub(crate) mod drag;
 
@@ -22,7 +23,9 @@ use rvw_view::diff::FileDiff;
 use rvw_view::diffrows::{self, DiffRow};
 use rvw_view::queue;
 use rvw_view::selection::{self, Pos, Selection};
+use rvw_view::textpos::TextSelection;
 
+use crate::code_caret;
 use crate::code_scroll;
 use crate::diff_view;
 use crate::highlights::Shared;
@@ -80,6 +83,10 @@ pub struct Model {
     /// Syntax spans of the file, filled in by the background task. Read when
     /// a row is drawn, so their arrival needs a repaint and no rebuild.
     pub spans: Shared,
+    /// The index of each hunk's first line; see `code_caret::hunk_starts`.
+    pub hunk_starts: Vec<usize>,
+    /// The width of one character of the code font, in pixels.
+    pub advance: f32,
 }
 
 /// What the rows were built for. A different key rebuilds them.
@@ -101,6 +108,8 @@ pub struct DiffList {
     model: Rc<Model>,
     /// The reviewer's selection, read by the rows when they are drawn.
     selection: Rc<Cell<Selection>>,
+    /// The text caret or selection, read by the rows when they are drawn.
+    caret: Rc<Cell<Option<TextSelection>>>,
     path: String,
     key: Key,
 }
@@ -110,9 +119,15 @@ impl DiffList {
     pub fn element(&self, shell: WeakEntity<Shell>) -> List {
         let model = Rc::clone(&self.model);
         let selection = Rc::clone(&self.selection);
+        let caret = Rc::clone(&self.caret);
         list(self.state.clone(), move |index, _, cx| {
-            diff_view::row(&model, index, selection.get(), &shell, cx)
+            diff_view::row(&model, index, selection.get(), caret.get(), &shell, cx)
         })
+    }
+
+    /// The code's sideways offset, in pixels.
+    pub fn scroll_x(&self) -> f32 {
+        f32::from(self.model.scroll_x.get())
     }
 
     /// Where the list was last drawn, in window coordinates.
@@ -259,6 +274,7 @@ impl Shell {
 
     pub(crate) fn sync_diff_list(&mut self, window: &Window) {
         let split = self.split_active();
+        self.scope_code_caret();
         let Some(selected) = self.selected.as_ref() else {
             self.diff_list = None;
             return;
@@ -302,6 +318,7 @@ impl Shell {
             && current.path == selected.path
         {
             current.selection.set(selected.selection);
+            current.caret.set(self.code_caret.selection());
             return;
         }
 
@@ -328,6 +345,8 @@ impl Shell {
             outside_change: selected.outside,
             composer: self.composer.as_ref().map(ComposerSlot::of),
             spans: Rc::clone(&self.highlights.shared),
+            hunk_starts: code_caret::hunk_starts(diff),
+            advance: f32::from(self.code_advance),
         });
 
         let previous = self.diff_list.take();
@@ -359,6 +378,7 @@ impl Shell {
             state,
             model,
             selection: Rc::new(Cell::new(selected.selection)),
+            caret: Rc::new(Cell::new(self.code_caret.selection())),
             path: selected.path.clone(),
             key,
         });

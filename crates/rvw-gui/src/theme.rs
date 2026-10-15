@@ -138,6 +138,11 @@ pub fn selected_panel() -> Rgba {
 pub fn text_selection() -> Rgba {
     by_mode(rgba(0x006c_bc40), rgba(0x4a9e_ff55))
 }
+/// The background of selected characters in the code: a violet, so it reads
+/// apart from the blue line selection and the field selection.
+pub fn code_selection() -> Rgba {
+    by_mode(rgba(0x7c4d_ff3d), rgba(0xa98c_ff59))
+}
 /// A search match in the terminal.
 pub fn terminal_match() -> Rgba {
     by_mode(rgba(0xd9a4_0066), rgba(0xd9a4_0055))

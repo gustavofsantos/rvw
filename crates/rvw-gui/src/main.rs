@@ -5,6 +5,7 @@ mod branch_picker;
 mod changes_screen;
 mod changes_state;
 mod checkpoint_ui;
+mod code_caret;
 mod code_scroll;
 #[cfg(test)]
 mod commit_loop_tests;
@@ -198,6 +199,7 @@ fn show_window(snapshot: Snapshot, service: rvw_core::Service, identity: Identit
             terminal_dock::bind_keys(cx);
             frame::bind_keys(cx);
             workspace_picker::bind_keys(cx);
+            code_caret::bind_keys(cx);
             quit_with_the_window(cx);
             let bounds = Bounds::centered(None, size(px(1440.), px(900.)), cx);
             let options = WindowOptions {

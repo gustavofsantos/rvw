@@ -20,6 +20,7 @@ use rvw_view::selection::Pos;
 use rvw_view::viewmode::ViewMode;
 
 use crate::changes_state::{ChangesState, CommitChanges, RestoreLatest};
+use crate::code_caret::{CodeCaret, CopyCode};
 use crate::composer::Composer;
 use crate::data::{self, Identity, Snapshot};
 use crate::diff_list::DiffList;
@@ -95,6 +96,8 @@ pub struct Shell {
     pub(crate) file_modes: BTreeMap<String, ViewMode>,
     /// The press-drag selection in progress; see `diff_list::drag`.
     pub(crate) drag: DragState,
+    /// The caret and character selection of the code area; see `code_caret`.
+    pub(crate) code_caret: CodeCaret,
     /// Syntax colour of the open file, tokenized in the background.
     pub(crate) highlights: Highlighter,
     /// The delete the right panel offers to undo, or why one failed.
@@ -214,6 +217,7 @@ impl Shell {
             code_advance: crate::code_scroll::advance(window),
             file_modes: BTreeMap::new(),
             drag: DragState::default(),
+            code_caret: CodeCaret::default(),
             highlights: Highlighter::default(),
             removal: None,
             changes_scroll: UniformListScrollHandle::new(),
@@ -713,6 +717,13 @@ impl Render for Shell {
             }))
             .on_action(cx.listener(|this: &mut Self, _: &RestoreLatest, _, cx| {
                 this.restore_latest(cx);
+            }))
+            .on_action(cx.listener(|this: &mut Self, _: &CopyCode, window, cx| {
+                // A focused terminal or field has its own copy; this is the code's.
+                if this.terminal_focused(window, cx) || this.message_focused(window, cx) {
+                    return;
+                }
+                this.copy_code(cx);
             }))
             .on_action(cx.listener(Self::on_toggle_left_panel))
             .on_action(cx.listener(Self::on_toggle_right_panel))

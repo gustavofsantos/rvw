@@ -1,8 +1,9 @@
 //! The split diff: the Unified | Split control of the file header and one
 //! row of two columns. Which lines pair up is `rvw_view::split`; the rows
 //! come from `diffrows::split_rows`, and a cell is drawn like a unified line
-//! (same tints, same syntax colours, same selection by position). Each cell
-//! has its own gutter, which is where a line is selected from.
+//! (same tints, same syntax colours, same selection by position, same text
+//! caret and selection). Each cell has its own gutter, which is where a line
+//! is selected from.
 
 use gpui::prelude::*;
 use gpui::{
@@ -10,7 +11,9 @@ use gpui::{
 };
 use rvw_view::diff::LineKind;
 use rvw_view::selection::{Pos, Selection};
+use rvw_view::textpos::TextSelection;
 
+use crate::code_caret::{self, Column};
 use crate::diff_list::Model;
 use crate::diff_view::{code_area, code_text, drag_move, gutter};
 use crate::review_screen::LINE_HEIGHT;
@@ -67,15 +70,16 @@ pub fn pair(
     left: Option<Pos>,
     right: Option<Pos>,
     selection: Selection,
+    caret: Option<TextSelection>,
     shell: &WeakEntity<Shell>,
 ) -> AnyElement {
     div()
         .w_full()
         .flex()
         .h(LINE_HEIGHT)
-        .child(cell(model, left, Side::Old, selection, shell))
+        .child(cell(model, left, Side::Old, selection, caret, shell))
         .child(div().w(px(1.)).flex_none().h_full().bg(theme::hairline()))
-        .child(cell(model, right, Side::New, selection, shell))
+        .child(cell(model, right, Side::New, selection, caret, shell))
         .into_any_element()
 }
 
@@ -84,6 +88,7 @@ fn cell(
     pos: Option<Pos>,
     side: Side,
     selection: Selection,
+    caret: Option<TextSelection>,
     shell: &WeakEntity<Shell>,
 ) -> Div {
     let base = div()
@@ -112,14 +117,16 @@ fn cell(
         LineKind::Removed => (Some(theme::removed_tint()), Some(theme::rejected())),
         LineKind::Context => (None, None),
     };
-    let background = if selection.contains(&model.diff, pos) {
+    // A caret or a text selection replaces the line selection on screen.
+    let selected = caret.is_none() && selection.contains(&model.diff, pos);
+    let background = if selected {
         Some(theme::selected_line())
     } else {
         tint
     };
-    let number = match side {
-        Side::Old => line.old_no,
-        Side::New => line.new_no,
+    let (number, column) = match side {
+        Side::Old => (line.old_no, Column::Left),
+        Side::New => (line.new_no, Column::Right),
     };
     let spans = model.spans.borrow().clone();
     let spans = spans
@@ -127,8 +134,10 @@ fn cell(
         .and_then(|file| file.get(pos.hunk))
         .and_then(|hunk| hunk.get(pos.line))
         .map_or(&[][..], Vec::as_slice);
+    let index = code_caret::line_index(&model.hunk_starts, pos);
+    let marks = code_caret::marks(caret, index, &line.text, model.advance);
     base.when_some(background, gpui::Styled::bg)
-        .on_mouse_move(drag_move(pos, shell))
+        .on_mouse_move(drag_move(pos, column, shell))
         .child(gutter(
             number.map_or(String::new(), |n| n.to_string()),
             marker,
@@ -139,6 +148,8 @@ fn cell(
             code_text(&line.text, spans),
             model.scroll_x.get(),
             pos,
+            column,
+            marks,
             shell,
         ))
 }

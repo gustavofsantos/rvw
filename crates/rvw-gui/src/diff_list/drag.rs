@@ -1,6 +1,8 @@
 //! Press-drag-release selection of diff lines, as in a terminal. The shell
 //! owns the drag; the gutters report a press, and the rows report the line
-//! under the pointer. A press in the code area never starts a drag.
+//! under the pointer. A press in the code area never starts this drag; it
+//! starts the character selection of `code_caret`, which a gutter press
+//! clears.
 //! Moving over rows costs a comparison unless the line under the pointer is
 //! new, and while the pointer is held at or beyond the list's top or bottom
 //! edge a 60 Hz timer scrolls the list and extends the selection.
@@ -55,6 +57,7 @@ impl Shell {
     /// A press on the gutter of the line at `pos`: selects it (or extends with
     /// Shift) and starts a drag, unless the line cannot be selected.
     pub(crate) fn press_line(&mut self, pos: Pos, shift: bool, cx: &mut Context<Self>) {
+        self.code_caret.clear();
         self.select_line(pos, shift, cx);
         let selectable = self
             .selected
@@ -87,6 +90,9 @@ impl Shell {
     /// Any pointer move in the window: keeps the pointer for the timer, and
     /// ends a drag whose button release was never delivered.
     pub(crate) fn drag_pointer(&mut self, at: Point<Pixels>, left_held: bool) {
+        if !left_held {
+            self.code_caret.release();
+        }
         if !self.drag.active {
             return;
         }
@@ -100,6 +106,7 @@ impl Shell {
 
     /// The button went up, or the drag was lost.
     pub(crate) fn end_drag(&mut self) {
+        self.code_caret.release();
         if self.drag.active {
             self.drag.active = false;
             self.drag.last = None;

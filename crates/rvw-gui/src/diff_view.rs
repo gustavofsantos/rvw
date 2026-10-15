@@ -1,10 +1,11 @@
-//! The rows of the diff of the selected file. Lines are selected from the
-//! gutter: a press on a line's number or marker selects it, a drag over the
-//! gutter extends the selection, and a Shift press extends it. A press in the
-//! code area selects nothing (see `code_press`, where the caret goes). The
-//! file's comments sit under the diff line their range ends on, and the
-//! composer sits under the last selected line. `diff_list` owns the list; this
-//! file draws one row.
+//! The rows of the diff of the selected file, and of the whole file. Lines are
+//! selected from the gutter: a press on a line's number or marker selects it,
+//! a drag over the gutter extends the selection, and a Shift press extends
+//! it. The code area is text: a press places a caret, a drag or a double
+//! press selects characters (see `code_caret`), and the line selection is not
+//! drawn while a caret or a text selection is. The file's comments sit under
+//! the diff line their range ends on, and the composer sits under the last
+//! selected line. `diff_list` owns the list; this file draws one row.
 
 use gpui::prelude::*;
 use gpui::{
@@ -18,8 +19,9 @@ use rvw_view::highlight::Span;
 use rvw_view::points_at;
 use rvw_view::queue::is_draft;
 use rvw_view::selection::{Pos, Selection};
+use rvw_view::textpos::TextSelection;
 
-use crate::code_scroll;
+use crate::code_caret::{self, Column, Marks};
 use crate::composer::{self, PointsRow};
 use crate::diff_list::{ComposerSlot, Model};
 use crate::highlights;
@@ -76,6 +78,7 @@ pub fn row(
     model: &Model,
     index: usize,
     selection: Selection,
+    caret: Option<TextSelection>,
     shell: &WeakEntity<Shell>,
     cx: &App,
 ) -> AnyElement {
@@ -96,17 +99,29 @@ pub fn row(
             else {
                 return div().into_any_element();
             };
-            let selected = selection.contains(&model.diff, pos);
+            // A caret or a text selection replaces the line selection on screen.
+            let selected = caret.is_none() && selection.contains(&model.diff, pos);
             let spans = model.spans.borrow().clone();
             let spans = spans
                 .as_deref()
                 .and_then(|file| file.get(pos.hunk))
                 .and_then(|hunk| hunk.get(pos.line))
                 .map_or(&[][..], Vec::as_slice);
-            line_view(line, spans, selected, pos, model.scroll_x.get(), shell).into_any_element()
+            let index = code_caret::line_index(&model.hunk_starts, pos);
+            let marks = code_caret::marks(caret, index, &line.text, model.advance);
+            line_view(
+                line,
+                spans,
+                selected,
+                pos,
+                model.scroll_x.get(),
+                marks,
+                shell,
+            )
+            .into_any_element()
         }
         DiffRow::Pair { left, right } => {
-            crate::split_view::pair(model, left, right, selection, shell)
+            crate::split_view::pair(model, left, right, selection, caret, shell)
         }
         DiffRow::Thread { comment_index } => {
             // Under a split row the thread spans both columns, so it starts
@@ -181,6 +196,7 @@ fn line_view(
     selected: bool,
     pos: Pos,
     scroll_x: Pixels,
+    marks: Marks,
     shell: &WeakEntity<Shell>,
 ) -> Div {
     let (tint, marker) = match line.kind {
@@ -202,7 +218,7 @@ fn line_view(
         .text_size(px(theme::CODE_FONT_SIZE))
         .text_color(theme::text())
         .when_some(background, gpui::Styled::bg)
-        .on_mouse_move(drag_move(pos, shell))
+        .on_mouse_move(drag_move(pos, Column::Unified, shell))
         .child(gutter(
             line.gutter_no().map_or(String::new(), |n| n.to_string()),
             marker,
@@ -213,6 +229,8 @@ fn line_view(
             code_text(&line.text, spans),
             scroll_x,
             pos,
+            Column::Unified,
+            marks,
             shell,
         ))
 }
@@ -247,19 +265,22 @@ pub(crate) fn gutter(
         )
         .child(
             div()
-                .w(px(2.))
+                .w(px(code_caret::CARET_WIDTH))
                 .flex_none()
                 .h_full()
                 .when_some(marker, gpui::Styled::bg),
         )
 }
 
-/// The code area of a line: its text, moved by the code's sideways offset.
-/// It is text, not a handle for lines; a press goes to `code_press`.
+/// The code area of a line: its text, moved by the code's sideways offset,
+/// with the text state's tint behind it and its caret over it. It is text, not
+/// a handle for lines; a press goes to `code_press`.
 pub(crate) fn code_area(
     text: AnyElement,
     scroll_x: Pixels,
     pos: Pos,
+    column: Column,
+    marks: Marks,
     shell: &WeakEntity<Shell>,
 ) -> Div {
     div()
@@ -269,15 +290,55 @@ pub(crate) fn code_area(
         .whitespace_nowrap()
         .overflow_hidden()
         .cursor(CursorStyle::IBeam)
-        .on_mouse_down(MouseButton::Left, code_press(pos, shell))
-        .child(code_scroll::shifted(text, scroll_x))
+        .on_mouse_down(MouseButton::Left, code_press(pos, column, shell))
+        .child(code_layer(text, scroll_x, marks))
 }
 
-/// The press on a code area: the seam where slice 6 puts the caret and the
-/// start of a character selection. Until then it does nothing, so a press
-/// here neither selects a line nor clears the selection.
-pub(crate) fn code_press(_pos: Pos, _shell: &WeakEntity<Shell>) -> DownHandler {
-    Box::new(|_, _, _| {})
+/// The text moved by `scroll_x`, with its marks in the same frame. The tint
+/// comes before the text so it sits behind the characters.
+fn code_layer(text: AnyElement, scroll_x: Pixels, marks: Marks) -> Div {
+    let mut layer = div().relative().left(-scroll_x);
+    if let Some((left, width)) = marks.tint {
+        layer = layer.child(
+            div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left(px(left))
+                .w(px(width))
+                .bg(theme::code_selection()),
+        );
+    }
+    layer = layer.child(text);
+    if let Some(left) = marks.caret {
+        layer = layer.child(
+            div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left(px(left))
+                .w(px(code_caret::CARET_WIDTH))
+                .bg(theme::ink()),
+        );
+    }
+    layer
+}
+
+/// The press on a code area: places the caret at the character under the
+/// pointer, or selects the word under a double press, or extends a selection
+/// with Shift. The line selection is left as it is.
+pub(crate) fn code_press(pos: Pos, column: Column, shell: &WeakEntity<Shell>) -> DownHandler {
+    let shell = shell.clone();
+    Box::new(move |event, _, cx| {
+        let x = f32::from(event.position.x);
+        let shift = event.modifiers.shift;
+        let clicks = event.click_count;
+        shell
+            .update(cx, |this, cx| {
+                this.press_code(pos, column, x, shift, clicks, cx);
+            })
+            .ok();
+    })
 }
 
 /// The press handler of a gutter: selects the line at `pos` (Shift extends)
@@ -293,13 +354,19 @@ pub(crate) fn gutter_press(pos: Pos, shell: &WeakEntity<Shell>) -> DownHandler {
 }
 
 /// The move handler of a line row: while a gutter drag is on, a move over the
-/// row extends it to `pos`. A drag started on a gutter may cross the code.
-pub(crate) fn drag_move(pos: Pos, shell: &WeakEntity<Shell>) -> MoveHandler {
+/// row extends it to `pos`; while a code press is held, it extends the text
+/// selection to the character under the pointer, or to the row's start over
+/// the gutter. A drag may cross rows and gutters.
+pub(crate) fn drag_move(pos: Pos, column: Column, shell: &WeakEntity<Shell>) -> MoveHandler {
     let shell = shell.clone();
     Box::new(move |event, _, cx| {
         let held = event.pressed_button == Some(MouseButton::Left);
+        let x = f32::from(event.position.x);
         shell
-            .update(cx, |this, cx| this.drag_over(pos, held, cx))
+            .update(cx, |this, cx| {
+                this.drag_over(pos, held, cx);
+                this.code_drag_over(pos, column, x, held, cx);
+            })
             .ok();
     })
 }
