@@ -64,6 +64,7 @@ pub enum Action {
     ToggleRightPanel,
     AcceptDecision,
     ReopenDecision,
+    Sessions,
 }
 
 /// The reason a network action waits while a fetch, pull or push is running.
@@ -74,7 +75,7 @@ const FINISH_OR_ABORT: &str = "Finish or abort the merge or cherry-pick first";
 
 impl Action {
     /// Every action, in palette order.
-    pub const ALL: [Action; 56] = [
+    pub const ALL: [Action; 57] = [
         Action::GoToQueue,
         Action::GoToReview,
         Action::GoToFiles,
@@ -131,6 +132,7 @@ impl Action {
         Action::ToggleRightPanel,
         Action::AcceptDecision,
         Action::ReopenDecision,
+        Action::Sessions,
     ];
 
     /// The name shown in the palette.
@@ -193,6 +195,7 @@ impl Action {
             Action::ToggleRightPanel => "Toggle right panel",
             Action::AcceptDecision => "Accept this decision",
             Action::ReopenDecision => "Reopen this decision…",
+            Action::Sessions => "Sessions",
         }
     }
 
@@ -211,7 +214,8 @@ impl Action {
             | Action::BlameFile
             | Action::BrowseCommitFiles
             | Action::CompareWith
-            | Action::EditHistory => "History",
+            | Action::EditHistory
+            | Action::Sessions => "History",
             Action::NextFile | Action::PreviousFile => "Move",
             Action::Comment
             | Action::SubmitReview
@@ -420,6 +424,7 @@ pub fn unavailable(action: Action, state: &State) -> Option<&'static str> {
             })
             .or_else(|| busy_reason(state)),
         Action::FindFile
+        | Action::Sessions
         | Action::CompareUncommitted
         | Action::CompareDefaultBranch
         | Action::ComparePreviousCommit
@@ -583,8 +588,8 @@ mod tests {
     }
 
     #[test]
-    fn all_has_fifty_six_distinct_actions_with_titles_and_groups() {
-        assert_eq!(Action::ALL.len(), 56);
+    fn all_has_fifty_seven_distinct_actions_with_titles_and_groups() {
+        assert_eq!(Action::ALL.len(), 57);
         let mut seen = std::collections::HashSet::new();
         for action in Action::ALL {
             assert!(seen.insert(action), "duplicate {action:?}");
@@ -638,6 +643,7 @@ mod tests {
                 Action::ToggleRightPanel,
                 Action::AcceptDecision,
                 Action::ReopenDecision,
+                Action::Sessions,
             ]
         );
     }
@@ -713,6 +719,7 @@ mod tests {
             ),
             (Action::AcceptDecision, "Accept this decision", "Review"),
             (Action::ReopenDecision, "Reopen this decision…", "Review"),
+            (Action::Sessions, "Sessions", "History"),
         ];
         for (action, title, group) in table {
             assert_eq!(action.title(), title, "{action:?}");
@@ -1154,6 +1161,7 @@ mod tests {
                 Action::SwitchWorkspace,
                 Action::ReloadQueue,
                 Action::SearchCommits,
+                Action::Sessions,
             ] {
                 assert_eq!(unavailable(action, &state(screen)), None);
             }
@@ -1163,7 +1171,7 @@ mod tests {
     #[test]
     fn empty_query_lists_all_actions_in_order() {
         let got = entries("", &state(Screen::Diff));
-        assert_eq!(got.len(), 56);
+        assert_eq!(got.len(), 57);
         let order: Vec<Action> = got.iter().map(|e| e.action).collect();
         assert_eq!(order, Action::ALL);
         assert!(got.iter().all(|e| e.matches.is_empty() && e.score == 0));
@@ -1305,6 +1313,7 @@ mod tests {
                 "History",
                 "History",
                 "History",
+                "History",
                 "Tools",
                 "Tools",
                 "Tools",
@@ -1313,7 +1322,7 @@ mod tests {
                 "Tools",
             ]
         );
-        assert_eq!(got.len(), 56);
+        assert_eq!(got.len(), 57);
     }
 
     #[test]

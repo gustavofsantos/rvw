@@ -237,6 +237,7 @@ impl Shell {
             Action::ToggleRightPanel => self.toggle_panel(Side::Right, cx),
             Action::AcceptDecision => self.judge_outcome(VerdictKind::Accepted, cx),
             Action::ReopenDecision => self.open_reopen(window, cx),
+            Action::Sessions => self.open_sessions(cx),
             Action::OpenDiffTool => {
                 if let Some(path) = self.open_file_path() {
                     self.open_diff_tool(&path, cx);

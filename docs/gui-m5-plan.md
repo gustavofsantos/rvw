@@ -1,6 +1,6 @@
 # GUI M5 plan: provenance
 
-Status: approved on 2026-10-15. Not started.
+Status: built on 2026-10-15; awaiting the user's manual run of the GUI.
 Scope: [gui-v1-product-brief.md](gui-v1-product-brief.md) milestone M5: D5, P1,
 P2, P3. Like M4, this milestone changes the core: CLI, MCP, TUI-neutral, GUI.
 
@@ -79,3 +79,29 @@ Slices 1, 3 and 6 can run in parallel after 0 (disjoint files). 2 follows 1;
 3. **No `list_sessions` MCP tool** for now; CLI and GUI only.
 4. **Comments relate to sessions only through reported commits.** No
    time-window inference; decided comments show the verdict's actor alone.
+
+## Status at the end of the session (2026-10-15)
+
+| Done | Where |
+|---|---|
+| Report types | `rvw-core` types and operations (slice 0) |
+| Store v3, per-version migrate chain | `rvw-store` (slice 1) |
+| `report_session`, `sessions` | `rvw-core/session.rs` (slice 2) |
+| `Claude-Session` trailer into `LogEntry` | `rvw-git/history.rs` (slice 3) |
+| `report_session` MCP tool, fixture | `rvw-mcp`, `test/reference` (slice 4) |
+| `rvw sessions`, README | `rvw-cli`, `rvw-render`, bats (slice 5) |
+| Provenance model | `rvw-view/provenance*.rs` (slice 6) |
+| Skill | `skills/rvw/SKILL.md` (slice 7) |
+| History badge and session facts | `rvw-gui/history_*` (slice 8) |
+| Session history source, picker, palette `Sessions` | `rvw-gui` (slice 9) |
+
+Open after the run:
+
+- Not run by hand: no display was available to the workers. The user must
+  open History and the `Sessions` palette action against a real report.
+- Blame's `HISTORY_FORMAT` carries no trailer field, so blame rows show no
+  markers.
+- Sessions load synchronously on the UI thread, and a read error shows as
+  an empty list in History.
+- The installed `~/.local/bin/rvw` is v1-only; the user's database is still
+  v2 and migrates to v3 on first use of a current build, with no backup.

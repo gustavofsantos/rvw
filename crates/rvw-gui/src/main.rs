@@ -42,6 +42,7 @@ mod queue_screen;
 mod resize_handle;
 mod review_screen;
 mod rewrite_card;
+mod sessions_picker;
 mod shell;
 mod split_view;
 mod submit_dialog;

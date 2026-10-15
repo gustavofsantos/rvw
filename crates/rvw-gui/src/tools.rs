@@ -14,6 +14,7 @@ use rvw_view::viewmode::ViewMode;
 use crate::branch_picker::BranchPicker;
 use crate::compare_picker::CompareMenu;
 use crate::palette_overlay::Palette;
+use crate::sessions_picker::SessionsPicker;
 use crate::shell::Shell;
 use crate::theme;
 use crate::workspace_picker::WorkspacePicker;
@@ -25,6 +26,7 @@ pub struct Tools {
     pub compare_menu: Option<CompareMenu>,
     pub branches: Option<BranchPicker>,
     pub palette: Option<Palette>,
+    pub sessions: Option<SessionsPicker>,
     pub workspaces: Option<WorkspacePicker>,
     /// The diff view shows two columns instead of one.
     pub split: bool,
@@ -40,6 +42,7 @@ impl Tools {
         self.compare_menu = None;
         self.branches = None;
         self.palette = None;
+        self.sessions = None;
         self.workspaces = None;
     }
 }
@@ -52,6 +55,18 @@ impl Shell {
         if self.tools.compare_menu.is_some() {
             if key == "escape" {
                 self.close_compare_menu(cx);
+            }
+            return true;
+        }
+        // The Sessions picker has no field, so it takes every key itself.
+        if let Some(picker) = self.tools.sessions.as_ref() {
+            let highlighted = picker.highlighted;
+            match key {
+                "down" => self.move_session(true, cx),
+                "up" => self.move_session(false, cx),
+                "enter" => self.choose_session(highlighted, cx),
+                "escape" => self.close_sessions(cx),
+                _ => {}
             }
             return true;
         }
@@ -142,6 +157,9 @@ impl Shell {
         }
         if let Some(palette) = self.tools.palette.as_ref() {
             out.push(crate::palette_overlay::overlay(palette, cx).into_any_element());
+        }
+        if let Some(picker) = self.tools.sessions.as_ref() {
+            out.push(crate::sessions_picker::overlay(picker, cx).into_any_element());
         }
         if let Some(picker) = self.tools.workspaces.as_ref() {
             out.push(crate::workspace_picker::overlay(picker, cx).into_any_element());
