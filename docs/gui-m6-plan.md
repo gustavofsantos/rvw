@@ -103,7 +103,12 @@ printable; the export includes each comment's snapshot and diff.
   diff appears in the commit's diff for the file) waits for a real audit.
 - `blobs_patch_id` assumes mode 100644; an executable file or a mode change
   does not match by patch-id.
-- Comments r21 to r24 have no snapshot at all (a bug, fixed separately).
+- Comments r21 to r24 have no snapshot because the file was untracked when
+  they were written and resolved: `snapshot_reviewed` stores a blob only for
+  tracked files, by design. Not a bug. A comment on an untracked file can
+  never link; the ledger shows it as unlinked "no snapshot of the resolved
+  file". Snapshotting untracked files (`hash-object -w`) would be a behavior
+  change for the user to decide.
 
 ## Open (resolved above)
 
