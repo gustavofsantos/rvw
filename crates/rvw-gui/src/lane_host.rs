@@ -139,6 +139,40 @@ impl LaneHost {
         self.show(&workspace, window, cx);
     }
 
+    /// Drops the lane at `workspace` after its worktree was removed. The
+    /// shown lane is kept when it is another one.
+    pub(crate) fn forget(&mut self, workspace: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let shown = self.open[self.active].workspace.clone();
+        self.open.retain(|lane| lane.workspace != workspace);
+        self.shared
+            .borrow_mut()
+            .retain(|(open, _)| open != workspace);
+        if self.open.is_empty() {
+            return;
+        }
+        self.active = self
+            .open
+            .iter()
+            .position(|lane| lane.workspace == shown)
+            .unwrap_or(0);
+        self.refresh_worktrees();
+        self.active_shell()
+            .update(cx, |shell, _| shell.focus_shell(window));
+        cx.notify();
+    }
+
+    /// Opens the new-lane prompt or the archive picker on the shown lane.
+    fn ask(
+        &mut self,
+        action: rvw_view::palette::Action,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_shell()
+            .clone()
+            .update(cx, |shell, cx| shell.open_worktree_ask(action, window, cx));
+    }
+
     fn refresh_worktrees(&mut self) {
         if let Some(first) = self.open.first()
             && let Ok(list) = rvw_git::worktree::list(std::path::Path::new(&first.workspace))
@@ -236,6 +270,38 @@ impl LaneHost {
         let sidebar = self.sidebar(cx);
         let active_path = self.open[self.active].workspace.clone();
         let mut rows = Vec::new();
+        let button = |id: &'static str, label: &'static str| {
+            div()
+                .id(id)
+                .px(px(8.))
+                .h(px(24.))
+                .flex()
+                .items_center()
+                .rounded(theme::CONTROL_RADIUS)
+                .text_size(px(12.))
+                .text_color(theme::muted())
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::hairline()))
+                .child(label)
+        };
+        rows.push(
+            div()
+                .flex()
+                .gap(px(4.))
+                .px(px(8.))
+                .pt(px(10.))
+                .child(button("new-lane", "+ New lane").on_click(cx.listener(
+                    |this, _, window, cx| {
+                        this.ask(rvw_view::palette::Action::NewWorktree, window, cx);
+                    },
+                )))
+                .child(button("archive-lane", "Archive…").on_click(cx.listener(
+                    |this, _, window, cx| {
+                        this.ask(rvw_view::palette::Action::RemoveWorktree, window, cx);
+                    },
+                )))
+                .into_any_element(),
+        );
         for group in &sidebar.projects {
             rows.push(
                 div()

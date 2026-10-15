@@ -260,6 +260,10 @@ impl Shell {
     /// a comment being written, a commit message, or a fetch, pull or push
     /// whose end the new window would not report.
     pub(crate) fn switch_would_lose(&self, cx: &App) -> Option<&'static str> {
+        // A hosted lane stays alive behind the one shown: nothing is lost.
+        if self.host.is_some() {
+            return None;
+        }
         let message_typed = self
             .changes
             .message

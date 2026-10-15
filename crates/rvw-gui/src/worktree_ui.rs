@@ -52,7 +52,7 @@ impl Shell {
     ) {
         match action {
             Action::NewWorktree => self.add_worktree(typed, window, cx),
-            Action::RemoveWorktree => self.remove_worktree(label, cx),
+            Action::RemoveWorktree => self.remove_worktree(label, window, cx),
             _ => {}
         }
     }
@@ -98,7 +98,7 @@ impl Shell {
     /// Removes the linked worktree shown as `label`, after a checkpoint of the
     /// open one. Refusals from rvw-git (changes in the worktree, a lock) come
     /// back as the reason.
-    fn remove_worktree(&mut self, label: &str, cx: &mut Context<Self>) {
+    fn remove_worktree(&mut self, label: &str, window: &mut Window, cx: &mut Context<Self>) {
         let path = match removable(self.repo_path()) {
             Ok(choices) => choices
                 .into_iter()
@@ -117,6 +117,12 @@ impl Shell {
             return self.git_ask_error(last_line(&e.stderr), cx);
         }
         self.close_git_ask(cx);
+        if let Some(host) = self.host.as_ref().and_then(gpui::WeakEntity::upgrade) {
+            let gone = path.to_string_lossy().into_owned();
+            window.defer(cx, move |window, cx| {
+                host.update(cx, |host, cx| host.forget(&gone, window, cx));
+            });
+        }
         self.git.network_result = Some(format!("Removed the worktree at {label}"));
         self.refresh_facts();
         cx.notify();
