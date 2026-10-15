@@ -3,7 +3,7 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use rvw_core::operations::ReviewSheet;
-use rvw_core::types::{parse_seq, Comment, Review, Status, VerdictKind};
+use rvw_core::types::{Comment, Review, Status, VerdictKind, parse_seq};
 
 /// The title length limit, in characters, ellipsis included. A title longer
 /// than this is cut to `TITLE_MAX_CHARS - 1` characters (59) followed by `…`,

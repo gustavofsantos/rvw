@@ -10,7 +10,7 @@ use std::path::Path;
 use rvw_core::types::{Comment, Status};
 use rvw_git::gitx::{self, Change, Hunk};
 
-use crate::tree::{build_tree, Tree};
+use crate::tree::{Tree, build_tree};
 
 /// What the worktree is compared with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -188,10 +188,10 @@ pub fn signs(hunks: &[Hunk], n: usize) -> Vec<Sign> {
     let mut out = vec![Sign::None; n];
     // Sets a 1-indexed line, if it is in the file.
     let mut set = |line: i64, sign: Sign| {
-        if (1..=total).contains(&line) {
-            if let Ok(idx) = usize::try_from(line - 1) {
-                out[idx] = sign;
-            }
+        if (1..=total).contains(&line)
+            && let Ok(idx) = usize::try_from(line - 1)
+        {
+            out[idx] = sign;
         }
     };
     for h in hunks {

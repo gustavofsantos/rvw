@@ -2,8 +2,8 @@
 
 use crate::error::{Error, Result};
 use crate::operations::{GateInput, GateOutput, OverrideInput};
-use crate::service::{str_opt, Service};
-use crate::types::{Actor, Comment, GateOverride, GATE_ACTIONS};
+use crate::service::{Service, str_opt};
+use crate::types::{Actor, Comment, GATE_ACTIONS, GateOverride};
 
 /// The comment ids a lane has open and the ones still awaiting a verdict.
 /// Lane scoping is strict: a lane never sees another lane's or an unlaned
@@ -103,7 +103,7 @@ impl Service {
 mod tests {
     use super::*;
     use crate::operations::{GateInput, OverrideInput, ResolveInput};
-    use crate::service::tests::{setup, Fixture};
+    use crate::service::tests::{Fixture, setup};
     use crate::types::{Actor, Status, Verdict, VerdictKind};
 
     const AT: &str = "2026-10-12T09:00:00+00:00";

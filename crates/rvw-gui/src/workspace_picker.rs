@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use gpui::prelude::*;
 use gpui::{
-    actions, div, px, AnyElement, App, ClickEvent, Context, Div, Entity, FontWeight, KeyBinding,
-    PathPromptOptions, ScrollHandle, SharedString, Stateful, Subscription, Window,
+    AnyElement, App, ClickEvent, Context, Div, Entity, FontWeight, KeyBinding, PathPromptOptions,
+    ScrollHandle, SharedString, Stateful, Subscription, Window, actions, div, px,
 };
 use rvw_core::operations::WorkspacesInput;
 use rvw_view::branches::{self, Hit};

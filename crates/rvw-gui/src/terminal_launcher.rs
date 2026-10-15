@@ -4,8 +4,8 @@
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, ClickEvent, Context, Div, Entity, ScrollHandle, SharedString, Stateful, Subscription,
-    Window,
+    ClickEvent, Context, Div, Entity, ScrollHandle, SharedString, Stateful, Subscription, Window,
+    div, px,
 };
 use rvw_view::terminals::{self, LaunchEntry};
 

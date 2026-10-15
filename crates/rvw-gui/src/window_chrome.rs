@@ -5,9 +5,9 @@
 
 use gpui::prelude::*;
 use gpui::{
-    canvas, div, point, px, AnyView, App, Bounds, CursorStyle, Decorations, DispatchPhase, Div,
-    HitboxBehavior, MouseButton, MouseDownEvent, Pixels, Point, ResizeEdge, Rgba, Size, Stateful,
-    Tiling, Window, WindowControlArea,
+    AnyView, App, Bounds, CursorStyle, Decorations, DispatchPhase, Div, HitboxBehavior,
+    MouseButton, MouseDownEvent, Pixels, Point, ResizeEdge, Rgba, Size, Stateful, Tiling, Window,
+    WindowControlArea, canvas, div, point, px,
 };
 
 use crate::icon::{self, Icon};
@@ -198,7 +198,7 @@ fn is_client(window: &Window) -> bool {
 /// above everything. `None` when the platform draws the frame, or when the
 /// window is maximized or full screen. The band's hitboxes are `Normal`, so
 /// they do not take hover away from the content under them.
-pub fn resize_layer(window: &Window) -> Option<impl IntoElement> {
+pub fn resize_layer(window: &Window) -> Option<impl IntoElement + use<>> {
     let Decorations::Client { tiling } = window.window_decorations() else {
         return None;
     };

@@ -20,7 +20,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::gitx::{self, exec, owned_args, run, run_env, GitError};
+use crate::gitx::{self, GitError, exec, owned_args, run, run_env};
 use crate::stash;
 
 /// The common root of every checkpoint ref; see the module docs for the layout.
@@ -752,7 +752,7 @@ fn restore_head(dir: &Path, checkpoint: &Checkpoint) -> Result<(), GitError> {
 mod tests {
     use super::*;
     use crate::testrepo::{commit_all, git, repo, write};
-    use std::os::unix::fs::{symlink, PermissionsExt};
+    use std::os::unix::fs::{PermissionsExt, symlink};
     use std::process::Command;
     use std::time::{Duration, SystemTime};
     use tempfile::TempDir;
@@ -1351,12 +1351,16 @@ mod tests {
         let common = git(r.path(), &["for-each-ref", "--format=%(refname)", ROOT]);
         let names: Vec<&str> = common.lines().collect();
         assert_eq!(names.len(), 2, "{common}");
-        assert!(names
-            .iter()
-            .any(|n| n.starts_with("refs/rvw/checkpoints/main/")));
-        assert!(names
-            .iter()
-            .any(|n| n.starts_with("refs/rvw/checkpoints/linked/linked/")));
+        assert!(
+            names
+                .iter()
+                .any(|n| n.starts_with("refs/rvw/checkpoints/main/"))
+        );
+        assert!(
+            names
+                .iter()
+                .any(|n| n.starts_with("refs/rvw/checkpoints/linked/linked/"))
+        );
     }
 
     /// A repository with a linked worktree at `parent/linked`, which has a file `l.txt`.

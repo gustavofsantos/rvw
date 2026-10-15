@@ -2,7 +2,7 @@
 //! a panel-coloured block of numbered lines, with the same tints.
 
 use gpui::prelude::*;
-use gpui::{div, px, Div, Rgba, Styled};
+use gpui::{Div, Rgba, Styled, div, px};
 use rvw_view::diff::{FileDiff, Hunk, Line, LineKind};
 use rvw_view::outcome::Story;
 

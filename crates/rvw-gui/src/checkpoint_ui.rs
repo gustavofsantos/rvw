@@ -6,11 +6,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, ClickEvent, Context, Div, FontWeight, KeyDownEvent, SharedString, Stateful, Window,
+    ClickEvent, Context, Div, FontWeight, KeyDownEvent, SharedString, Stateful, Window, div, px,
 };
 use rvw_git::checkpoint::{self, Checkpoint, Preview};
 
-use crate::git_tools::{last_line, RepoFacts};
+use crate::git_tools::{RepoFacts, last_line};
 use crate::queue_screen::noun;
 use crate::shell::Shell;
 use crate::theme;

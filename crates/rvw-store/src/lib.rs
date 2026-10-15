@@ -266,8 +266,8 @@ mod tests {
 
     use rusqlite::Connection;
     use rvw_core::types::{
-        comment_id, review_id, Actor, Comment, GateOverride, Location, Review, ReviewStatus,
-        Status, Verdict, VerdictKind,
+        Actor, Comment, GateOverride, Location, Review, ReviewStatus, Status, Verdict, VerdictKind,
+        comment_id, review_id,
     };
     use rvw_core::{Error, ErrorKind, Repository, Result, Tx};
     use tempfile::TempDir;

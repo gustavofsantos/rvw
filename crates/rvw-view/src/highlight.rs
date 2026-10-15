@@ -187,11 +187,12 @@ fn push_span(out: &mut Vec<Span>, start: usize, end: usize, class: Class) {
     if start >= end {
         return;
     }
-    if let Some(last) = out.last_mut() {
-        if last.class == class && last.end == start {
-            last.end = end;
-            return;
-        }
+    if let Some(last) = out.last_mut()
+        && last.class == class
+        && last.end == start
+    {
+        last.end = end;
+        return;
     }
     out.push(Span { start, end, class });
 }

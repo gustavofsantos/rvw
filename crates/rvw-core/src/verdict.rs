@@ -4,9 +4,9 @@
 use crate::error::{Error, ErrorKind, Result};
 use crate::operations::{VerdictInput, VerdictOutput};
 use crate::service::{
-    find, read_source, snapshot_reviewed, split_source, to_i64, to_index, trim_newlines, Service,
+    Service, find, read_source, snapshot_reviewed, split_source, to_i64, to_index, trim_newlines,
 };
-use crate::types::{comment_id, Actor, Comment, LineRange, Status, Verdict, VerdictKind, VERDICTS};
+use crate::types::{Actor, Comment, LineRange, Status, VERDICTS, Verdict, VerdictKind, comment_id};
 
 /// Who may give a verdict on a decision. Not an operation field: an adapter
 /// picks it, so MCP and the CLI cannot be asked to waive the rule.
@@ -265,8 +265,8 @@ mod tests {
     use crate::error::{ErrorKind, Result};
     use crate::operations::{GetInput, ResolveInput};
     use crate::service::find;
-    use crate::service::tests::{git, setup, Fixture};
-    use crate::types::{Location, Status, Verdict, OUTCOME_DONE, OUTCOME_REJECTED};
+    use crate::service::tests::{Fixture, git, setup};
+    use crate::types::{Location, OUTCOME_DONE, OUTCOME_REJECTED, Status, Verdict};
 
     fn input(f: &Fixture, id: &str, verdict: &str, note: &str, author: &str) -> VerdictInput {
         VerdictInput {
@@ -345,13 +345,14 @@ mod tests {
         assert_eq!(out.comment.status, Status::Done);
         assert!(!out.comment.awaits_verdict());
         assert_eq!(stored(&f, "r1"), out.comment);
-        assert!(f
-            .svc
-            .get(GetInput {
-                workspace: f.ws.clone(),
-                id: "r2".into()
-            })
-            .is_err());
+        assert!(
+            f.svc
+                .get(GetInput {
+                    workspace: f.ws.clone(),
+                    id: "r2".into()
+                })
+                .is_err()
+        );
     }
 
     #[test]
@@ -591,13 +592,14 @@ mod tests {
             stored(&f, "r1").verdict.expect("verdict").kind,
             VerdictKind::Accepted
         );
-        assert!(f
-            .svc
-            .get(GetInput {
-                workspace: f.ws.clone(),
-                id: "r2".into()
-            })
-            .is_err());
+        assert!(
+            f.svc
+                .get(GetInput {
+                    workspace: f.ws.clone(),
+                    id: "r2".into()
+                })
+                .is_err()
+        );
     }
 
     #[test]

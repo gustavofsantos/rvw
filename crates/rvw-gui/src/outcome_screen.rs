@@ -7,13 +7,13 @@ use std::collections::HashMap;
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, ClickEvent, Context, Div, Entity, FontWeight, Rgba, SharedString, Stateful, Styled,
-    Subscription, Window,
+    ClickEvent, Context, Div, Entity, FontWeight, Rgba, SharedString, Stateful, Styled,
+    Subscription, Window, div, px,
 };
 use rvw_core::types::{Comment, Status, Verdict, VerdictKind};
 use rvw_view::keys::Screen;
 use rvw_view::outcome::{self, Moment, Story};
-use rvw_view::queue::{glyph_of, Row, State};
+use rvw_view::queue::{Row, State, glyph_of};
 
 use crate::data::Snapshot;
 use crate::diff_view;

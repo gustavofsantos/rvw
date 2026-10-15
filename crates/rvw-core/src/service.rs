@@ -12,13 +12,13 @@ use crate::error::{Error, Result};
 use crate::evidence::{filetype_of, snapshot_diff};
 use crate::operations::{
     AddInput, CountOutput, EditInput, Elsewhere, Evidence, GetInput, ListOutput, PullInput,
-    PullOutput, QueryInput, RemoveInput, ResolveInput, ReviewSheet, SheetState, SheetsInput,
-    SheetsOutput, SubmitInput, WorkspaceSummary, WorkspacesInput, WorkspacesOutput, SHEET_FILTERS,
+    PullOutput, QueryInput, RemoveInput, ResolveInput, ReviewSheet, SHEET_FILTERS, SheetState,
+    SheetsInput, SheetsOutput, SubmitInput, WorkspaceSummary, WorkspacesInput, WorkspacesOutput,
 };
 use crate::repository::{Repository, Tx};
 use crate::types::{
-    comment_id, review_id, statuses_of, validate_decision, Comment, Handoff, LineRange, Location,
-    Review, ReviewStatus, Status, OUTCOME_DONE, OUTCOME_REJECTED,
+    Comment, Handoff, LineRange, Location, OUTCOME_DONE, OUTCOME_REJECTED, Review, ReviewStatus,
+    Status, comment_id, review_id, statuses_of, validate_decision,
 };
 
 /// The largest file, or buffer, a comment snapshots.
@@ -736,15 +736,14 @@ pub(crate) fn snapshot_resolved(ws: &str, c: &Comment) -> Result<String> {
 /// may still be rejected: that retracts it.
 fn resolvable(tx: &mut dyn Tx, id: &str, outcome: &str) -> Result<Comment> {
     let c = find(tx, id)?;
-    if !c.review_id.is_empty() {
-        if let Some(r) = tx.review(&c.review_id)? {
-            if r.status == ReviewStatus::Pending {
-                return Err(Error::conflict(format!(
-                    "{} belongs to {} — pull {} first",
-                    c.id, r.id, r.id
-                )));
-            }
-        }
+    if !c.review_id.is_empty()
+        && let Some(r) = tx.review(&c.review_id)?
+        && r.status == ReviewStatus::Pending
+    {
+        return Err(Error::conflict(format!(
+            "{} belongs to {} — pull {} first",
+            c.id, r.id, r.id
+        )));
     }
     if c.status.resolved() {
         return Err(Error::conflict(format!(
@@ -846,7 +845,7 @@ fn sheet_matches(filter: &str, state: SheetState) -> Result<bool> {
             return Err(Error::invalid(format!(
                 "status \"{other}\" is not one of {}",
                 SHEET_FILTERS.join(", ")
-            )))
+            )));
         }
     })
 }
@@ -1217,7 +1216,7 @@ pub(crate) mod tests {
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
-    use super::testing::{fixed_clock, MemRepo};
+    use super::testing::{MemRepo, fixed_clock};
     use super::*;
     use crate::error::ErrorKind;
     use crate::types::{Actor, Verdict, VerdictKind};
@@ -2190,9 +2189,10 @@ pub(crate) mod tests {
             })
             .unwrap_err();
         assert_eq!(err.kind, ErrorKind::NotFound);
-        assert!(err
-            .message
-            .ends_with("does not exist — pass its content to snapshot unsaved changes"));
+        assert!(
+            err.message
+                .ends_with("does not exist — pass its content to snapshot unsaved changes")
+        );
 
         let err = f
             .svc
@@ -2225,9 +2225,10 @@ pub(crate) mod tests {
             })
             .unwrap_err();
         assert_eq!(err.kind, ErrorKind::Invalid);
-        assert!(err
-            .message
-            .ends_with(&format!("is outside the workspace {}", f.ws)));
+        assert!(
+            err.message
+                .ends_with(&format!("is outside the workspace {}", f.ws))
+        );
     }
 
     fn at(file: &str, start_line: i64, end_line: i64) -> Location {

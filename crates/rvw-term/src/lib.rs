@@ -18,11 +18,11 @@ mod snapshot;
 mod terminal;
 mod url;
 
-pub use keys::{encode_key, encode_paste, Key, Modifiers};
+pub use keys::{Key, Modifiers, encode_key, encode_paste};
 pub use kitty::KittyFlags;
 pub use mouse::{
-    encode_alternate_scroll, encode_mouse, MouseButton, MouseEvent, MouseEventKind, Wheel,
-    MAX_WHEEL_LINES,
+    MAX_WHEEL_LINES, MouseButton, MouseEvent, MouseEventKind, Wheel, encode_alternate_scroll,
+    encode_mouse,
 };
 pub use notify::Notification;
 pub use scroll::Scroll;
@@ -32,8 +32,8 @@ pub use snapshot::{
     Cell, CellFlags, Color, Cursor, CursorKind, MatchSpan, Mode, RowSpan, SearchStatus, Snapshot,
 };
 pub use terminal::{
-    Error, Event, Exit, SpawnOptions, Terminal, TerminalId, MAX_NOTIFICATIONS, MAX_SCROLLBACK,
-    MAX_WRITE,
+    Error, Event, Exit, MAX_NOTIFICATIONS, MAX_SCROLLBACK, MAX_WRITE, SpawnOptions, Terminal,
+    TerminalId,
 };
 pub use url::UrlMatch;
 

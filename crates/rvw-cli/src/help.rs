@@ -4,7 +4,7 @@
 use std::fmt::Write as _;
 
 use clap::builder::ValueParser;
-use clap::{value_parser, Arg, ArgAction, Command};
+use clap::{Arg, ArgAction, Command, value_parser};
 
 use crate::PROG;
 

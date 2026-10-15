@@ -4,9 +4,10 @@ members = ["crates/rvw-core", "crates/rvw-git", "crates/rvw-store", "crates/rvw-
 
 [workspace.package]
 version = "0.0.0"
-edition = "2021"
-# The system rustc on some dev machines is 1.93; keep every non-GUI crate on it.
-rust-version = "1.93"
+edition = "2024"
+# The latest stable at the time of writing (rust-toolchain.toml tracks stable);
+# CI checks that every crate still compiles on exactly this version.
+rust-version = "1.99"
 license = "MIT"
 
 [workspace.dependencies]

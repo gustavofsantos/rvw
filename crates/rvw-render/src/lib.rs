@@ -7,10 +7,10 @@ pub mod terminal;
 
 pub use display::{display, sheet};
 pub use render::{
-    attribution, comment_line, first_line, ids, json, markdown, review_line, sheet_line, text,
-    Envelope,
+    Envelope, attribution, comment_line, first_line, ids, json, markdown, review_line, sheet_line,
+    text,
 };
-pub use terminal::{is_control, safe, Terminal};
+pub use terminal::{Terminal, is_control, safe};
 
 #[cfg(test)]
 pub(crate) mod fixtures {

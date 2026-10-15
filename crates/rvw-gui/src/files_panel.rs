@@ -7,13 +7,13 @@ use std::path::Path;
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, uniform_list, AnyElement, ClickEvent, Context, Div, FontWeight, Pixels,
-    ScrollStrategy, SharedString, UniformListScrollHandle, Window,
+    AnyElement, ClickEvent, Context, Div, FontWeight, Pixels, ScrollStrategy, SharedString,
+    UniformListScrollHandle, Window, div, px, uniform_list,
 };
 use rvw_view::files::Marks;
 use rvw_view::keys::Screen;
 use rvw_view::nav;
-use rvw_view::tree::{self, build_tree, NodeId, Row, Tree};
+use rvw_view::tree::{self, NodeId, Row, Tree, build_tree};
 
 use crate::icon::{self, Icon};
 use crate::review_screen;

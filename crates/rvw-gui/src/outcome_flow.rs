@@ -6,9 +6,9 @@
 use std::sync::Arc;
 
 use gpui::{AppContext, Context, Window};
+use rvw_core::Reviewer;
 use rvw_core::operations::{GetInput, VerdictInput};
 use rvw_core::types::{Actor, VerdictKind};
-use rvw_core::Reviewer;
 use rvw_view::keys::Screen;
 use rvw_view::nav;
 use rvw_view::outcome::{self, Moment, Story};

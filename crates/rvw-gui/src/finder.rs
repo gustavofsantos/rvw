@@ -4,8 +4,8 @@
 
 use gpui::prelude::*;
 use gpui::{
-    actions, div, px, AnyElement, App, ClickEvent, Context, Div, Entity, FontWeight, KeyBinding,
-    ScrollHandle, SharedString, Stateful, Subscription, Window,
+    AnyElement, App, ClickEvent, Context, Div, Entity, FontWeight, KeyBinding, ScrollHandle,
+    SharedString, Stateful, Subscription, Window, actions, div, px,
 };
 use rvw_view::files::Marks;
 use rvw_view::finder::{self as picker, Hit};

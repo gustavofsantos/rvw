@@ -3,10 +3,11 @@
 //! It holds no UI logic; every key is translated and handed to
 //! `Model::update`, and every frame is `Model::screen`.
 
-use std::io::{stdout, Write};
+use std::io::{Write, stdout};
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
+use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event as CtEvent, KeyCode, KeyEvent,
     KeyEventKind, KeyModifiers, MouseButton as CtButton, MouseEventKind,
@@ -15,13 +16,12 @@ use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal as ct_terminal;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
-use ratatui::DefaultTerminal;
 
+use crate::Options;
 use crate::editor::editor_command;
 use crate::model::{
-    EditRequest, Effect, Event, Model, MouseButton, MouseEvent, MouseKind, FLASH_FOR_MS,
+    EditRequest, Effect, Event, FLASH_FOR_MS, Model, MouseButton, MouseEvent, MouseKind,
 };
-use crate::Options;
 
 /// How often the loop wakes to check timers and the cancel flag.
 const TICK: Duration = Duration::from_millis(50);

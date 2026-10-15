@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
-use crate::gitx::{self, owned_args, run, run_stop, GitError};
-use crate::history::{parse_log, LogEntry, DECORATE};
+use crate::gitx::{self, GitError, owned_args, run, run_stop};
+use crate::history::{DECORATE, LogEntry, parse_log};
 
 /// The `--format` of [`file_history`]: each record starts with 0x1e and holds
 /// the seven fields of `LOG_FORMAT`, so the name-status lines that follow a

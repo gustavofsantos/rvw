@@ -3,7 +3,7 @@
 //! this file lays it out.
 
 use gpui::prelude::*;
-use gpui::{div, px, Context, Div, Entity, Subscription};
+use gpui::{Context, Div, Entity, Subscription, div, px};
 use rvw_core::types::Location;
 use rvw_view::points_at::parse_points_at;
 

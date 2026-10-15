@@ -4,7 +4,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use crate::gitx::{self, os_error_text, owned_args, run, GitError};
+use crate::gitx::{self, GitError, os_error_text, owned_args, run};
 
 /// The commit HEAD points at; None on a branch with no commit yet.
 pub fn head(dir: &Path) -> Option<String> {

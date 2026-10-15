@@ -12,19 +12,19 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use alacritty_terminal::Term;
 use alacritty_terminal::event::{Event as TermEvent, EventListener, WindowSize};
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::Config;
 use alacritty_terminal::tty::{self, Options as PtyOptions, Shell};
-use alacritty_terminal::Term;
 
 use crate::notify::Notification;
 use crate::pump::{self, Pump, PumpError};
 use crate::scroll::{self, Scroll};
 use crate::search::Search;
 use crate::select::{self, GridPoint, SelectionKind, Side};
-use crate::snapshot::{capture, Snapshot};
+use crate::snapshot::{Snapshot, capture};
 
 /// The most scrollback a terminal may be given, in lines.
 pub const MAX_SCROLLBACK: usize = 100_000;

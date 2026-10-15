@@ -5,8 +5,8 @@
 
 use gpui::prelude::*;
 use gpui::{
-    anchored, deferred, div, point, px, ClickEvent, Context, Div, MouseButton, MouseDownEvent,
-    SharedString, Window,
+    ClickEvent, Context, Div, MouseButton, MouseDownEvent, SharedString, Window, anchored,
+    deferred, div, point, px,
 };
 use rvw_view::changes::Compare;
 use rvw_view::compare_menu::Item;
@@ -148,7 +148,7 @@ fn card(menu: &CompareMenu, cx: &Context<Shell>) -> Div {
 /// One comparison: a check mark when current, its label, and on the right the
 /// base it resolves to, or the reason it cannot be chosen (the row is dim and
 /// does nothing).
-fn row(index: usize, item: &Item, cx: &Context<Shell>) -> impl IntoElement {
+fn row(index: usize, item: &Item, cx: &Context<Shell>) -> impl IntoElement + use<> {
     let usable = item.reason.is_none();
     let compare = item.compare;
     let right = item

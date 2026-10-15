@@ -4,13 +4,13 @@
 mod scope;
 mod server;
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use rmcp::ServiceExt;
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
-use rmcp::ServiceExt;
 use rvw_core::Service;
 use server::RvwServer;
 use tokio_util::sync::CancellationToken;

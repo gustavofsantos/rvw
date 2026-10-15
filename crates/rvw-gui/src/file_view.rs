@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use gpui::prelude::*;
-use gpui::{div, px, ClickEvent, Context, Div, FontWeight, Stateful, Window};
+use gpui::{ClickEvent, Context, Div, FontWeight, Stateful, Window, div, px};
 use rvw_view::context::{self, Shown};
 use rvw_view::selection::Selection;
 use rvw_view::viewmode::{self, ViewMode};
@@ -208,8 +208,10 @@ mod tests {
         let workspace = dir.path().to_str().expect("utf-8 path");
         let selected = read_selected(workspace, "", false, "gone.txt", ViewMode::File);
         assert_eq!(selected.mode, ViewMode::File);
-        assert!(selected
-            .diff
-            .is_err_and(|message| message.starts_with("Cannot read gone.txt")));
+        assert!(
+            selected
+                .diff
+                .is_err_and(|message| message.starts_with("Cannot read gone.txt"))
+        );
     }
 }

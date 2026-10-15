@@ -5,7 +5,7 @@
 use std::cmp::Ordering;
 
 use crate::files::{Mark, Marks};
-use crate::fuzzy::{compare_candidates, fuzzy_match, Candidate};
+use crate::fuzzy::{Candidate, compare_candidates, fuzzy_match};
 
 /// The most rows the picker shows.
 pub const MAX_RESULTS: usize = 12;

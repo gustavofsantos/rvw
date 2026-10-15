@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::gitx::{exec, exec_env, owned_args, run, run_env, GitError};
+use crate::gitx::{GitError, exec, exec_env, owned_args, run, run_env};
 
 /// How a merge may fast-forward.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,7 +146,7 @@ pub fn abort(dir: &Path) -> Result<(), GitError> {
             return Err(refuse(
                 &["status"],
                 "a revert or rebase was not started by rvw; abort it with git",
-            ))
+            ));
         }
         None => return Err(refuse(&["status"], "no merge or cherry-pick in progress")),
     };
@@ -165,7 +165,7 @@ pub fn finish(dir: &Path) -> Result<String, GitError> {
             return Err(refuse(
                 &["status"],
                 "only a merge or cherry-pick is finished here",
-            ))
+            ));
         }
         None => return Err(refuse(&["status"], "no merge or cherry-pick in progress")),
     };
@@ -388,9 +388,10 @@ mod tests {
 
         let err = finish(dir.path()).unwrap_err();
 
-        assert!(err
-            .stderr
-            .contains("resolve and stage every conflict first"));
+        assert!(
+            err.stderr
+                .contains("resolve and stage every conflict first")
+        );
         assert_eq!(in_progress(dir.path()).unwrap(), Some(Operation::Merge));
         abort(dir.path()).unwrap();
     }

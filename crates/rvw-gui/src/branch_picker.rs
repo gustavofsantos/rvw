@@ -6,8 +6,8 @@ use std::path::Path;
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, AnyElement, ClickEvent, Context, Div, Entity, FontWeight, ScrollHandle, SharedString,
-    Stateful, Subscription, Window,
+    AnyElement, ClickEvent, Context, Div, Entity, FontWeight, ScrollHandle, SharedString, Stateful,
+    Subscription, Window, div, px,
 };
 use rvw_git::gitx::{self, BranchInfo};
 use rvw_view::branches::{self, Hit};

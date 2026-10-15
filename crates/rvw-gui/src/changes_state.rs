@@ -8,15 +8,15 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use gpui::{
-    actions, App, AppContext, Context, Entity, KeyBinding, ScrollStrategy, Subscription,
-    UniformListScrollHandle,
+    App, AppContext, Context, Entity, KeyBinding, ScrollStrategy, Subscription,
+    UniformListScrollHandle, actions,
 };
 use rvw_core::types::Comment;
-use rvw_git::{commits, index, GitError};
+use rvw_git::{GitError, commits, index};
 use rvw_view::commit_screen::{self, LineChoice, Lists, Side};
-use rvw_view::diff::{parse, FileDiff};
+use rvw_view::diff::{FileDiff, parse};
 use rvw_view::keys::Screen;
-use rvw_view::patch::{hunk_patch, lines_patch, Direction};
+use rvw_view::patch::{Direction, hunk_patch, lines_patch};
 use rvw_view::selection::Pos;
 
 use crate::code_scroll;
@@ -445,24 +445,24 @@ impl Shell {
         let field = self.changes.message.clone();
         if self.changes.amend {
             self.changes.amend = false;
-            if let (Some(field), Ok(last)) = (field, commits::head_message(&dir)) {
-                if field.read(cx).text() == last {
-                    field.update(cx, TextArea::clear);
-                }
+            if let (Some(field), Ok(last)) = (field, commits::head_message(&dir))
+                && field.read(cx).text() == last
+            {
+                field.update(cx, TextArea::clear);
             }
         } else {
             if let Some(reason) = amend_problem(&self.changes) {
                 self.fail(reason, cx);
                 return;
             }
-            if let Some(field) = field {
-                if field.read(cx).text().trim().is_empty() {
-                    match commits::head_message(&dir) {
-                        Ok(last) => field.update(cx, |area, cx| area.set_text(&last, cx)),
-                        Err(e) => {
-                            self.fail(one_line(&e.stderr), cx);
-                            return;
-                        }
+            if let Some(field) = field
+                && field.read(cx).text().trim().is_empty()
+            {
+                match commits::head_message(&dir) {
+                    Ok(last) => field.update(cx, |area, cx| area.set_text(&last, cx)),
+                    Err(e) => {
+                        self.fail(one_line(&e.stderr), cx);
+                        return;
                     }
                 }
             }
@@ -725,7 +725,7 @@ pub(crate) fn read_changes(
                 has_head: false,
                 head_pushed: false,
                 open: None,
-            }
+            };
         }
     };
     let target = match previous {

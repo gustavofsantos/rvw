@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, ClickEvent, Context, Div, Entity, FontWeight, KeyDownEvent, Subscription, Window,
+    ClickEvent, Context, Div, Entity, FontWeight, KeyDownEvent, Subscription, Window, div, px,
 };
 use rvw_core::operations::{GateInput, GateOutput, OverrideInput};
 use rvw_core::types::Actor;
@@ -287,10 +287,10 @@ impl Shell {
         let Some(card) = self.gate.as_mut() else {
             return;
         };
-        if let Stage::Open(open) = &mut card.stage {
-            if std::mem::take(&mut open.focus_pending) {
-                open.input.read(cx).focus(window);
-            }
+        if let Stage::Open(open) = &mut card.stage
+            && std::mem::take(&mut open.focus_pending)
+        {
+            open.input.read(cx).focus(window);
         }
     }
 

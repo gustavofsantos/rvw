@@ -1,10 +1,10 @@
 //! Scrollback, search, selection, mouse encoding and URLs, on grids built by
 //! feeding bytes to the emulation. No PTY.
 
+use alacritty_terminal::Term;
 use alacritty_terminal::event::VoidListener;
 use alacritty_terminal::term::Config;
 use alacritty_terminal::vte::ansi::{Processor, StdSyncHandler};
-use alacritty_terminal::Term;
 
 use crate::scroll::{self, Scroll};
 use crate::search::Search;
@@ -12,8 +12,8 @@ use crate::select::{self, GridPoint, SelectionKind, Side};
 use crate::snapshot::capture;
 use crate::terminal::Size;
 use crate::{
-    encode_alternate_scroll, encode_mouse, Mode, Modifiers, MouseButton, MouseEvent,
-    MouseEventKind, Snapshot, Wheel, MAX_MATCHES,
+    MAX_MATCHES, Mode, Modifiers, MouseButton, MouseEvent, MouseEventKind, Snapshot, Wheel,
+    encode_alternate_scroll, encode_mouse,
 };
 
 struct Grid {

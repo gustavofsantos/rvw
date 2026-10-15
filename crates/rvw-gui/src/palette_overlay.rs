@@ -5,8 +5,8 @@
 
 use gpui::prelude::*;
 use gpui::{
-    actions, div, px, App, ClickEvent, Context, Div, Entity, KeyBinding, ScrollHandle,
-    SharedString, Stateful, Subscription, Window,
+    App, ClickEvent, Context, Div, Entity, KeyBinding, ScrollHandle, SharedString, Stateful,
+    Subscription, Window, actions, div, px,
 };
 use rvw_core::types::VerdictKind;
 use rvw_git::merge::Operation;

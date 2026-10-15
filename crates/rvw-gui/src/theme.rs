@@ -4,10 +4,10 @@
 //! The palette is complete before every screen uses it, hence the allow.
 #![allow(dead_code)]
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use gpui::{px, rgb, rgba, Pixels, Rgba, SharedString, WindowAppearance};
+use gpui::{Pixels, Rgba, SharedString, WindowAppearance, px, rgb, rgba};
 use rvw_view::highlight::Class;
 
 pub const WINDOW_RADIUS: Pixels = px(14.);

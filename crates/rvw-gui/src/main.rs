@@ -64,8 +64,8 @@ mod worktree_ui;
 use std::path::{Path, PathBuf};
 
 use gpui::{
-    actions, px, size, App, AppContext, Application, Bounds, KeyBinding, Menu, MenuItem,
-    TitlebarOptions, WindowBounds, WindowDecorations, WindowOptions,
+    App, AppContext, Application, Bounds, KeyBinding, Menu, MenuItem, TitlebarOptions,
+    WindowBounds, WindowDecorations, WindowOptions, actions, px, size,
 };
 
 use crate::data::{Identity, Snapshot};

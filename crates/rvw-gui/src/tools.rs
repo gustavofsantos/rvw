@@ -5,7 +5,7 @@
 //! state, the keys that move through them, and the pieces of their cards.
 
 use gpui::prelude::*;
-use gpui::{div, px, AnyElement, Context, Div, KeyDownEvent};
+use gpui::{AnyElement, Context, Div, KeyDownEvent, div, px};
 use rvw_view::changes::Compare;
 use rvw_view::compare_menu;
 use rvw_view::keys::Screen;
