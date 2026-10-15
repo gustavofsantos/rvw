@@ -18,6 +18,7 @@ use rvw_git::search::Field;
 use rvw_view::diff::LineKind;
 use rvw_view::graph::{Row as GraphRow, Seg};
 use rvw_view::history::{HistoryRow, Label, LabelKind, MAX_LANES, ago, short};
+use rvw_view::ledger_review::{self, ReviewKind, ReviewLine};
 use rvw_view::provenance::{self};
 use rvw_view::provenance_label::{self, Badge, BadgeKind};
 use rvw_view::provenance_sessions;
@@ -1331,6 +1332,7 @@ fn detail_body(state: &HistoryState, detail: &CommitDetail, now: i64, cx: &Conte
             &detail.entry.session_markers,
             cx,
         ))
+        .children(review_section(state))
         .children(body_lines(&detail.message))
         .child(parents_row(&detail.entry.parents))
         .child(files_section(state, detail, cx))
@@ -1388,6 +1390,43 @@ fn facts_lines(commit_id: &str, markers: &[String], sessions: &[Session]) -> Vec
                 .child(line)
         })
         .collect()
+}
+
+/// The Review section: the decided comments that landed in the commit, and
+/// the comments on its files that matched none. Left out when there are none
+/// or the ledger could not be read.
+fn review_section(state: &HistoryState) -> Option<Div> {
+    let review = state.review.as_ref()?.as_ref().ok()?;
+    let lines = ledger_review::review_lines(&review.linked, &review.unlinked);
+    if lines.is_empty() {
+        return None;
+    }
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .mt(px(22.))
+            .child(div().pb(px(6.)).text_color(theme::muted()).child("Review"))
+            .children(lines.into_iter().map(review_line)),
+    )
+}
+
+/// One line of the Review section. A verdict is coloured by what it says; a
+/// note and a verdict sit under the comment they belong to.
+fn review_line(line: ReviewLine) -> Div {
+    let (color, indent) = match line.kind {
+        ReviewKind::Head => (theme::text(), 0.),
+        ReviewKind::Note => (theme::muted(), 12.),
+        ReviewKind::Accepted => (theme::done(), 12.),
+        ReviewKind::Reopened => (theme::needs_you(), 12.),
+        ReviewKind::Unlinked => (theme::faint(), 0.),
+    };
+    div()
+        .mt(px(4.))
+        .pl(px(indent))
+        .text_size(px(SMALL))
+        .text_color(color)
+        .child(line.text)
 }
 
 /// A middle dot between the facts of a line.

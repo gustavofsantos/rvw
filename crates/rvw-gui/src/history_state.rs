@@ -113,6 +113,9 @@ pub struct HistoryState {
     pub error: Option<String>,
     /// The selected commit's details, or why they could not be read.
     pub detail: Option<Result<CommitDetail, String>>,
+    /// The reviews that led to the selected commit, read with its details.
+    /// Empty when there are none or they cannot be read.
+    pub review: Option<Result<data::CommitReview, String>>,
     /// The file of the selected commit open in the centre, if any.
     pub open: Option<Result<OpenCommitFile, String>>,
     /// What the last action did, or why it failed.
@@ -159,6 +162,7 @@ impl Default for HistoryState {
             loading: false,
             error: None,
             detail: None,
+            review: None,
             open: None,
             notice: None,
             list_scroll: UniformListScrollHandle::new(),
@@ -448,6 +452,7 @@ impl Shell {
         self.history.loading = false;
         self.history.error = None;
         self.history.detail = None;
+        self.history.review = None;
         self.history.keep = keep;
         self.history.sessions =
             data::sessions(&self.service, &self.identity.workspace).unwrap_or_default();
@@ -531,6 +536,7 @@ impl Shell {
             .map(|row| row.entry.id.clone())
         else {
             self.history.detail = None;
+            self.history.review = None;
             return;
         };
         if self
@@ -543,16 +549,24 @@ impl Shell {
         }
         self.history.detail_request = Some(id.clone());
         let dir = self.repo_path().to_path_buf();
+        let service = Arc::clone(&self.service);
+        let workspace = self.identity.workspace.clone();
         cx.spawn(async move |this, cx| {
             let wanted = id.clone();
-            let read = cx
+            let (read, review) = cx
                 .background_executor()
-                .spawn(async move { history::show(&dir, &id).map_err(|e| last_line(&e.stderr)) })
+                .spawn(async move {
+                    let read = history::show(&dir, &id).map_err(|e| last_line(&e.stderr));
+                    let review = data::ledger_for_commit(&service, &workspace, &id)
+                        .map(Option::unwrap_or_default);
+                    (read, review)
+                })
                 .await;
             this.update(cx, |this, cx| {
                 if this.history.detail_request.as_deref() == Some(wanted.as_str()) {
                     this.history.detail_request = None;
                     this.history.detail = Some(read);
+                    this.history.review = Some(review);
                     cx.notify();
                 }
             })

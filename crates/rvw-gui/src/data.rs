@@ -5,8 +5,8 @@ use std::path::Path;
 
 use rvw_core::Service;
 use rvw_core::operations::{
-    AddInput, EditInput, PullInput, QueryInput, RemoveInput, ReviewSheet, SessionsInput,
-    SheetsInput, SubmitInput,
+    AddInput, EditInput, LedgerInput, LinkedComment, PullInput, QueryInput, RemoveInput,
+    ReviewSheet, SessionsInput, SheetsInput, SubmitInput, UnlinkedComment,
 };
 use rvw_core::types::{Comment, Location, Session};
 use rvw_git::gitx;
@@ -302,6 +302,42 @@ pub fn sessions(service: &Service, workspace: &str) -> Result<Vec<Session>, Stri
         .map_err(|e| e.message)
 }
 
+/// The reviews that led to one commit: the decided comments linked to it, and
+/// the comments on its files that matched no commit.
+#[derive(Debug, Clone, Default)]
+pub struct CommitReview {
+    pub linked: Vec<LinkedComment>,
+    pub unlinked: Vec<UnlinkedComment>,
+}
+
+/// The review of `commit_id`, read from the ledger of that one commit (`<id>^!`,
+/// which also works for a root commit). Lanes are not scoped, so a comment of
+/// any lane that landed in the commit shows. `Ok(None)` when the ledger lists
+/// no such commit.
+///
+/// # Errors
+///
+/// Fails with the service's message when the ledger cannot be read.
+pub fn ledger_for_commit(
+    service: &Service,
+    workspace: &str,
+    commit_id: &str,
+) -> Result<Option<CommitReview>, String> {
+    let read = service
+        .ledger(LedgerInput {
+            workspace: workspace.to_owned(),
+            range: format!("{commit_id}^!"),
+            since: String::new(),
+            until: String::new(),
+            lane: String::new(),
+        })
+        .map_err(|e| e.message)?;
+    Ok(read.commits.into_iter().next().map(|commit| CommitReview {
+        linked: commit.comments,
+        unlinked: read.unlinked,
+    }))
+}
+
 #[cfg(test)]
 #[path = "data_draft_tests.rs"]
 mod draft_tests;
@@ -391,6 +427,53 @@ pub(crate) mod tests {
         assert_eq!(read[0].tool, "claude-code");
         assert_eq!(read[0].summary.as_deref(), Some("fixed the parser"));
         assert_eq!(read[0].commits, ["abcdef1"]);
+    }
+
+    #[test]
+    fn ledger_for_commit_reads_a_root_commit_with_no_reviews() {
+        let (_dir, service, identity) = workspace_with_store();
+        let root = std::path::Path::new(&identity.workspace);
+        for args in [
+            vec!["add", "app.py"],
+            vec![
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-qm",
+                "root",
+            ],
+        ] {
+            assert!(
+                Command::new("git")
+                    .arg("-C")
+                    .arg(root)
+                    .args(&args)
+                    .status()
+                    .expect("git")
+                    .success()
+            );
+        }
+        let id = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .expect("git");
+        let id = String::from_utf8_lossy(&id.stdout).trim().to_owned();
+
+        let review = ledger_for_commit(&service, &identity.workspace, &id)
+            .expect("read")
+            .expect("the commit is listed");
+        assert!(review.linked.is_empty());
+        assert!(review.unlinked.is_empty());
+    }
+
+    #[test]
+    fn ledger_for_commit_refuses_a_commit_git_does_not_know() {
+        let (_dir, service, identity) = workspace_with_store();
+        assert!(ledger_for_commit(&service, &identity.workspace, "0123456789abcdef").is_err());
     }
 
     #[test]
