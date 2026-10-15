@@ -90,7 +90,8 @@ M7's frame slices (7 to 11), which then build on them.
 
 ## Status at the end of the session (2026-10-15)
 
-Built: gutter selection (5, e0100bb), caret, character selection and copy
+Built (slice 8, docs: README and the design amendment; the menu drawer's
+key list was not found in the code, so it is not updated): gutter selection (5, e0100bb), caret, character selection and copy
 (6, 24f12b2), typing, undo, clipboard (7a, 3d30fd3), save, dirty dots, disk
 card, quit guard, Edit action (7b). Pure parts: textpos, filebuf, filesave.
 
@@ -109,3 +110,5 @@ Known gaps:
 - Every edit rebuilds the row list (O(lines), up to the 1 MiB cap); not
   measured.
 - `FileBuf::rebase` would replace the `Edit.base` override in the GUI.
+- ⌘Z with a caret in an editable file never opens the checkpoint restore;
+  with no caret it still does (a confirmation, never silent).

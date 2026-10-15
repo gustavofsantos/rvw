@@ -505,14 +505,16 @@ impl Shell {
         }
     }
 
-    /// ⌘Z: undoes an edit of the open file; otherwise it restores.
+    /// ⌘Z: undoes an edit of the open file; with no caret in it, it restores.
     pub(crate) fn on_restore_latest(
         &mut self,
         _: &RestoreLatest,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.edit_history(false, cx) {
+        // With a caret in an editable file ⌘Z is about the text: running out
+        // of edits to undo must not open the checkpoint restore.
+        if !self.edit_history(false, cx) && !self.can_type() {
             self.restore_latest(cx);
         }
     }

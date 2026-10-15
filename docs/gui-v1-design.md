@@ -62,6 +62,12 @@ Shape: window 14px, controls 8px, selected rows 6px. One shadow:
 9. **A control that is not available stays in place, dim.** Hovering it says
    what unlocks it.
 
+## Amendment 2026-10-15: select by gutter, edit in place
+
+Lines are selected from the gutter, not by pressing in the code, which is
+text with a caret (see [gui-edit-plan.md](gui-edit-plan.md)). The whole-file
+view edits the file on disk with an explicit `⌘S`. The diff stays read-only.
+
 ## The shell
 
 - **Top bar:** workspace, branch, "compared with", search hint, then three

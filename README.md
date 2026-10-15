@@ -96,6 +96,17 @@ room. Drag a panel's inner edge (or the dock's top edge) to resize it, and
 double-click the edge to reset it. Collapsed panels and sizes last until the
 window closes.
 
+In the desktop app a line is selected from the gutter: click a line number,
+drag over the numbers for a range, Shift-click to extend. The code is text:
+click to place a caret, drag or double-click to select, `⌘C` copies (`Ctrl+C`
+on Linux). In a file's whole-file view you can edit it: type, `⌘Z`/`⇧⌘Z`
+undo and redo, `⌘X`/`⌘V`, `⌘S` saves (nothing is saved on its own), `Esc`
+drops the caret. `E` in the Changes view jumps to the whole-file view at the
+selected line. If the file changes on disk while you have unsaved edits, a
+card asks whether to keep yours or take the disk's. Comments are written
+against the saved file, so a file with unsaved edits refuses one. Quitting
+names unsaved files.
+
 ## Examples
 
 ![rvw from a shell: add, submit, pull, resolve, show](docs/demo/cli.gif)
