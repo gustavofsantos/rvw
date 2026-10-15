@@ -201,6 +201,18 @@ something usable daily.
    *Exit:* a one-click audit export of a real branch that a reviewer outside
    the team can read.
 
+Planned after v1, on 2026-10-15:
+
+7. **M7 Lanes.** Projects (a TOML file per project, outside every
+   repository), lanes as worktrees, the three-column window, terminals per
+   lane, facts from git, the queue and the terminals. No core change.
+   Plan: [gui-m7-plan.md](gui-m7-plan.md).
+   *Exit:* a week in one project with two lanes in two repositories, without
+   another terminal emulator or a second rvw window.
+8. **M8 Stacks and agents.** Stacked lanes and reconcile, agent hooks and
+   their events, the MCP snapshot and intents, a global undo. This reopens
+   "stacked branches" from the list below. Planned when M7 is done.
+
 ## How we will know it works
 
 - Time from "comment added" to "agent pulled" and to "decision recorded".
