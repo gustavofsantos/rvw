@@ -34,11 +34,15 @@ Proposed here:
     provenance (human, agent with tool, model and session id, or marked), and
     the linked comments with link kind (`exact` or `same-change`), their
     decision, note, verdict and the resolution diff;
-  - `unlinked`: comments in the workspace and lane scope whose resolution
-    matched no commit in range, with the reason ("no commit in range
-    touches the file", "no content match");
-  - `overrides`: gate overrides in the date span of the range, with reason,
-    by, actor and the ids that were open;
+  - `unlinked`: decided comments, in lane scope, on files the range touches,
+    whose resolution matched no commit in range, with the reason ("no
+    content match", "no snapshot of the resolved file"). Comments on files
+    the range does not touch are not listed: that is a content scope, not a
+    time scope;
+  - `overrides`: gate overrides recorded for the range's lane (branch), with
+    reason, by, actor and the ids that were open; `unscoped_overrides`: those
+    with no lane, shown apart and labelled as not linked to any commit.
+    Never filtered by time, which would be inference the brief forbids;
   - `sessions`: the reported sessions that own a commit in range.
 - **Export is a rendering of that object.** `rvw ledger` prints it as
   `--format markdown|json|html` to stdout, or to `--output FILE` (the one
@@ -90,6 +94,16 @@ follows 0; 5 follows 3 and 4; 6 to 9 are GUI slices, run one at a time.
 The defaults: no manual links in M6; the default branch needs an explicit
 `--range` or `--since`; a squashed commit shows "unlinked"; HTML is the
 printable; the export includes each comment's snapshot and diff.
+
+## Review notes (advisor, 2026-10-15)
+
+- On this repository's queue, 18 of 20 done comments with a snapshot have a
+  resolved blob in committed history (exact). Batched fixes in one commit may
+  link worse elsewhere; a "contained" link kind (every hunk of the resolution
+  diff appears in the commit's diff for the file) waits for a real audit.
+- `blobs_patch_id` assumes mode 100644; an executable file or a mode change
+  does not match by patch-id.
+- Comments r21 to r24 have no snapshot at all (a bug, fixed separately).
 
 ## Open (resolved above)
 
